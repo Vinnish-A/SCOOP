@@ -41,7 +41,7 @@ def detect_capabilities() -> FastCoreCapabilities:
         except Exception as exc:  # pragma: no cover - environment-dependent.
             reasons.append(f"torch_cuda_probe_failed:{type(exc).__name__}")
     rapids_available = any(_module_available(name) for name in ("rapids_singlecell", "cuml", "cugraph"))
-    anndataoom_available = any(_module_available(name) for name in ("anndata_oom", "anndata_rs"))
+    anndataoom_available = any(_module_available(name) for name in ("anndataoom", "anndata_oom", "anndata_rs"))
     rust_backend_available = omicverse_available and anndataoom_available
     if not omicverse_available:
         reasons.append("omicverse_unavailable")

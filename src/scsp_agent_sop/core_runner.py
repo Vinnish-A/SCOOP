@@ -24,6 +24,8 @@ def run_core_pipeline(
     engine = str(deep_get(cfg, "core.engine", "fastcore"))
     start = perf_counter()
     if engine == "scanpy_legacy":
+        if adata is None:
+            raise ValueError("scanpy_legacy requires an in-memory AnnData object.")
         plan = None
         backend = "scanpy_legacy"
         fallback_used = False
@@ -37,6 +39,8 @@ def run_core_pipeline(
         raise ValueError(f"unsupported core.engine: {engine}")
 
     if backend == "scanpy_legacy":
+        if adata is None:
+            raise ValueError("scanpy_legacy requires an in-memory AnnData object.")
         result = run_scanpy_legacy_core(adata, cfg, run_root)
     elif backend == "omicverse_cpu":
         from fastcore.backends.omicverse_cpu import run_omicverse_cpu_core
@@ -60,6 +64,8 @@ def run_core_pipeline(
         raise ValueError(f"unsupported FastCore backend: {backend}")
 
     result = dict(result)
+    result_adata = result.pop("_adata", None)
+    manifest_adata = result_adata if result_adata is not None else adata
     result.setdefault("backend", backend)
     result["engine"] = engine
     result["fallback_used"] = fallback_used
@@ -72,8 +78,8 @@ def run_core_pipeline(
         "backend": result["backend"],
         "gpu": result["backend"] in {"omicverse_cpu_gpu_mixed", "omicverse_gpu_rapids"},
         "rapids": result["backend"] == "omicverse_gpu_rapids",
-        "n_obs": int(result.get("n_obs", adata.n_obs)),
-        "n_vars": int(result.get("n_vars", adata.n_vars)),
+        "n_obs": int(result.get("n_obs", getattr(manifest_adata, "n_obs", 0))),
+        "n_vars": int(result.get("n_vars", getattr(manifest_adata, "n_vars", 0))),
         "n_hvgs": int(deep_get(cfg, "core.fastcore.omicverse.n_hvgs", deep_get(cfg, "core.n_top_hvg", 3000))),
         "n_pcs": int(deep_get(cfg, "core.fastcore.omicverse.n_pcs", deep_get(cfg, "core.n_pcs", 50))),
         "timings": result.get("timings", {}),
@@ -86,8 +92,13 @@ def run_core_pipeline(
     fastcore_dir = ensure_dir(run_root / "02_core" / "fastcore")
     manifest_path = write_json(manifest, fastcore_dir / "fastcore_manifest.json")
     quality_path = write_json(result.get("quality", {"accepted": True, "backend": result["backend"]}), fastcore_dir / "core_quality.json")
-    register_file(adata, key="fastcore_manifest", path=manifest_path, category="artifacts", schema="fastcore_manifest.v1")
-    register_file(adata, key="core_quality", path=quality_path, category="artifacts", schema="core_quality.v1")
+    if manifest_adata is not None:
+        register_file(manifest_adata, key="fastcore_manifest", path=manifest_path, category="artifacts", schema="fastcore_manifest.v1")
+        register_file(manifest_adata, key="core_quality", path=quality_path, category="artifacts", schema="core_quality.v1")
+    if result_adata is not None and output_path is not None:
+        ensure_dir(Path(output_path).parent)
+        result_adata.write_h5ad(output_path)
+        result["output_h5ad"] = str(output_path)
 
     log_decision(
         run_root,

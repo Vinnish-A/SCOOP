@@ -73,6 +73,47 @@ subset of OmicVerse `pp` CPU core code under
 `environment_omicverse.yml` or the `omicverse` Python extra in a separate
 environment.
 
+## Executable Backend Adapters
+
+`omicverse_cpu` is self-contained through the vendored GPL CPU subset.
+`omicverse_cpu_gpu_mixed`, `omicverse_gpu_rapids`, and `omicverse_rust_oom` are
+FastCore-owned adapters around the external OmicVerse runtime and therefore run
+only in the separate OmicVerse environment.
+
+The mixed backend calls:
+
+```text
+ov.settings.cpu_gpu_mixed_init()
+ov.pp.preprocess -> ov.pp.scale(use_implicit_centering=True) -> ov.pp.pca
+Harmony 2.0 CPU bridge
+ov.pp.neighbors(transformer='pyg') -> ov.pp.umap -> ov.pp.leiden
+```
+
+The RAPIDS backend calls:
+
+```text
+ov.settings.gpu_init()
+ov.pp.anndata_to_GPU
+ov.pp.preprocess -> ov.pp.scale -> ov.pp.pca
+ov.pp.anndata_to_CPU
+Harmony 2.0 CPU bridge
+ov.pp.anndata_to_GPU
+ov.pp.neighbors(method='cagra') -> ov.pp.umap -> ov.pp.leiden
+ov.pp.anndata_to_CPU in finally
+```
+
+The Rust/OOM backend is path based and starts with:
+
+```text
+ov.read(input_h5ad, backend='rust')
+```
+
+It runs OOM-compatible preprocessing with `shiftlog|pearson`, materializes only
+the final core AnnData after PCA, then runs the Harmony/graph/UMAP/Leiden tail
+and writes the output H5AD from the runner. The script entry point detects this
+backend before reading the input file so the full matrix is not loaded by
+`anndata.read_h5ad()` first.
+
 ## Stable Output Schema
 
 FastCore must map backend-native results to SCOOP stable keys:
@@ -139,6 +180,9 @@ run_omicverse_rust_oom_core(input_h5ad, output_h5ad, cfg, run_root)
 
 It must start from `ov.read(path, backend="rust")`, because loading a full
 AnnData into memory before calling the backend defeats the out-of-memory design.
+`scripts/02_core_analysis.py` therefore performs pre-run planning before any
+H5AD read and passes `adata=None` into the runner when `omicverse_rust_oom` is
+selected.
 
 ## Risks
 

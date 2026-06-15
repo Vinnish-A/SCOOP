@@ -18,6 +18,7 @@ import anndata as ad
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from fastcore.backend_plan import plan_fastcore_backend
 from scsp_agent_sop.config import read_yaml, deep_get, resolve_run_root
 from scsp_agent_sop.core_runner import run_core_pipeline
 from scsp_agent_sop.storage import init_file_registry, ensure_dir
@@ -33,8 +34,12 @@ def main() -> None:
     run_root = resolve_run_root(args.config, cfg)
     input_path = Path(args.input) if args.input else run_root / "artifacts" / "adata_qc.h5ad"
     output = Path(args.output) if args.output else run_root / "artifacts" / "adata_core.h5ad"
-    adata = ad.read_h5ad(input_path)
-    init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
+    preplan = plan_fastcore_backend(cfg, input_path=input_path) if deep_get(cfg, "core.engine", "fastcore") == "fastcore" else None
+    if preplan is not None and preplan.selected_backend == "omicverse_rust_oom":
+        adata = None
+    else:
+        adata = ad.read_h5ad(input_path)
+        init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
 
     run_core_pipeline(
         adata,
@@ -44,8 +49,9 @@ def main() -> None:
         output_path=output,
     )
 
-    ensure_dir(output.parent)
-    adata.write_h5ad(output)
+    if adata is not None:
+        ensure_dir(output.parent)
+        adata.write_h5ad(output)
 
 
 if __name__ == "__main__":

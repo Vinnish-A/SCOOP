@@ -19,7 +19,7 @@
 
 输入：QC 后 H5AD。
 
-默认工具：FastCore / OmicVerse-backed core engine。当前稳定路径通过 pre-run capability planner 选择后端；未通过验证或环境缺依赖时，唯一 fallback 是 `scanpy_legacy`，即原始 Scanpy normalization/HVG/PCA/kNN/UMAP/Leiden 加 Harmony 2.0 路径。
+默认工具：FastCore / OmicVerse-backed core engine。当前稳定路径通过 pre-run capability planner 选择后端；未通过验证或环境缺依赖时，唯一 fallback 是 `scanpy_legacy`，即原始 Scanpy normalization/HVG/PCA/kNN/UMAP/Leiden 加 Harmony 2.0 路径。FastCore 已提供 vendored CPU、external CPU-GPU mixed、external RAPIDS GPU 和 external Rust/OOM adapters；后三者需要单独 OmicVerse 环境。
 
 输出：
 

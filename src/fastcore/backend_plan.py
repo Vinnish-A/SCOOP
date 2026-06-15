@@ -79,10 +79,11 @@ def plan_fastcore_backend(
         and bool(deep_get(cfg, "core.fastcore.auto.prefer_rust_when_backed", True))
     ):
         return FastCorePlan("omicverse_rust_oom", False, fallback_backend, reasons, caps.to_dict())
-    if "omicverse_gpu_rapids" in allowed and caps.cuda_available and caps.rapids_available and gpu_cells:
+    if "omicverse_gpu_rapids" in allowed and caps.omicverse_available and caps.cuda_available and caps.rapids_available and gpu_cells:
         return FastCorePlan("omicverse_gpu_rapids", False, fallback_backend, reasons, caps.to_dict())
     if (
         "omicverse_cpu_gpu_mixed" in allowed
+        and caps.omicverse_available
         and caps.cuda_available
         and caps.torch_available
         and bool(deep_get(cfg, "core.fastcore.auto.prefer_gpu_when_available", True))
