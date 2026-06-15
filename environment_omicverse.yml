@@ -1,0 +1,21 @@
+name: scsp-agent-sop-omicverse
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - pip
+  - anndata
+  - scanpy
+  - pandas
+  - numpy
+  - scipy
+  - scikit-learn
+  - pyarrow
+  - pyyaml
+  - matplotlib
+  - pip:
+      - omicverse>=2.0
+      - scvi-tools>=1.1
+      - squidpy>=1.4
+      - spatialdata

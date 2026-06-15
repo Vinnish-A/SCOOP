@@ -52,7 +52,9 @@ core:
   leiden_resolutions: [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0]
   leiden_seeds: [0, 1, 2, 3, 4]
   batch_correction:
-    method: harmony_pytorch
+    method: harmony2
+    max_iter_harmony: 20
+    ncores: 0
     accept_only_if_not_confounded: true
   fastcore:
     backend_policy: auto

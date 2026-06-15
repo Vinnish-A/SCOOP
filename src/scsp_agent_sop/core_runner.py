@@ -98,7 +98,8 @@ def run_core_pipeline(
             "selected_backend": result["backend"],
             "fallback_backend": deep_get(cfg, "core.fastcore.fallback_backend", deep_get(cfg, "core.fallback_engine", "scanpy_legacy")),
             "fallback_used": fallback_used,
-            "harmony_pytorch_used": result.get("harmony_pytorch_used"),
+            "batch_correction_method": result.get("batch_correction_method", deep_get(cfg, "core.batch_correction.method", "harmony2")),
+            "harmony2_used": result.get("harmony2_used"),
             "batch_keys": result.get("batch_keys", []),
         },
         evidence={

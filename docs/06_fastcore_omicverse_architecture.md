@@ -11,7 +11,7 @@ scripts/02_core_analysis.py
 The runner performs capability planning before execution, selects one backend,
 and runs that backend as a whole pipeline. The only non-FastCore fallback is
 `scanpy_legacy`, which wraps the original SCOOP normalization, HVG, PCA,
-Harmony, kNN, UMAP, and Leiden sweep implementation.
+Harmony 2.0, kNN, UMAP, and Leiden sweep implementation.
 
 ## Backends
 
@@ -64,6 +64,10 @@ disabled by default. This makes the planner deterministic on ordinary CPU
 environments and prevents an unvalidated OmicVerse adapter from silently changing
 core analysis results. Enabling this flag is a deliberate benchmark/validation
 step.
+
+The default Fast environment installs `harmonypy>=2.0,<3` and does not install
+OmicVerse. OmicVerse validation uses `environment_omicverse.yml` or the
+`omicverse` Python extra in a separate environment.
 
 ## Stable Output Schema
 

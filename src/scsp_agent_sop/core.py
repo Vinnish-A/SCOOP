@@ -115,18 +115,44 @@ def build_identity_hvg_from_program_decision(adata, biology_key: str = "highly_v
     return df
 
 
-def run_harmony_pytorch(adata, basis: str = "X_pca_identity_prebatch", batch_keys: str | list[str] = "sample_id", output: str = "X_pca_harmony_identity") -> None:
+def run_harmony2(
+    adata,
+    basis: str = "X_pca_identity_prebatch",
+    batch_keys: str | list[str] = "sample_id",
+    output: str = "X_pca_harmony_identity",
+    max_iter_harmony: int = 20,
+    random_state: int = 0,
+    ncores: int = 0,
+    sigma: float = 0.1,
+) -> None:
     try:
-        from harmony import harmonize
+        import harmonypy
     except Exception as exc:
-        raise ImportError("Torch Harmony not available. Install harmony-pytorch or configure fallback.") from exc
+        raise ImportError("Harmony 2.0 is not available. Install harmonypy>=2.0,<3.") from exc
     keys = [batch_keys] if isinstance(batch_keys, str) else list(batch_keys)
     keys = [k for k in keys if k in adata.obs and adata.obs[k].nunique() > 1]
     if not keys:
         adata.obsm[output] = adata.obsm[basis].copy()
         return
-    adata.obsm[output] = harmonize(adata.obsm[basis], adata.obs, batch_key=keys)
-
+    nclust = int(min(round(adata.n_obs / 30.0), 100))
+    nclust = max(nclust, 1)
+    result = harmonypy.run_harmony(
+        np.asarray(adata.obsm[basis], dtype=np.float64),
+        adata.obs,
+        keys,
+        sigma=np.repeat(float(sigma), nclust).astype(np.float64),
+        nclust=nclust,
+        max_iter_harmony=int(max_iter_harmony),
+        verbose=False,
+        random_state=int(random_state),
+        ncores=int(ncores),
+    )
+    corrected = np.asarray(result.Z_corr, dtype=np.float64)
+    if corrected.shape != adata.obsm[basis].shape and corrected.T.shape == adata.obsm[basis].shape:
+        corrected = corrected.T
+    if corrected.shape != adata.obsm[basis].shape:
+        raise ValueError(f"Harmony 2.0 returned shape {corrected.shape}, expected {adata.obsm[basis].shape}.")
+    adata.obsm[output] = corrected
 
 def neighbors_umap(adata, use_rep: str, prefix: str, n_neighbors: int = 15, n_pcs: int | None = None, min_dist: float = 0.3, random_state: int = 0) -> None:
     import scanpy as sc

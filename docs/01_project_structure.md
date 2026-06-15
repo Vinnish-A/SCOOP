@@ -5,6 +5,8 @@ SCOOP（Single Cell Omics Operating Protocol）的项目结构按“原始数据
 ```text
 SCOOP/
   project.yaml
+  environment.yml
+  environment_omicverse.yml
   configs/
     default_run.yaml
     h5ad_schema.yaml

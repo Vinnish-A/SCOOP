@@ -21,7 +21,7 @@
 每类任务只设一个默认方法：
 
 - doublet：`scanpy.pp.scrublet`，逐样本运行；
-- batch correction：Torch Harmony；
+- batch correction：Harmony 2.0；
 - NMF：fast consensus NMF；
 - spatial deconvolution：RCTD-py；
 - low-resolution RCTD-py mode：`full`；

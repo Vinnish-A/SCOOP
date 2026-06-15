@@ -18,7 +18,8 @@ def test_core_runner_writes_manifest_with_planned_fallback(tmp_path, monkeypatch
         adata.obs["cluster_identity"] = ["0", "0", "1", "1", "1"]
         return {
             "backend": "scanpy_legacy",
-            "harmony_pytorch_used": False,
+            "batch_correction_method": "harmony2",
+            "harmony2_used": False,
             "batch_keys": [],
             "n_obs": adata.n_obs,
             "n_vars": adata.n_vars,
