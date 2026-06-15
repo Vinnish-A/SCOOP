@@ -58,6 +58,8 @@ OmicVerse 是可选复用层，不是 SOP 主控层。当前默认 marker 快速
 
 FastCore 的 `omicverse_cpu` backend 内置了一个 GPL vendored 子集，来源于 `omicverse==2.2.3` 的 `omicverse/pp` CPU core（preprocess、scale、PCA、neighbors、UMAP、Leiden 相关路径），代码位于 `src/fastcore/vendor/omicverse_gpl/`，provenance 和 GPL-3.0 文本随源码一起保存。由于这部分代码直接继承 OmicVerse 的 GPL 条款，SCOOP/FastCore 按 GPL-3.0-or-later 兼容方式发布。
 
+GPU RAPIDS、CPU-GPU mixed 和 Rust/OOM 后端已经接入 FastCore adapter，但它们依赖完整 OmicVerse/RAPIDS/Torch/anndataoom 栈，必须在独立 OmicVerse 环境中运行；默认 fast env 不安装这些重依赖。Rust/OOM 路径由 `02_core_analysis.py` 先做 backend planning，选中后直接以 `ov.read(..., backend='rust')` 从路径启动，不提前把 H5AD 读入内存。
+
 ## 快速开始
 
 默认环境面向 SCOOP/Fast 模块和 Scanpy-compatible core analysis；OmicVerse 体积较大，单独使用 `environment_omicverse.yml` 或 `.[omicverse]` extra 安装，不进入快速运行环境。

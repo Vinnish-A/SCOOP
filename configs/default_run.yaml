@@ -77,6 +77,8 @@ core:
       n_hvgs: 3000
       scaled_layer: scaled
       n_pcs: 50
+      identify_robust: false
+      use_implicit_centering: true
       neighbors:
         n_neighbors: 15
         n_pcs: 30
@@ -89,6 +91,12 @@ core:
       leiden:
         resolutions: [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0]
         seeds: [0, 1, 2, 3, 4]
+      gpu:
+        managed_memory: true
+        pool_allocator: true
+        devices: 0
+      rust_oom:
+        preprocess_mode: shiftlog|pearson
     quality_gate:
       min_pc_subspace_cosine: 0.98
       min_neighbor_overlap: 0.90
