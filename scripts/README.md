@@ -10,6 +10,9 @@ python scripts/01_qc_scrublet.py --config runs/<run_id>/config/run.yaml
 python scripts/02_core_analysis.py --config runs/<run_id>/config/run.yaml
 python scripts/03_fast_consensus_nmf.py --config runs/<run_id>/config/run.yaml
 python scripts/04_annotation_markers.py --config runs/<run_id>/config/run.yaml
+python scripts/04b_tumor_fastcnvpy.py --config runs/<run_id>/config/run.yaml --gene-metadata data/external/references/gene_metadata.tsv
+python scripts/04c_annotation_decide.py --config runs/<run_id>/config/run.yaml
+python scripts/04d_annotation_commit.py --config runs/<run_id>/config/run.yaml --decisions runs/<run_id>/04_annotation/decisions/annotation_decision_template.json
 python scripts/05_spatial_rctd.py --config runs/<run_id>/config/run.yaml --dry-run
 python scripts/06_ccc_fastccc.py --config runs/<run_id>/config/run.yaml --dry-run
 python scripts/08_prepare_pseudobulk.py --config runs/<run_id>/config/run.yaml

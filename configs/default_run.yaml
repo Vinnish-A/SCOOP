@@ -67,6 +67,27 @@ annotation:
   default_marker_method: wilcoxon
   fast_marker_method: fastde_cosg
   marker_n_genes: 100
+  major_lineage_key: cell_type_lvl1
+  decision:
+    enabled: false
+    schema: configs/annotation_decision_schema.yaml
+    cluster_key: cluster_identity
+    output_dir: 04_annotation/decisions
+    min_cells_high_confidence: 20
+    min_samples_high_confidence: 2
+    require_review_for_unvalidated: true
+  program_sanitizer:
+    enabled: true
+    fraction_threshold: 0.35
+    overlap_threshold: 2
+
+tumor_fastcnv:
+  enabled: false
+  parenchymal_lineages: Epithelial
+  normal_status_key: null
+  normal_status_labels: [normal, non_tumor, healthy]
+  h5ad_mode: dense
+  n_jobs: 1
 
 spatial:
   enabled: false

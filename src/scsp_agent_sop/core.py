@@ -4,7 +4,6 @@ from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 
 def normalize_log1p(adata, counts_layer: str = "counts", target_sum: float = 1e4, layer_out: str = "log1p_norm") -> None:
@@ -141,6 +140,8 @@ def neighbors_umap(adata, use_rep: str, prefix: str, n_neighbors: int = 15, n_pc
 
 def leiden_sweep(adata, graph_prefix: str = "identity", resolutions: Iterable[float] = (0.4, 0.8, 1.2), seeds: Iterable[int] = (0, 1, 2, 3, 4)) -> tuple[pd.DataFrame, pd.DataFrame]:
     import scanpy as sc
+    from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+
     sweep_rows = []
     labels_by_res: dict[float, list[np.ndarray]] = {}
     for res in resolutions:

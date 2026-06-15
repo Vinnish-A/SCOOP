@@ -6,9 +6,6 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from sklearn.decomposition import NMF
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.cluster import AgglomerativeClustering
 
 from .matrix import get_matrix
 
@@ -44,6 +41,8 @@ def _normalize_components(H: np.ndarray) -> np.ndarray:
 
 
 def run_nmf_once(X, k: int, seed: int, max_iter: int = FASTCNMF_DEFAULT_MAX_ITER) -> NMFRunResult:
+    from sklearn.decomposition import NMF
+
     model = NMF(
         n_components=k,
         init="nndsvda",
@@ -59,6 +58,9 @@ def run_nmf_once(X, k: int, seed: int, max_iter: int = FASTCNMF_DEFAULT_MAX_ITER
 
 
 def consensus_stability(results: list[NMFRunResult], k: int) -> tuple[float, np.ndarray]:
+    from sklearn.cluster import AgglomerativeClustering
+    from sklearn.metrics.pairwise import cosine_similarity
+
     H_all = np.vstack([_normalize_components(r.H) for r in results if r.k == k])
     if H_all.shape[0] <= k:
         return 1.0, H_all
