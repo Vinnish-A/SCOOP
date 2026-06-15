@@ -1,6 +1,6 @@
-# scSP Agent SOP Project
+# SCOOP: Single Cell Omics Operating Protocol
 
-这是一个面向 Agent 执行的单细胞 / 空间转录组 SOP 工程模板。它不是“工具大全”，而是一套可执行、可审计、可复用的项目结构。
+SCOOP（Single Cell Omics Operating Protocol）是一个面向单细胞 / 空间转录组分析的可执行、可审计、可复用操作协议工程。它不是“工具大全”，而是把常见分析任务整理成一套 Agent 和分析人员都能稳定执行的项目结构。
 
 本项目的核心标准是：**快速、稳健、简洁**。这里的“简洁”不是把说明文字省掉，而是把概念和交付物压缩到必要范围：每个模块只承担一类责任，每类任务只有一个默认方法，大型结果以表格或 sidecar 文件保存，H5AD 只保存核心状态和结果索引。
 
@@ -88,5 +88,5 @@ NMF 程序发现默认使用 `programs.method=fastcnmf`，`max_iter=50`；OmicVe
 - `configs/h5ad_schema.yaml`：H5AD 中允许保留的字段。
 - `configs/omicverse_reuse_policy.yaml`：哪些 OmicVerse 设施可用，哪些禁用。
 - `docs/`：SOP、接口说明、参数调优规则。
-- `src/scsp_agent_sop/`：可复用 Python 模块。
+- `src/scsp_agent_sop/`：SCOOP 的可复用 Python 模块。
 - `scripts/`：Agent 可直接调用的命令行脚本。

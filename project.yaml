@@ -1,5 +1,6 @@
 project:
-  name: scsp_agent_sop_project_v2
+  name: SCOOP
+  full_name: Single Cell Omics Operating Protocol
   version: 0.2.0
   created: 2026-06-12
   philosophy:
