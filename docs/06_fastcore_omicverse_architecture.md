@@ -55,19 +55,23 @@ making imports fail at module import time:
 backed or very large + AnnDataOOM/Rust available -> omicverse_rust_oom
 CUDA + RAPIDS available                         -> omicverse_gpu_rapids
 CUDA + torch available                          -> omicverse_cpu_gpu_mixed
-OmicVerse available                             -> omicverse_cpu
+External or vendored OmicVerse CPU available   -> omicverse_cpu
 otherwise                                       -> scanpy_legacy
 ```
 
-The initial implementation keeps `core.fastcore.enable_experimental_omicverse_adapters`
-disabled by default. This makes the planner deterministic on ordinary CPU
-environments and prevents an unvalidated OmicVerse adapter from silently changing
-core analysis results. Enabling this flag is a deliberate benchmark/validation
-step.
+The default implementation keeps `core.fastcore.enable_omicverse_cpu_backend`
+enabled. On ordinary CPU environments this selects the vendored `omicverse_cpu`
+backend first; `scanpy_legacy` remains the only fallback when the backend is
+disabled or unavailable. Batch correction defaults to Harmony 2.0 through
+`harmonypy>=2.0,<3`; Harmony Py Touch is no longer part of the default core
+workflow.
 
 The default Fast environment installs `harmonypy>=2.0,<3` and does not install
-OmicVerse. OmicVerse validation uses `environment_omicverse.yml` or the
-`omicverse` Python extra in a separate environment.
+the external OmicVerse package. The `omicverse_cpu` backend is a vendored GPL
+subset of OmicVerse `pp` CPU core code under
+`src/fastcore/vendor/omicverse_gpl/`. External OmicVerse validation uses
+`environment_omicverse.yml` or the `omicverse` Python extra in a separate
+environment.
 
 ## Stable Output Schema
 
@@ -138,8 +142,8 @@ AnnData into memory before calling the backend defeats the out-of-memory design.
 
 ## Risks
 
-- OmicVerse is GPL-3.0 licensed, so distribution and reuse must remain
-  license-compliant.
+- OmicVerse is GPL-3.0 licensed. The vendored FastCore backend carries GPL
+  provenance and the project declares GPL-3.0-or-later compatibility.
 - OmicVerse backend output keys can differ from SCOOP stable keys; FastCore owns
   key mapping.
 - GPU, RAPIDS, torch CUDA, and AnnDataOOM dependencies are optional and must be

@@ -35,7 +35,7 @@ def test_core_runner_writes_manifest_with_planned_fallback(tmp_path, monkeypatch
         "core": {
             "engine": "fastcore",
             "fallback_engine": "scanpy_legacy",
-            "fastcore": {"fallback_backend": "scanpy_legacy"},
+            "fastcore": {"fallback_backend": "scanpy_legacy", "enable_omicverse_cpu_backend": False},
         },
     }
     result = run_core_pipeline(adata, cfg, tmp_path)

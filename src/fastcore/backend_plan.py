@@ -57,10 +57,11 @@ def plan_fastcore_backend(
         reasons.append(f"requested_backend_unavailable:{policy}")
         return FastCorePlan(fallback_backend, True, fallback_backend, reasons, caps.to_dict())
 
-    if not caps.omicverse_available:
+    has_cpu_backend = caps.omicverse_available or getattr(caps, "vendored_omicverse_available", False)
+    if not has_cpu_backend:
         return FastCorePlan(fallback_backend, True, fallback_backend, reasons, caps.to_dict())
-    if not bool(deep_get(cfg, "core.fastcore.enable_experimental_omicverse_adapters", False)):
-        reasons.append("experimental_omicverse_adapters_disabled")
+    if not bool(deep_get(cfg, "core.fastcore.enable_omicverse_cpu_backend", True)):
+        reasons.append("omicverse_cpu_backend_disabled")
         return FastCorePlan(fallback_backend, True, fallback_backend, reasons, caps.to_dict())
 
     n_obs = int(getattr(adata, "n_obs", 0) or 0)
@@ -87,7 +88,7 @@ def plan_fastcore_backend(
         and bool(deep_get(cfg, "core.fastcore.auto.prefer_gpu_when_available", True))
     ):
         return FastCorePlan("omicverse_cpu_gpu_mixed", False, fallback_backend, reasons, caps.to_dict())
-    if "omicverse_cpu" in allowed:
+    if "omicverse_cpu" in allowed and has_cpu_backend:
         return FastCorePlan("omicverse_cpu", False, fallback_backend, reasons, caps.to_dict())
     reasons.append("no_allowed_omicverse_backend_available")
     return FastCorePlan(fallback_backend, True, fallback_backend, reasons, caps.to_dict())
@@ -97,7 +98,7 @@ def _backend_capable(backend: str, caps: FastCoreCapabilities) -> bool:
     if backend == "scanpy_legacy":
         return True
     if backend == "omicverse_cpu":
-        return caps.omicverse_available
+        return caps.omicverse_available or getattr(caps, "vendored_omicverse_available", False)
     if backend == "omicverse_cpu_gpu_mixed":
         return caps.omicverse_available and caps.torch_available and caps.cuda_available
     if backend == "omicverse_gpu_rapids":

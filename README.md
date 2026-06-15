@@ -56,6 +56,8 @@ SCOOP 暴露并复用这些确定性 Fast engine：
 
 OmicVerse 是可选复用层，不是 SOP 主控层。当前默认 marker 快速路径是 FastDE sparse COSG，OmicVerse `single.find_markers(method='cosg')` 仅作为兼容验证；`single.cNMF` 只作为 NMF 稳健性验证 fallback。SCOOP 不把 `omicverse.single.lazy`、CellVote、GPTCelltype、trajectory zoo、velocity zoo、drug response、CNV zoo 等纳入默认 SOP。
 
+FastCore 的 `omicverse_cpu` backend 内置了一个 GPL vendored 子集，来源于 `omicverse==2.2.3` 的 `omicverse/pp` CPU core（preprocess、scale、PCA、neighbors、UMAP、Leiden 相关路径），代码位于 `src/fastcore/vendor/omicverse_gpl/`，provenance 和 GPL-3.0 文本随源码一起保存。由于这部分代码直接继承 OmicVerse 的 GPL 条款，SCOOP/FastCore 按 GPL-3.0-or-later 兼容方式发布。
+
 ## 快速开始
 
 默认环境面向 SCOOP/Fast 模块和 Scanpy-compatible core analysis；OmicVerse 体积较大，单独使用 `environment_omicverse.yml` 或 `.[omicverse]` extra 安装，不进入快速运行环境。

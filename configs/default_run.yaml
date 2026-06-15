@@ -64,7 +64,7 @@ core:
       - omicverse_cpu_gpu_mixed
       - omicverse_cpu
     fallback_backend: scanpy_legacy
-    enable_experimental_omicverse_adapters: false
+    enable_omicverse_cpu_backend: true
     auto:
       rust_oom_min_cells: 100000
       rust_oom_min_nnz: 300000000
