@@ -21,6 +21,8 @@ dependencies = [
 
 [project.scripts]
 fastcnmf = "fastcnmf.cli:main"
+fastcopykat = "fastcopykat.cli:main"
+fastcnvpy = "fastcnvpy.cli:main"
 
 [project.optional-dependencies]
 full = [

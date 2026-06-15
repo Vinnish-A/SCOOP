@@ -57,6 +57,26 @@
 
 不做：单独依赖一个 marker database、reference model、GPT 或 CellVote 决定标签。
 
+### 04b_tumor_fastcnvpy
+
+触发条件：样本为肿瘤组织，并且已经完成第一层 `Major Lineage` 注释。
+
+默认逻辑：
+
+- 先用 `cell_type_lvl1` 区分实质性细胞和非实质性细胞；
+- 非实质性正常细胞进入 `fastcnv_reference_pool = normal_nonparenchymal`；
+- 如果实质性正常细胞能与肿瘤/候选细胞分开，则进入 `normal_parenchymal`；
+- 如果正常实质细胞和肿瘤细胞混杂，仍然运行 FastCNVpy，用 pooled nonparenchymal reference 给候选实质细胞提供 CNV 证据；
+- FastCNVpy 在合并 H5AD 上构建 pooled reference，但按 `sample_id` 拆分后逐样本计算 CNV，避免单样本 reference 偏移导致误判。
+
+输出：
+
+- H5AD `obs`：`fastcnv_reference_pool`、`fastcnv_cnv_fraction`、`fastcnv_normal_threshold`、`fastcnv_tumor_evidence`；
+- 外部表：pooled manifest、pooled cell metadata、pooled chromosome-arm CNV、genomic windows、每样本 FastCNVpy 结果；
+- 日志：reference 构成、是否加入正常实质细胞、candidate cell 数、并行参数和 dense/sparse H5AD 模式。
+
+并行策略：默认 `n_jobs=1`，保证峰值内存最低；如果样本数较多且每样本细胞数适中，可以把 `n_jobs` 提到 2-4。每个 worker 只持有一个样本的 selected-gene dense 矩阵，避免把整个合并对象复制到多个进程。大型 H5AD 默认 `--h5ad-mode dense` 追求速度；内存紧张时用 `--h5ad-mode sparse`，但当前基准更慢。
+
 ## 05_spatial
 
 输入：spatial H5AD view、reference H5AD、坐标和空间 metadata。
