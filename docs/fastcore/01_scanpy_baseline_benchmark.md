@@ -29,20 +29,23 @@ Results:
 | Run | Engine | Selected backend | Fallback used | Wall time | Peak RSS |
 | --- | --- | --- | --- | ---: | ---: |
 | scanpy baseline | `scanpy_legacy` | `scanpy_legacy` | false | 222.10 s | 1399 MB |
-| FastCore entry | `fastcore` | `scanpy_legacy` | true | 215.17 s | 1344 MB |
+| FastCore entry before vendoring | `fastcore` | `scanpy_legacy` | true | 215.17 s | 1344 MB |
+| FastCore vendored OmicVerse CPU | `fastcore` | `omicverse_cpu` | false | 52.61 s | 1469 MB |
 
 Observed speed ratio:
 
 ```text
-scanpy_baseline / fastcore_entry = 1.03x
+scanpy_baseline / fastcore_entry_before_vendoring = 1.03x
+scanpy_baseline / fastcore_vendored_omicverse_cpu = 4.22x
 ```
 
-This is not a meaningful acceleration. In this benchmark, FastCore only adds
-capability planning and manifest/audit output, then runs the same
-`scanpy_legacy` backend because OmicVerse adapters are disabled and OmicVerse is
-not installed in the Fast environment.
+The first FastCore entry was not a meaningful acceleration because it only added
+capability planning and manifest/audit output, then ran the same
+`scanpy_legacy` backend. The vendored OmicVerse CPU backend is a real compute
+change and removes the historical 8-resolution x 5-seed Leiden sweep from the
+default FastCore path, matching OmicVerse's single-resolution core workflow.
 
-Output consistency:
+Fallback output consistency before vendoring:
 
 | Metric | Value |
 | --- | ---: |
@@ -66,9 +69,32 @@ Main wall-time steps from the FastCore entry run:
 | `select_hvg_biology` | 1.00 |
 | `harmony2` | 0.99 |
 
+Vendored OmicVerse CPU 10k wall-time steps:
+
+| Step | Seconds |
+| --- | ---: |
+| `neighbors_umap_single` | 40.54 |
+| `leiden_single` | 4.69 |
+| `shiftlog_normalize` | 1.37 |
+| `pca_covariance_eigh` | 1.20 |
+| `hvg_seurat` | 0.99 |
+| `harmony2` | 0.99 |
+| `scale_hvg` | 0.48 |
+
+OmicVerse reference similarity on a 2k-cell subset:
+
+| Metric | Value |
+| --- | ---: |
+| HVG Jaccard | 1.0 |
+| PCA 50-PC subspace cosine | 1.0 |
+| Harmony 50-PC subspace cosine | 0.99999999995 |
+| kNN graph edge Jaccard | 1.0 |
+| Cluster ARI | 0.976 |
+| Cluster NMI | 0.964 |
+
 Conclusion:
 
-The current FastCore PR proves the architecture and audit path, not a real
-compute acceleration. A fair speedup benchmark requires enabling a validated
-OmicVerse/RAPIDS/Rust backend and comparing it against `scanpy_legacy` with the
-same preprocessing, HVG, PCA, Harmony, graph, UMAP, and Leiden parameters.
+The vendored OmicVerse CPU backend gives a measured `4.22x` speedup over the
+historical fallback on the 10k public quick test, while matching the external
+OmicVerse CPU reference closely on the tested 2k subset. The remaining major
+bottleneck is still UMAP/neighbors.

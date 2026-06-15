@@ -17,6 +17,7 @@ class FastCoreCapabilities:
     rapids_available: bool
     anndataoom_available: bool
     rust_backend_available: bool
+    vendored_omicverse_available: bool = True
     selected_backend: str | None = None
     fallback_required: bool = False
     reasons: list[str] = field(default_factory=list)
@@ -29,6 +30,7 @@ def detect_capabilities() -> FastCoreCapabilities:
     """Detect optional FastCore runtime features without importing heavy stacks eagerly."""
     reasons: list[str] = []
     omicverse_available = _module_available("omicverse")
+    vendored_omicverse_available = _module_available("fastcore.vendor.omicverse_gpl")
     torch_available = _module_available("torch")
     cuda_available = False
     if torch_available:
@@ -51,6 +53,7 @@ def detect_capabilities() -> FastCoreCapabilities:
         reasons.append("anndataoom_unavailable")
     return FastCoreCapabilities(
         omicverse_available=omicverse_available,
+        vendored_omicverse_available=vendored_omicverse_available,
         torch_available=torch_available,
         cuda_available=cuda_available,
         rapids_available=rapids_available,

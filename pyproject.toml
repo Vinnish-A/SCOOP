@@ -7,6 +7,7 @@ name = "scoop-operating-protocol"
 version = "0.2.0"
 description = "SCOOP: Single Cell Omics Operating Protocol for robust, auditable single-cell and spatial omics workflows."
 requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
 dependencies = [
   "anndata>=0.10",
   "scanpy>=1.10",
