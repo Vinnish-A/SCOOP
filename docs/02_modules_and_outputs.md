@@ -19,7 +19,7 @@
 
 输入：QC 后 H5AD。
 
-默认工具：Scanpy normalization/HVG/PCA/kNN/UMAP/Leiden，Torch Harmony。
+默认工具：FastCore / OmicVerse-backed core engine。当前稳定路径通过 pre-run capability planner 选择后端；未通过验证或环境缺依赖时，唯一 fallback 是 `scanpy_legacy`，即原始 Scanpy normalization/HVG/PCA/kNN/UMAP/Leiden 加 Torch Harmony 路径。
 
 输出：
 
@@ -29,6 +29,12 @@
 - 外部表：HVG rank、PC covariate association、Leiden sweep、cluster stability。
 
 不做：把所有 resolution/seed 的 cluster 都留在 `obs`；把 UMAP 距离用于注释；对 condition 做 batch correction。
+
+FastCore 额外输出：
+
+- 外部 JSON：`02_core/fastcore/fastcore_manifest.json`、`02_core/fastcore/core_quality.json`；
+- 运行日志：记录 selected backend、fallback backend、fallback 是否使用和质量文件路径；
+- registry：把 FastCore manifest 和 quality report 注册到 `adata.uns['file_registry']['artifacts']`。
 
 ## 03_programs
 
