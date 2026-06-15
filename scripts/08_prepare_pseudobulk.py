@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Prepare pseudobulk counts and metadata for edgeR.
+"""Prepare pseudobulk counts and metadata for FastDE/R reference DE.
 
 Usage:
   python scripts/08_prepare_pseudobulk.py --config runs/<run_id>/config/run.yaml \
@@ -98,7 +98,7 @@ def main() -> None:
     sum_path = write_table(summary, base / "pseudobulk_summary.tsv")
     register_file(adata, key="pseudobulk_summary", path=sum_path, schema="pseudobulk_summary.v1")
     adata.write_h5ad(run_root / "artifacts" / "adata_pseudobulk_indexed.h5ad")
-    log_decision(run_root, module="de", decision="pseudobulk_prepared", reason="Raw counts aggregated by sample x condition x cell type for edgeR.", parameters={"celltype_key": celltype_key, "condition_key": condition_key, "min_cells": min_cells}, evidence={"n_celltypes": len(summary_rows)})
+    log_decision(run_root, module="de", decision="pseudobulk_prepared", reason="Raw counts aggregated by sample x condition x cell type for FastDE condition DE and R reference validation.", parameters={"celltype_key": celltype_key, "condition_key": condition_key, "min_cells": min_cells}, evidence={"n_celltypes": len(summary_rows)})
 
 
 if __name__ == "__main__":

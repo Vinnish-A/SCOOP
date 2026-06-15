@@ -27,7 +27,7 @@
 - low-resolution RCTD-py mode：`full`；
 - CCC：FastCCC；
 - complex-sensitive CCC validation：CellPhoneDB v5 或 LIANA；
-- DE：pseudobulk edgeR。
+- DE：FastDE pseudobulk DESeq2-like NB Wald；R DESeq2/edgeR only as reference validation.
 
 Fallback 不是并列默认。只有默认失败或触发具体风险时才使用 fallback，并写入 decision log。
 

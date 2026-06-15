@@ -38,6 +38,17 @@ def run_markers_omicverse(adata, groupby: str = "cluster_identity", layer: str =
     return df
 
 
+def run_markers_fastde(adata, groupby: str = "cluster_identity", layer: str = "log1p_norm", method: str = "cosg", n_genes: int = 100) -> pd.DataFrame:
+    if method != "cosg":
+        raise ValueError("FastDE annotation marker wrapper currently supports method='cosg'")
+    if groupby not in adata.obs:
+        raise KeyError(f"groupby {groupby!r} is not present in obs")
+    from fastde.markers import run_cosg_markers
+
+    matrix = adata.layers[layer] if layer in adata.layers else adata.X
+    return run_cosg_markers(matrix, adata.obs[groupby], adata.var_names, top_n=n_genes).table
+
+
 def build_annotation_evidence_template(adata, cluster_key: str = "cluster_identity") -> pd.DataFrame:
     rows = []
     for cl, idx in adata.obs.groupby(cluster_key).indices.items():
