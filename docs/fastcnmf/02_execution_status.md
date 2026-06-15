@@ -542,7 +542,7 @@ Interpretation:
 Next:
 
 - Implement cNMF reference and FastCNMF candidate factorize executors.
-- Run S2 public smoke NMF first, then production-scale `n_iter=50`.
+- Run S2 public smoke NMF first, then production-scale `n_iter=20`.
 - Add consensus and final spectra/usage quality gates.
 
 ### Checkpoint 8: S2 Public Smoke End-to-End Benchmark

@@ -203,7 +203,7 @@ def build_default_manifest(root: Path, output_root: Path) -> FastCNMFBenchmarkMa
             "n_top_genes": 3000,
             "k_values": [6, 8, 10, 12],
             "n_iter_smoke": 8,
-            "n_iter_production": 50,
+            "n_iter_production": 20,
             "max_nmf_iter_smoke": 50,
             "max_nmf_iter_production": 50,
         },

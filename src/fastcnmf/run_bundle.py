@@ -74,7 +74,7 @@ def _cnmf_output_dir(stage: ExecutionStage) -> Path:
 
 def _profile_value(params: dict, key: str, profile: str):
     defaults = {
-        "n_iter": 50,
+        "n_iter": 20,
         "max_nmf_iter": 50,
     }
     profiled = f"{key}_{profile}"

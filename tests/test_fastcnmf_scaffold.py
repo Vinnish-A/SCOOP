@@ -21,6 +21,7 @@ def test_build_nmf_tasks_roundtrip(tmp_path: Path) -> None:
 def test_fastcnmf_defaults_are_scoop_preferred() -> None:
     assert FASTCNMF_DEFAULT_MAX_ITER == 50
     assert FASTCNMF_DEFAULT_SEEDS == tuple(range(20))
+    assert NMFConfig().n_iter == 20
     assert NMFConfig().max_nmf_iter == 50
     assert run_fast_prepare.__kwdefaults__["max_nmf_iter"] == 50
 
