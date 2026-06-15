@@ -22,6 +22,16 @@ python scripts/07_prune_and_manifest.py --config runs/<run_id>/config/run.yaml
 
 空间和 CCC 模块默认在配置里关闭。需要使用时，把 `spatial.enabled` 或 `ccc.enabled` 改成 `true`，并补齐 reference、LR resource、CellPhoneDB database 等路径。
 
+`02_core_analysis.py` 现在调用 FastCore runner。SOP 入口仍是 `02_core`，但计算内核由 `core.engine` 控制；默认 `fastcore` 会先做 capability planning，OmicVerse 后端未启用或不可用时整体回退到唯一的 `scanpy_legacy` 后端。
+
+FastCore backend 基准入口：
+
+```bash
+python scripts/fastcore/benchmark_core_backends.py \
+  --config runs/<run_id>/config/run.yaml \
+  --input runs/<run_id>/artifacts/adata_qc.h5ad
+```
+
 `--dry-run` 会输出外部命令而不执行，适合 Agent 在正式运行前检查参数、路径和 mode 选择。
 
 DE 分成两类，不要混用：
