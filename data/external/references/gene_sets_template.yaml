@@ -1,0 +1,38 @@
+human:
+  stress:
+    - FOS
+    - JUN
+    - JUNB
+    - ATF3
+    - EGR1
+    - DUSP1
+    - HSPA1A
+    - DNAJB1
+  proliferation:
+    - MKI67
+    - TOP2A
+    - PCNA
+    - UBE2C
+    - CENPF
+  ribosomal_pattern:
+    - RPL*
+    - RPS*
+mouse:
+  stress:
+    - Fos
+    - Jun
+    - Junb
+    - Atf3
+    - Egr1
+    - Dusp1
+    - Hspa1a
+    - Dnajb1
+  proliferation:
+    - Mki67
+    - Top2a
+    - Pcna
+    - Ube2c
+    - Cenpf
+  ribosomal_pattern:
+    - Rpl*
+    - Rps*

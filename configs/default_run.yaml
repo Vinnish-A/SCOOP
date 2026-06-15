@@ -1,0 +1,109 @@
+run:
+  run_id: template
+  input_h5ad: h5ad/canonical/adata_input.h5ad
+  output_h5ad: runs/template/artifacts/final_adata.h5ad
+  random_seed: 0
+  organism: human
+  tissue: unknown
+
+keys:
+  sample: sample_id
+  donor: donor_id
+  condition: condition
+  batch_candidates: [sample_id, library_id, batch_id, chemistry]
+  celltype_primary: cell_type_lvl3
+  celltype_fallback: cell_type_lvl2
+
+storage:
+  table_format: parquet
+  write_registry_to_uns: true
+  keep_large_tables_outside_h5ad: true
+  prune_delivery_h5ad: true
+
+qc:
+  counts_layer: counts
+  threshold_method: per_sample_mad_quantile
+  mad:
+    low_counts: 3.0
+    low_genes: 3.0
+    high_mt: 3.0
+    high_ribo: 4.0
+    high_hb: 4.0
+  quantiles:
+    low: 0.10
+    high: 0.90
+    high_strict: 0.95
+  scrublet:
+    expected_doublet_rate: 0.05
+    stdev_doublet_rate: 0.02
+    sim_doublet_ratio: 2.0
+    random_state: 0
+
+core:
+  normalize_total_target_sum: 10000
+  hvg_flavor: seurat_v3
+  n_top_hvg: 3000
+  n_pcs: 50
+  neighbors_n_pcs: 30
+  neighbors_n_neighbors: 15
+  umap_min_dist: 0.3
+  leiden_resolutions: [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0]
+  leiden_seeds: [0, 1, 2, 3, 4]
+  batch_correction:
+    method: harmony_pytorch
+    accept_only_if_not_confounded: true
+
+programs:
+  method: fastcnmf
+  layer: log1p_norm
+  n_top_hvg: 2500
+  k_grid: [5, 8, 10, 12, 15, 20]
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+  max_iter: 50
+  stability_threshold: 0.70
+  fallback_validation: omicverse_cnmf
+
+annotation:
+  default_marker_method: wilcoxon
+  fast_marker_method: omicverse_cosg
+  marker_n_genes: 100
+
+spatial:
+  enabled: false
+  spatial_h5ad: h5ad/spatial_views/spot.h5ad
+  reference_h5ad: h5ad/canonical/adata_annotated.h5ad
+  rctd:
+    mode_low_resolution: full
+    mode_sparse_sensitivity: multi
+    expected_cells_per_unit: null
+    umi_min_low_resolution: 100
+    umi_min_bin: 20
+    cell_type_key: cell_type_lvl3
+    command_template: "rctd-py --spatial {spatial_h5ad} --reference {reference_h5ad} --cell-type-key {cell_type_key} --mode {mode} --output {output_h5ad}"
+
+ccc:
+  enabled: false
+  primary_method: fastccc
+  groupby: cell_type_lvl3
+  fallback_groupby: cell_type_lvl2
+  min_cells_per_group: 20
+  fdr: 0.05
+  lr_resource: data/external/lr_resources/lr_complex_aware.parquet
+  fastccc_command_template: "fastccc --input {input_h5ad} --groupby {groupby} --resource {lr_resource} --output {output_dir}"
+  complex_validation:
+    enabled: true
+    method: omicverse_cellphonedb_v5
+    cpdb_file_path: data/external/lr_resources/cellphonedb.zip
+    iterations: 1000
+    threshold: 0.1
+    pvalue: 0.05
+    threads: 10
+  liana_validation:
+    enabled: false
+    method: rank_aggregate
+
+de:
+  enabled: false
+  method: pseudobulk_edger
+  min_cells_per_sample_celltype: 20
+  min_samples_per_group: 3
