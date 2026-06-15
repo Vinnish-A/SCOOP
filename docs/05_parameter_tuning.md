@@ -14,7 +14,7 @@
 
 ## Batch correction
 
-默认 Torch Harmony。只校正技术 key，例如 `sample_id`、`library_id`、`batch_id`、`chemistry`。不得校正 `condition`、`disease`、`treatment` 或 lineage。
+默认 Harmony 2.0。只校正技术 key，例如 `sample_id`、`library_id`、`batch_id`、`chemistry`。不得校正 `condition`、`disease`、`treatment` 或 lineage。
 
 如果 batch 与 condition 高度混淆，不做 correction，而在下游 DE 或 stratified analysis 中处理。
 

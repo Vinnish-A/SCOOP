@@ -1,4 +1,4 @@
-name: scsp-agent-sop
+name: scsp-agent-sop-omicverse
 channels:
   - conda-forge
   - bioconda
@@ -15,8 +15,7 @@ dependencies:
   - pyyaml
   - matplotlib
   - pip:
-      - harmonypy>=2.0,<3
-      - fastccc
-      - liana
-      - cellphonedb
+      - omicverse>=2.0
+      - scvi-tools>=1.1
+      - squidpy>=1.4
       - spatialdata

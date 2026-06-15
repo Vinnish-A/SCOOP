@@ -11,7 +11,7 @@ from scsp_agent_sop.core import (
     neighbors_umap,
     normalize_log1p,
     robust_z_by_sample,
-    run_harmony_pytorch,
+    run_harmony2,
     run_pca,
     score_programs,
     select_hvg,
@@ -65,9 +65,27 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
     _time_step(timings, "pca_identity_prebatch", run_pca, adata, hvg_key="highly_variable_identity", obsm_key="X_pca_identity_prebatch", n_comps=deep_get(cfg, "core.n_pcs", 50))
 
     batch_keys = [k for k in deep_get(cfg, "keys.batch_candidates", ["sample_id"]) if k in adata.obs]
+    batch_method = str(deep_get(cfg, "core.batch_correction.method", "harmony2"))
     try:
-        _time_step(timings, "harmony_pytorch", run_harmony_pytorch, adata, basis="X_pca_identity_prebatch", batch_keys=batch_keys, output="X_pca_harmony_identity")
-        harmony_used = True
+        if batch_method in {"harmony2", "harmonypy2", "harmonypy"}:
+            _time_step(
+                timings,
+                "harmony2",
+                run_harmony2,
+                adata,
+                basis="X_pca_identity_prebatch",
+                batch_keys=batch_keys,
+                output="X_pca_harmony_identity",
+                max_iter_harmony=deep_get(cfg, "core.batch_correction.max_iter_harmony", 20),
+                random_state=deep_get(cfg, "run.random_seed", 0),
+                ncores=deep_get(cfg, "core.batch_correction.ncores", 0),
+            )
+            harmony_used = True
+        elif batch_method in {"none", "identity"}:
+            adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
+            harmony_used = False
+        else:
+            raise ValueError(f"unsupported core.batch_correction.method: {batch_method}")
     except ImportError:
         adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
         harmony_used = False
@@ -112,7 +130,8 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
 
     return {
         "backend": "scanpy_legacy",
-        "harmony_pytorch_used": harmony_used,
+        "harmony2_used": harmony_used and batch_method in {"harmony2", "harmonypy2", "harmonypy"},
+        "batch_correction_method": batch_method,
         "batch_keys": batch_keys,
         "n_obs": int(adata.n_obs),
         "n_vars": int(adata.n_vars),
