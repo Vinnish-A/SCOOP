@@ -65,7 +65,7 @@ programs:
 
 annotation:
   default_marker_method: wilcoxon
-  fast_marker_method: omicverse_cosg
+  fast_marker_method: fastde_cosg
   marker_n_genes: 100
 
 spatial:
@@ -104,6 +104,6 @@ ccc:
 
 de:
   enabled: false
-  method: pseudobulk_edger
+  method: fastde_deseq2_wald
   min_cells_per_sample_celltype: 20
   min_samples_per_group: 3

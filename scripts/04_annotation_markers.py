@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from scsp_agent_sop.config import read_yaml, deep_get, resolve_run_root
-from scsp_agent_sop.annotation import run_markers_scanpy, run_markers_omicverse, build_annotation_evidence_template
+from scsp_agent_sop.annotation import run_markers_scanpy, run_markers_omicverse, run_markers_fastde, build_annotation_evidence_template
 from scsp_agent_sop.storage import write_table, register_file, init_file_registry, ensure_dir
 from scsp_agent_sop.decision_log import log_decision
 
@@ -29,6 +29,7 @@ def main():
     ap.add_argument("--config", required=True)
     ap.add_argument("--input", default=None)
     ap.add_argument("--output", default=None)
+    ap.add_argument("--use-fastde-cosg", action="store_true")
     ap.add_argument("--use-omicverse-cosg", action="store_true")
     args = ap.parse_args()
     cfg = read_yaml(args.config)
@@ -39,7 +40,10 @@ def main():
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
 
     groupby = "cluster_identity"
-    if args.use_omicverse_cosg:
+    if args.use_fastde_cosg:
+        markers = run_markers_fastde(adata, groupby=groupby, method="cosg", n_genes=deep_get(cfg, "annotation.marker_n_genes", 100))
+        method = "fastde_cosg"
+    elif args.use_omicverse_cosg:
         markers = run_markers_omicverse(adata, groupby=groupby, method="cosg", n_genes=deep_get(cfg, "annotation.marker_n_genes", 100))
         method = "omicverse_cosg"
     else:

@@ -48,7 +48,7 @@
 
 输入：final clusters、marker table、NMF usage、kNN graph、reference mapping。
 
-默认工具：Scanpy marker；OmicVerse `single.find_markers(method='cosg')` 可作为快速 marker 辅助；reference mapping 仅作证据。
+默认工具：Scanpy marker；FastDE sparse COSG 可作为快速 marker 辅助；OmicVerse `single.find_markers(method='cosg')` 仅作为可选兼容验证；reference mapping 仅作证据。
 
 输出：
 
@@ -110,11 +110,13 @@
 
 输入：raw counts、cell type/state label、donor/sample/condition metadata。
 
-默认工具：pseudobulk edgeR quasi-likelihood。
+默认工具：FastDE pseudobulk DESeq2-like negative-binomial Wald。R DESeq2 和 edgeR quasi-likelihood 保留为 reference validation。
 
 输出：
 
-- 外部表：pseudobulk counts、metadata、design matrix、DE table、GSEA；
+- 外部表：pseudobulk counts、metadata、FastDE design matrix、FastDE DE table、size factors、dispersions、benchmark/R reference validation table、GSEA；
 - H5AD：只存结果索引和必要 summary。
 
-不做：用 Harmony/scVI/integrated expression 做 DE；用 per-cell p value 证明 condition-level 差异。
+不做：用 Harmony/scVI/integrated expression 做 DE；用 per-cell p value 证明 condition-level 差异；把 marker gene 检验解释成 condition DE；把当前 FastDE 解释成 `lfcShrink` 的完全复刻。
+
+FastDE condition DE 输出列保持 DESeq2 风格：`gene`、`baseMean`、`log2FoldChange`、`lfcSE`、`stat`、`pvalue`、`padj`、`dispersion`，并额外写出 `dispGeneEst`、`dispFit`、`dispMAP`、`dispOutlier`。当前完整 dispersion 基准中，30k genes / 12 pseudobulk samples 下 FastDE 耗时约 `18.55s`，R DESeq2 reference 约 `19.68s`；两者 log2FC Spearman 约 `0.99999`，top100 overlap 为 `1.00`。
