@@ -21,7 +21,7 @@ class NMFConfig:
     """NMF search grid and execution parameters."""
 
     k_values: tuple[int, ...] = (6, 8, 10, 12)
-    n_iter: int = 50
+    n_iter: int = 20
     max_nmf_iter: int = 50
     seed: int = 20260614
     dtype: str = "float64"

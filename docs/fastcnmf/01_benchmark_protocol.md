@@ -28,7 +28,7 @@ Unless a benchmark explicitly studies parameters:
 - Harmony batch key: `sample_id`
 - HVG count: `3000`
 - k values: `6, 8, 10, 12`
-- NMF replicates per k: `50` for medium/large, `8` for smoke
+- NMF replicates per k: `20` for medium/large, `8` for smoke
 - cNMF/FastCNMF max NMF iterations: `50` by default for smoke and production-scale tests
 - worker counts: `1, 4, 8`, plus GPU-specific device counts where available
 

@@ -14,7 +14,7 @@ Options:
   --workers N                  Default: 8
   --consensus-workers N        Default: 4
   --k-values "6 8 10 12"       Default: "6 8 10 12"
-  --n-iter N                   Default: 8
+  --n-iter N                   Default: 20
   --ref-max-nmf-iter N         Default: 200
   --fast-max-nmf-iter N        Default: 50
   --n-top-genes N              Default: 3000
@@ -32,7 +32,7 @@ CANDIDATE_PYTHON="./.venv-cnmf-h2/bin/python"
 WORKERS=8
 CONSENSUS_WORKERS=4
 K_VALUES="6 8 10 12"
-N_ITER=8
+N_ITER=20
 REF_MAX_NMF_ITER=200
 FAST_MAX_NMF_ITER=50
 N_TOP_GENES=3000
