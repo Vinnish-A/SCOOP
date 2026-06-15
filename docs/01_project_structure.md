@@ -1,9 +1,9 @@
 # 01. 项目结构
 
-项目结构按“原始数据、运行结果、最终交付”分离。
+SCOOP（Single Cell Omics Operating Protocol）的项目结构按“原始数据、运行结果、最终交付”分离。
 
 ```text
-scsp_agent_sop_project_v2/
+SCOOP/
   project.yaml
   configs/
     default_run.yaml

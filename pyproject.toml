@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "scsp-agent-sop"
+name = "scoop-operating-protocol"
 version = "0.2.0"
-description = "Fast, robust and minimal-state SOP for agent-executed single-cell and spatial transcriptomics analyses."
+description = "SCOOP: Single Cell Omics Operating Protocol for robust, auditable single-cell and spatial omics workflows."
 requires-python = ">=3.10"
 dependencies = [
   "anndata>=0.10",
