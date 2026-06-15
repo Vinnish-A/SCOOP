@@ -1,0 +1,103 @@
+schema_version: scsp_agent_sop.h5ad.v1
+
+obs_keep:
+  identity:
+    - sample_id
+    - donor_id
+    - condition
+    - batch_id
+    - library_id
+    - chemistry
+    - assay
+    - organism
+    - tissue
+  qc:
+    - total_counts
+    - n_genes_by_counts
+    - pct_counts_mt
+    - pct_counts_ribo
+    - pct_counts_hb
+    - qc_pass
+    - qc_class
+    - qc_failure_reason
+    - final_use
+  doublet_ambient:
+    - doublet_score
+    - doublet_call_scrublet
+    - doublet_call
+    - doublet_evidence
+    - ambient_score
+    - ambient_call
+  programs:
+    - stress_score
+    - stress_score_z_sample
+    - ribo_score
+    - ribo_score_z_sample
+    - cell_cycle_s_score
+    - cell_cycle_g2m_score
+    - proliferation_score_z_sample
+    - program_dominated_class
+    - program_action
+  clustering_annotation:
+    - cluster_identity
+    - cluster_biology
+    - cell_type_lvl1
+    - cell_type_lvl2
+    - cell_type_lvl3
+    - cell_state
+    - annotation_confidence
+    - annotation_status
+  spatial:
+    - spatial_unit_type
+    - resolution_um
+    - section_id
+    - slide_id
+    - fov_id
+    - tile_id
+    - x_centroid
+    - y_centroid
+    - segmentation_id
+    - segmentation_quality
+    - parent_unit_id
+
+var_keep:
+  - gene_symbol
+  - gene_id
+  - mt_gene
+  - ribo_gene
+  - hb_gene
+  - stress_gene
+  - cell_cycle_gene
+  - highly_variable_biology
+  - highly_variable_identity
+  - exclude_from_identity_hvg
+
+layers_keep:
+  - counts
+  - log1p_norm
+  - counts_ambient_corrected
+
+obsm_keep:
+  - X_pca_biology
+  - X_pca_identity
+  - X_pca_harmony_identity
+  - X_umap_biology
+  - X_umap_identity
+  - X_nmf_usage
+  - spatial
+
+obsp_keep:
+  - connectivities_identity
+  - distances_identity
+  - connectivities_biology
+  - connectivities_spatial
+  - connectivities_joint
+
+uns_keep:
+  - schema_version
+  - pipeline_versions
+  - input_hashes
+  - file_registry
+  - decision_summary
+  - references
+  - storage_policy

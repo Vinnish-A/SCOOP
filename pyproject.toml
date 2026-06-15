@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scsp-agent-sop"
+version = "0.2.0"
+description = "Fast, robust and minimal-state SOP for agent-executed single-cell and spatial transcriptomics analyses."
+requires-python = ">=3.10"
+dependencies = [
+  "anndata>=0.10",
+  "scanpy>=1.10",
+  "pandas>=2.0",
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "scikit-learn>=1.3",
+  "pyyaml>=6.0",
+  "pyarrow>=14.0",
+  "matplotlib>=3.7"
+]
+
+[project.scripts]
+fastcnmf = "fastcnmf.cli:main"
+
+[project.optional-dependencies]
+full = [
+  "squidpy>=1.4",
+  "scvi-tools>=1.1",
+  "omicverse>=2.0",
+  "harmony-pytorch",
+  "fastccc",
+  "cellphonedb",
+  "liana",
+  "spatialdata"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

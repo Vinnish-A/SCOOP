@@ -1,0 +1,50 @@
+omicverse_policy:
+  role: infrastructure_and_wrappers_only
+  allowed:
+    io:
+      - omicverse.io.read_h5ad
+      - omicverse.io.read_10x_h5
+      - omicverse.io.read_10x_mtx
+      - omicverse.io.read_visium_hd
+      - omicverse.io.read_visium_hd_bin
+      - omicverse.io.read_visium_hd_seg
+      - omicverse.io.read_xenium
+      - omicverse.io.save
+    gpu_cpu:
+      - omicverse.pp.anndata_to_GPU
+      - omicverse.pp.anndata_to_CPU
+    marker_and_annotation_support:
+      - omicverse.single.find_markers
+      - omicverse.single.get_markers
+      - omicverse.single.CellOntologyMapper
+    programs_validation:
+      - omicverse.single.cNMF
+    ccc_validation:
+      - omicverse.single.run_cellphonedb_v5
+      - omicverse.single.run_liana
+      - omicverse.single.format_liana_results
+    reporting_and_visualization:
+      - omicverse.single.generate_scRNA_report
+      - omicverse.pl.markers_dotplot
+      - omicverse.pl.ccc_network_plot
+      - omicverse.pl.ccc_dot_plot
+      - omicverse.pl.ccc_stat_plot
+
+  discouraged_as_defaults:
+    - omicverse.single.lazy
+    - omicverse.single.CellVote
+    - omicverse.single.gptcelltype
+    - omicverse.single.gptcelltype_local
+    - full_batch_correction_zoo
+    - trajectory_zoo
+    - velocity_zoo
+    - cnv_zoo
+    - drug_response
+    - perturbation_zoo
+    - foundation_model_zoo
+
+  rule: >
+    Reuse OmicVerse facilities only when they reduce boilerplate while
+    preserving this SOP's decisions, storage policy, and validation rules.
+    Do not hand over QC thresholds, clustering choice, annotation truth,
+    or mechanistic claims to a black-box OmicVerse pipeline.

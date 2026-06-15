@@ -1,0 +1,38 @@
+project:
+  name: scsp_agent_sop_project_v2
+  version: 0.2.0
+  created: 2026-06-12
+  philosophy:
+    - fast
+    - robust
+    - conceptually_simple
+    - audit_ready
+    - h5ad_minimal_state
+
+paths:
+  raw_data: data/raw
+  external_references: data/external/references
+  ligand_receptor_resources: data/external/lr_resources
+  processed_data: data/processed
+  h5ad: h5ad
+  spatialdata: spatialdata
+  runs: runs
+
+sample_keys:
+  sample_id: sample_id
+  donor_id: donor_id
+  condition: condition
+  batch_id: batch_id
+  library_id: library_id
+  chemistry: chemistry
+
+storage_policy:
+  h5ad_policy: minimal_state
+  large_tables: parquet
+  human_tables: tsv
+  figures: pdf
+  audit_log: jsonl
+  external_registry_key: file_registry
+  raw_counts_layer: counts
+  spatial_geometry: spatialdata_or_geoparquet
+  transcript_coordinates: parquet

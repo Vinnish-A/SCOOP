@@ -1,0 +1,25 @@
+name: scsp-agent-sop
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - pip
+  - anndata
+  - scanpy
+  - pandas
+  - numpy
+  - scipy
+  - scikit-learn
+  - pyarrow
+  - pyyaml
+  - matplotlib
+  - pip:
+      - omicverse
+      - harmony-pytorch
+      - fastccc
+      - liana
+      - cellphonedb
+      - scvi-tools
+      - squidpy
+      - spatialdata

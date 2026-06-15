@@ -1,0 +1,65 @@
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local environments
+.venv*/
+venv/
+env/
+
+# SCOOP run outputs and temporary benchmark material
+tmp/
+runs/*/artifacts/
+runs/*/logs/
+runs/*/reports/
+runs/*/*/tables/
+runs/*/*/figures/
+runs/*/07_de/pseudobulk/
+runs/*/07_de/contrasts/
+!runs/template/
+!runs/template/**/.gitkeep
+!runs/template/**/README.md
+!runs/template/config/run.yaml
+
+# Large or private omics data artifacts
+*.h5ad
+*.h5
+*.h5seurat
+*.loom
+*.qs
+*.rds
+*.rda
+*.mtx
+*.mtx.gz
+*.npz
+*.npy
+*.parquet
+*.feather
+*.zarr/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Keep documented directory structure and tiny templates
+!h5ad/**/
+!h5ad/**/README.md
+!h5ad/**/.gitkeep
+!data/**/
+!data/**/README.md
+!data/**/.gitkeep
+!data/external/**/*.yaml
+!data/external/**/*.tsv
+
+# Local/private configuration overrides
+configs/local*.yaml
+configs/private*.yaml
+project.local.yaml
+*.secret.yaml
+*.private.yaml
+.env
+.env.*
