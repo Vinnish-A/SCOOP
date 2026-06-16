@@ -1,6 +1,6 @@
 # SCOOP: Single Cell Omics Operating Protocol
 
-SCOOP（Single Cell Omics Operating Protocol）是一个面向单细胞 / 空间转录组分析的可执行、可审计、可复用操作协议工程。它不是“工具大全”，而是把常见分析任务整理成一套 Agent 和分析人员都能稳定执行的项目结构。
+SCOOP（Single Cell Omics Operating Protocol）是一个面向 single cell omics 分析的可执行、可审计、可复用操作协议工程，覆盖单细胞和空间组学项目中的常规交付任务。它不是“工具大全”，而是把常见分析任务整理成一套 Agent 和分析人员都能稳定执行的项目结构。
 
 本项目的核心标准是：**快速、稳健、简洁**。这里的“简洁”不是把说明文字省掉，而是把概念和交付物压缩到必要范围：每个模块只承担一类责任，每类任务只有一个默认方法，大型结果以表格或 sidecar 文件保存，H5AD 只保存核心状态和结果索引。
 
@@ -11,7 +11,7 @@ SCOOP 当前按四层组织：
 1. **SOP Workflow Layer**：run 目录、模块顺序、H5AD 状态、file registry、decision log。
 2. **Fast Compute Layer**：确定性计算引擎，包括 FastDE、FastCNMF、FastCNVpy、FastCopyKAT；SCOOP 通过 `src/scoop_fast/` 提供统一 contract 和 registry。
 3. **Evidence & Skill Layer**：`markers/` 和未来 `skills/` 中的 marker、state、tumor、naming 规则，只作为证据来源。
-4. **Annotation Decision Layer**：`src/scsp_agent_sop/annotation_decision/` 负责 evidence bundle、结构化 decision schema、validator 和 committer。
+4. **Annotation Decision Layer**：SCOOP annotation decision 模块负责 evidence bundle、结构化 decision schema、validator 和 committer。当前代码位于历史兼容路径 `src/scsp_agent_sop/annotation_decision/`。
 
 Agent/AI 层不能直接改 H5AD 或自由发明标签。它只能产生结构化 annotation decision；只有通过确定性 validator 的 decision 才会由 committer 写入 H5AD。
 
@@ -56,9 +56,9 @@ SCOOP 暴露并复用这些确定性 Fast engine：
 
 OmicVerse 是可选复用层，不是 SOP 主控层。当前默认 marker 快速路径是 FastDE sparse COSG，OmicVerse `single.find_markers(method='cosg')` 仅作为兼容验证；`single.cNMF` 只作为 NMF 稳健性验证 fallback。SCOOP 不把 `omicverse.single.lazy`、CellVote、GPTCelltype、trajectory zoo、velocity zoo、drug response、CNV zoo 等纳入默认 SOP。
 
-FastCore 的 `omicverse_cpu` backend 内置了一个 GPL vendored 子集，来源于 `omicverse==2.2.3` 的 `omicverse/pp` CPU core（preprocess、scale、PCA、neighbors、UMAP、Leiden 相关路径），代码位于 `src/fastcore/vendor/omicverse_gpl/`，provenance 和 GPL-3.0 文本随源码一起保存。由于这部分代码直接继承 OmicVerse 的 GPL 条款，SCOOP/FastCore 按 GPL-3.0-or-later 兼容方式发布。
+FastCore 默认使用 `fastcore_cpu`、`fastcore_mixed` 或 `fastcore_oom` 这些 SCOOP/Fast 命名。旧的 `omicverse_*` backend 名称只作为历史配置 alias 保留，不作为 agent-facing 默认名称。`fastcore_cpu` 内置了一个 GPL vendored 子集，来源于 `omicverse==2.2.3` 的 `omicverse/pp` CPU core（preprocess、scale、PCA、neighbors、UMAP、Leiden 相关路径），代码位于 `src/fastcore/vendor/omicverse_gpl/`，provenance 和 GPL-3.0 文本随源码一起保存。由于这部分代码直接继承 OmicVerse 的 GPL 条款，SCOOP/FastCore 按 GPL-3.0-or-later 兼容方式发布。
 
-GPU RAPIDS、CPU-GPU mixed 和 Rust/OOM 后端已经接入 FastCore adapter，但它们依赖完整 OmicVerse/RAPIDS/Torch/anndataoom 栈，必须在独立 OmicVerse 环境中运行；默认 fast env 不安装这些重依赖。Rust/OOM 路径由 `02_core_analysis.py` 先做 backend planning，选中后直接以 `ov.read(..., backend='rust')` 从路径启动，不提前把 H5AD 读入内存。
+`third_party/omicverse` 是隐藏的可选 reference submodule，只在显式验证时通过 `scsp_agent_sop.omicverse_facilities` lazy import。CPU-GPU mixed 和 Rust/OOM reference adapter 依赖完整 OmicVerse/Torch/anndataoom 栈，必须在独立 OmicVerse 环境中运行；默认 fast env 不安装这些重依赖。Rust/OOM 路径由 `02_core_analysis.py` 先做 backend planning，选中 `fastcore_oom` 后直接以 `ov.read(..., backend='rust')` 从路径启动，不提前把 H5AD 读入内存。
 
 ## 快速开始
 
@@ -134,5 +134,6 @@ NMF 程序发现默认使用 `programs.method=fastcnmf`，`max_iter=50`；OmicVe
 - `docs/`：SOP、接口说明、参数调优规则和架构说明。
 - `markers/`：人工整理的 marker/state/tumor/naming 参考资料。
 - `src/scoop_fast/`：Fast engine contract layer。
-- `src/scsp_agent_sop/`：SCOOP 的可复用 Python 模块。
+- `src/scoop/`：SCOOP 的正式 Python 包入口。
+- `src/scsp_agent_sop/`：SCOOP 的历史兼容 Python 模块路径，现有脚本仍使用该 import path。
 - `scripts/`：Agent 可直接调用的命令行脚本。

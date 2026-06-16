@@ -34,6 +34,7 @@ SCOOP/
       reports/
       artifacts/
   src/scsp_agent_sop/
+  src/scoop/
   scripts/
   docs/
 ```
