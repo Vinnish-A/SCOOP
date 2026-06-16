@@ -106,6 +106,74 @@ the FastCore Harmony 2.0 CPU bridge. The Rust/OOM smoke confirmed that
 `ov.read(..., backend='rust')`; graph/UMAP/Leiden still run after the final
 minimal AnnData materialization.
 
+## External Mode Benchmark on Real Public Test Data
+
+Benchmark date: 2026-06-16
+
+Input:
+
+- 10k run: `h5ad/canonical/quick_test/public_O_GSE154795_10samples_1000cells.h5ad`
+- 72k run: `h5ad/canonical/quick_test/public_O_GSE154795_24samples_3000cells_balanced.h5ad`
+
+Configuration:
+
+- HVG: 3,000 genes
+- PCA: 50 components
+- kNN: 15 neighbors, 30 PCs
+- UMAP: `min_dist=0.3`
+- Leiden: single resolution `0.6`
+- Batch correction: Harmony 2.0
+- Pure CPU / vendored CPU was intentionally not re-tested in this comparison.
+
+Results:
+
+| Dataset | Backend | Status | Wall time | Peak RSS | Sampled GPU memory |
+| --- | --- | --- | ---: | ---: | ---: |
+| 10k public | `omicverse_cpu_gpu_mixed` | passed | 21.78 s | 2.77 GiB | 3992 -> 5055 MiB |
+| 10k public | `omicverse_rust_oom` | passed | 174.32 s | 8.23 GiB | n/a |
+| 72k public | `omicverse_cpu_gpu_mixed` | passed | 70.34 s | 15.69 GiB | 3992 -> 6741 MiB |
+| 72k public | `omicverse_rust_oom` | stopped at 8:14 | incomplete | 4.07 GiB at stop | n/a |
+
+10k step timings:
+
+| Step | Mixed seconds | Rust/OOM seconds |
+| --- | ---: | ---: |
+| read rust | n/a | 0.19 |
+| preprocess | 2.51 | 113.72 |
+| scale | 0.51 | 4.54 |
+| PCA | 0.86 | 4.44 |
+| materialize | n/a | 3.99 |
+| Harmony 2.0 | 1.01 | 1.03 |
+| neighbors | 5.85 | 33.27 |
+| UMAP | 0.71 | 0.79 |
+| Leiden | 0.20 | 5.15 |
+
+10k mixed vs Rust/OOM output comparison:
+
+| Metric | Value |
+| --- | ---: |
+| mixed clusters | 21 |
+| Rust/OOM clusters | 23 |
+| cluster ARI | 0.718 |
+| cluster NMI | 0.791 |
+| 30-PC subspace cosine | 0.893 |
+
+Interpretation:
+
+`omicverse_cpu_gpu_mixed` is the practical external backend on the current RTX
+3080 Ti machine. It completed the 72k public dataset in 70.34 seconds without
+GPU OOM; sampled total GPU memory increased by about 2.75 GiB over the existing
+baseline usage.
+
+`omicverse_rust_oom` currently does not behave like a faster large-data path for
+this 02_core workload. It keeps early RSS low on the 72k run, but the chunked
+`shiftlog|pearson` preprocessing is much slower, and after minimal
+materialization the graph/UMAP/Leiden tail is still in-memory. The 10k run also
+shows larger output (`1.5 GiB` versus `406 MiB`) because the external OOM path
+retains more intermediate state. Before Rust/OOM can be a default large-data
+backend, FastCore needs a stricter materialization/pruning layer and a faster
+OOM HVG path.
+
 Conclusion:
 
 The vendored OmicVerse CPU backend gives a measured `4.22x` speedup over the
