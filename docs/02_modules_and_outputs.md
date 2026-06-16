@@ -116,13 +116,16 @@ FastCore 额外输出：
 
 输入：raw counts、cell type/state label、donor/sample/condition metadata。
 
-默认工具：FastDE pseudobulk DESeq2-like negative-binomial Wald。R DESeq2 和 edgeR quasi-likelihood 保留为 reference validation。
+默认工具：FastDE pseudobulk DESeq2-like negative-binomial Wald。R DESeq2 和 edgeR quasi-likelihood 保留为 reference validation。样本级细胞丰度/状态比例比较由 `fastde abundance` 单独处理。
 
 输出：
 
 - 外部表：pseudobulk counts、metadata、FastDE design matrix、FastDE DE table、size factors、dispersions、benchmark/R reference validation table、GSEA；
+- 外部表：`fastde abundance` 的 sample-by-celltype counts/proportions、mode-specific results、predictions、metrics、manifest；
 - H5AD：只存结果索引和必要 summary。
 
-不做：用 Harmony/scVI/integrated expression 做 DE；用 per-cell p value 证明 condition-level 差异；把 marker gene 检验解释成 condition DE；把当前 FastDE 解释成 `lfcShrink` 的完全复刻。
+不做：用 Harmony/scVI/integrated expression 做 DE；用 per-cell p value 证明 condition-level 差异；把 marker gene 检验解释成 condition DE；把 abundance 解释成 gene-level DE；把当前 FastDE 解释成 `lfcShrink` 的完全复刻。
 
 FastDE condition DE 输出列保持 DESeq2 风格：`gene`、`baseMean`、`log2FoldChange`、`lfcSE`、`stat`、`pvalue`、`padj`、`dispersion`，并额外写出 `dispGeneEst`、`dispFit`、`dispMAP`、`dispOutlier`。当前完整 dispersion 基准中，30k genes / 12 pseudobulk samples 下 FastDE 耗时约 `18.55s`，R DESeq2 reference 约 `19.68s`；两者 log2FC Spearman 约 `0.99999`，top100 overlap 为 `1.00`。
+
+FastDE abundance 输出列按模式区分：survival 写 `hazard_ratio_approx` 和 concordance；binary 写 `odds_ratio_approx`、positive/negative mean proportions 和分类 metrics；multiclass 写 class/reference contrast。所有 abundance 推断都是 sample-level。

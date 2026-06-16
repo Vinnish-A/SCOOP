@@ -9,6 +9,7 @@ def test_fast_registry_exposes_expected_engine_ids() -> None:
     assert {
         "fastde.markers",
         "fastde.pseudobulk_deseq2",
+        "fastde.abundance",
         "fastcnmf.programs",
         "fastcnvpy.tumor_pooled",
         "fastcopykat.cnv_prediction",

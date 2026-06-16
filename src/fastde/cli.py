@@ -9,6 +9,7 @@ import anndata as ad
 from .deseq2 import run_deseq2_wald
 from .io import read_pseudobulk_dir, write_json
 from .markers import run_cosg_markers, run_wilcoxon_markers
+from .abundance_cli import add_abundance_subparser
 
 
 def cmd_deseq2(args: argparse.Namespace) -> int:
@@ -79,6 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
     markers.add_argument("--top-n", type=int, default=100)
     markers.add_argument("--min-pct", type=float, default=0.05)
     markers.set_defaults(func=cmd_markers)
+
+    add_abundance_subparser(sub)
     return parser
 
 
