@@ -11,7 +11,7 @@ SCOOP should be structured as an evidence-native SOP rather than a loose toolkit
 The target architecture has four layers:
 
 1. **SOP Workflow Layer**: run directories, module ordering, H5AD state, file registry, decision log.
-2. **Fast Compute Layer**: deterministic engines such as FastDE, FastCNMF, FastCNVpy, and FastCopyKAT.
+2. **Fast Compute Layer**: deterministic engines such as FastCore, FastDE, FastCNMF, and FastCNVpy.
 3. **Evidence & Skill Layer**: curated marker/state/tumor/naming rules, versioned as retrievable skills.
 4. **Annotation Decision Layer**: schema-bound evidence fusion, validation, and commit into H5AD.
 
@@ -32,7 +32,7 @@ Existing architecture already contains the right primitives:
 - `src/scsp_agent_sop/decision_log.py` already supports decision evidence, fallback metadata, and human review flags.
 - `scripts/04_annotation_markers.py` exports annotation evidence but intentionally does not assign final labels.
 - `src/scsp_agent_sop/annotation.py` creates an evidence template with `review_required` defaults.
-- `pyproject.toml` exposes `fastde`, `fastcnmf`, `fastcopykat`, and `fastcnvpy` as CLI entry points.
+- `pyproject.toml` exposes `fastcore`, `fastde`, `fastcnmf`, and `fastcnvpy` as CLI entry points.
 
 The missing layer is a deterministic **Annotation Decision Layer** that consumes evidence and skills, validates proposed labels, commits accepted labels, and logs the decision.
 
@@ -93,9 +93,9 @@ Fast engines are deterministic compute units. They should not decide biological 
 Each Fast engine should keep its independent package:
 
 - `fastde`
+- `fastcore`
 - `fastcnmf`
 - `fastcnvpy`
-- `fastcopykat`
 
 SCOOP should add a small contract layer under `src/scoop_fast/` that standardizes how SOP scripts and future MCP tools call these engines.
 
@@ -128,7 +128,10 @@ fastde.markers
 fastde.pseudobulk_deseq2
 fastcnmf.programs
 fastcnvpy.tumor_pooled
-fastcopykat.cnv_prediction
+fastcore.preprocess
+fastcore.core_pipeline
+fastcore.graph_embed_cluster
+fastcore.quality_compare
 ```
 
 ### 3.3 ArtifactBundle
