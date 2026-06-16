@@ -9,7 +9,7 @@ import pandas as pd
 from scipy import sparse
 
 from scsp_agent_sop.config import deep_get
-from scsp_agent_sop.core import run_harmony2
+from scsp_agent_sop.core import leiden_sweep, run_harmony2
 from scsp_agent_sop.storage import register_file, write_table
 
 
@@ -189,7 +189,7 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
     n_pcs = int(deep_get(cfg, "core.fastcore.omicverse.n_pcs", deep_get(cfg, "core.n_pcs", 50)))
     n_neighbors = int(deep_get(cfg, "core.fastcore.omicverse.neighbors.n_neighbors", deep_get(cfg, "core.neighbors_n_neighbors", 15)))
     min_dist = float(deep_get(cfg, "core.fastcore.omicverse.umap.min_dist", deep_get(cfg, "core.umap_min_dist", 0.3)))
-    resolutions = list(deep_get(cfg, "core.fastcore.omicverse.leiden.resolutions", deep_get(cfg, "core.leiden_resolutions", [0.8])))
+    resolutions = list(deep_get(cfg, "core.fastcore.omicverse.leiden.resolutions", deep_get(cfg, "core.leiden_resolutions", [0.75])))
     resolution = float(deep_get(cfg, "core.fastcore.omicverse.leiden.default_resolution", resolutions[min(len(resolutions) // 2, len(resolutions) - 1)]))
 
     _time_step(timings, "copy_counts", _copy_counts_to_x, adata, counts_layer)
@@ -230,21 +230,21 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
         min_dist=min_dist,
         random_state=random_state,
     )
-    sweep = _time_step(timings, "leiden_single", _leiden_single, adata, resolution=resolution, random_state=random_state)
-    stability = pd.DataFrame(
-        [{
-            "resolution": resolution,
-            "median_ari": 1.0,
-            "median_nmi": 1.0,
-            "n_clusters_seed0": int(adata.obs["cluster_identity"].nunique()),
-            "chosen": True,
-            "method": "omicverse_gpl_single_leiden",
-        }]
+    sweep, stability = _time_step(
+        timings,
+        "leiden_search",
+        leiden_sweep,
+        adata,
+        graph_prefix="identity",
+        resolutions=resolutions,
+        seeds=deep_get(cfg, "core.fastcore.omicverse.leiden.seeds", deep_get(cfg, "core.leiden_seeds", [0, 1, 2, 3, 4])),
+        search_config=deep_get(cfg, "core.leiden_search", {}),
     )
     sweep_path = write_table(sweep, run_root / "02_core" / "tables" / "leiden_sweep.parquet")
     st_path = write_table(stability, run_root / "02_core" / "tables" / "cluster_stability.parquet")
     register_file(adata, key="leiden_sweep", path=sweep_path, schema="leiden_sweep.v1")
     register_file(adata, key="cluster_stability", path=st_path, schema="cluster_stability.v1")
+    chosen_resolution = float(stability.loc[stability["chosen"], "resolution"].iloc[0]) if "chosen" in stability else resolution
 
     adata.uns["fastcore_omicverse_gpl"] = {
         "source": "adapted from omicverse==2.2.3 pp CPU core",
@@ -253,7 +253,8 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
         "target_sum": target_sum,
         "n_hvgs": n_hvgs,
         "n_pcs": n_pcs,
-        "single_leiden_resolution": resolution,
+        "leiden_resolution": chosen_resolution,
+        "leiden_search_strategy": deep_get(cfg, "core.leiden_search.strategy", "coarse_to_fine"),
     }
     return {
         "backend": "fastcore_cpu",

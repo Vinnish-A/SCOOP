@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -170,8 +171,9 @@ def default_lanes() -> tuple[BenchmarkLane, ...]:
 
 
 def build_default_manifest(root: Path, output_root: Path) -> FastCNMFBenchmarkManifest:
-    quick = root / "h5ad/canonical/quick_test"
-    spatial = root / "data/raw/spatial/gbm_lowres_visium"
+    data_root = Path(os.environ.get("SCOOP_TEST_DATA_ROOT", root / ".scoop_local/data"))
+    quick = data_root / "h5ad/canonical/quick_test"
+    spatial = data_root / "raw/spatial/gbm_lowres_visium"
     datasets: list[DatasetSpec] = []
 
     if spatial.exists():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import anndata as ad
@@ -12,7 +13,7 @@ from scipy import sparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RAW_ROOT = ROOT / "data/raw/spatial/gbm_lowres_visium"
+RAW_ROOT = Path(os.environ.get("SCOOP_SPATIAL_RAW_ROOT", ROOT / ".scoop_local/data/raw/spatial/gbm_lowres_visium"))
 OUT_DIR = ROOT / "tmp/cnmf_spatial_benchmark/input"
 OUT_H5AD = OUT_DIR / "gbm_lowres_visium_3samples_cnmf_input.h5ad"
 MANIFEST = OUT_DIR / "gbm_lowres_visium_3samples_cnmf_input_manifest.json"

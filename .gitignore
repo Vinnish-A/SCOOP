@@ -13,6 +13,9 @@ env/
 
 # SCOOP run outputs and temporary benchmark material
 tmp/
+.scoop_local/
+data/
+runs/
 runs/*/artifacts/
 runs/*/logs/
 runs/*/reports/
@@ -45,15 +48,10 @@ runs/*/07_de/contrasts/
 *.tar.gz
 *.tgz
 
-# Keep documented directory structure and tiny templates
-!h5ad/**/
-!h5ad/**/README.md
-!h5ad/**/.gitkeep
-!data/**/
-!data/**/README.md
-!data/**/.gitkeep
-!data/external/**/*.yaml
-!data/external/**/*.tsv
+# Retired root-level data/script locations.
+/h5ad/
+/spatialdata/
+/r/
 
 # Local/private configuration overrides
 configs/local*.yaml

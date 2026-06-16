@@ -120,8 +120,9 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
         leiden_sweep,
         adata,
         graph_prefix="identity",
-        resolutions=deep_get(cfg, "core.leiden_resolutions", [0.4, 0.8, 1.2]),
+        resolutions=deep_get(cfg, "core.leiden_resolutions", [0.25, 0.5, 0.75, 1.0, 1.25, 1.5]),
         seeds=deep_get(cfg, "core.leiden_seeds", [0, 1, 2, 3, 4]),
+        search_config=deep_get(cfg, "core.leiden_search", {}),
     )
     sweep_path = write_table(sweep, run_root / "02_core" / "tables" / "leiden_sweep.parquet")
     st_path = write_table(stability, run_root / "02_core" / "tables" / "cluster_stability.parquet")

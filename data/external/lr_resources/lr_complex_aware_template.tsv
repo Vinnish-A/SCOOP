@@ -1,4 +1,0 @@
-ligand	receptor	ligand_subunits	receptor_subunits	resource	complex_id
-CXCL12	CXCR4	CXCL12	CXCR4	template	CXCL12_CXCR4
-TGFB1	TGFBR1_TGFBR2	TGFB1	TGFBR1|TGFBR2	template	TGFB1_TGFBR_complex
-COL1A1_COL1A2	ITGA1_ITGB1	COL1A1|COL1A2	ITGA1|ITGB1	template	COL1_integrin_complex

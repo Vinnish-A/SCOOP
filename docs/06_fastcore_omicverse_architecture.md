@@ -119,6 +119,24 @@ FastCore must map backend-native results to SCOOP stable keys:
 Large sweep and diagnostic tables stay outside H5AD and are registered in
 `adata.uns['file_registry']`.
 
+## Leiden Resolution Search
+
+The default resolution search range is `0.25-1.5`. The accepted strategy is
+coarse-to-fine rather than a full dense grid:
+
+1. coarse pass on `[0.25, 0.75, 1.25, 1.5]` with two seeds;
+2. choose the lowest candidate that passes seed-stability and cluster-count
+   gates;
+3. refine around that candidate within `+/-0.25` at `0.125` resolution steps
+   with all configured seeds;
+4. write the actual sweep and stability tables externally, then keep only the
+   selected `cluster_identity` in H5AD.
+
+This keeps the search efficient while still avoiding a single hard-coded
+resolution. External mixed/OOM adapters may still run one selected resolution
+when their backend API does not expose a cheap multi-resolution sweep; the
+default selected resolution for those adapters is `0.75`.
+
 ## Artifacts
 
 Every FastCore run writes:
