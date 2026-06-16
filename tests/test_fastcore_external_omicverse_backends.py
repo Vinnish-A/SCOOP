@@ -135,7 +135,7 @@ def test_external_mixed_backend_runs_omicverse_steps(monkeypatch, tmp_path):
 
     result = run_omicverse_mixed_core(adata, _cfg(), tmp_path)
 
-    assert result["backend"] == "omicverse_cpu_gpu_mixed"
+    assert result["backend"] == "fastcore_mixed"
     assert calls[:2] == ["seed:0", "mixed_init"]
     assert "X_pca_harmony_identity" in adata.obsm
     assert "connectivities_identity" in adata.obsp
@@ -148,14 +148,14 @@ def test_rust_oom_backend_is_path_based_and_writes_output(monkeypatch, tmp_path)
     calls = _install_fake_omicverse(monkeypatch, rust_input=_adata())
 
     def fake_plan(cfg, *, adata=None, input_path=None, capabilities=None):
-        return FastCorePlan("omicverse_rust_oom", False, "scanpy_legacy", [], {})
+        return FastCorePlan("fastcore_oom", False, "scanpy_legacy", [], {})
 
     monkeypatch.setattr("scsp_agent_sop.core_runner.plan_fastcore_backend", fake_plan)
     output = tmp_path / "adata_core.h5ad"
 
     result = run_core_pipeline(None, _cfg(), tmp_path, input_path=tmp_path / "input.h5ad", output_path=output)
 
-    assert result["backend"] == "omicverse_rust_oom"
+    assert result["backend"] == "fastcore_oom"
     assert output.exists()
     assert calls[0].startswith("read:rust:")
     assert "to_adata" in calls

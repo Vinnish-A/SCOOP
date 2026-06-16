@@ -1,5 +1,13 @@
 from __future__ import annotations
 
-from omicverse_transfer.core_cpu import run_omicverse_cpu_core
+from pathlib import Path
+from typing import Any, Mapping
+
+from fastcore.vendor.omicverse_gpl import run_vendored_omicverse_cpu_core
+
+
+def run_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str | Path) -> dict[str, Any]:
+    return run_vendored_omicverse_cpu_core(adata, cfg, run_root)
+
 
 __all__ = ["run_omicverse_cpu_core"]

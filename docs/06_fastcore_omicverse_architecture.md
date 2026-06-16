@@ -1,4 +1,4 @@
-# 06. FastCore / OmicVerse-backed 02_core Architecture
+# 06. FastCore 02_core Architecture
 
 FastCore is the new compute engine for the existing `02_core` SOP module. It is
 not a new eighth SOP module. The public entry point remains:
@@ -17,15 +17,15 @@ Harmony 2.0, kNN, UMAP, and Leiden sweep implementation.
 
 FastCore primary backends:
 
-- `omicverse_cpu`
-- `omicverse_cpu_gpu_mixed`
-- `omicverse_rust_oom`
+- `fastcore_cpu`
+- `fastcore_mixed`
+- `fastcore_oom`
 
 Fallback backend:
 
 - `scanpy_legacy`
 
-There is no per-step fallback chain. If an OmicVerse backend is not available or
+There is no per-step fallback chain. If a FastCore backend is not available or
 has not passed quality gates, the planner selects `scanpy_legacy` before the run
 starts.
 
@@ -50,14 +50,14 @@ making imports fail at module import time:
 `fastcore.backend_plan.plan_fastcore_backend()` then applies the policy:
 
 ```text
-backed or very large + AnnDataOOM/Rust available -> omicverse_rust_oom
-CUDA + torch available                          -> omicverse_cpu_gpu_mixed
-External or vendored OmicVerse CPU available   -> omicverse_cpu
+backed or very large + AnnDataOOM/Rust available -> fastcore_oom
+CUDA + torch available                          -> fastcore_mixed
+vendored FastCore CPU available                 -> fastcore_cpu
 otherwise                                       -> scanpy_legacy
 ```
 
-The default implementation keeps `core.fastcore.enable_omicverse_cpu_backend`
-enabled. On ordinary CPU environments this selects the vendored `omicverse_cpu`
+The default implementation keeps `core.fastcore.enable_fastcore_cpu_backend`
+enabled. On ordinary CPU environments this selects the vendored `fastcore_cpu`
 backend first; `scanpy_legacy` remains the only fallback when the backend is
 disabled or unavailable. Batch correction defaults to Harmony 2.0 through
 `harmonypy>=2.0,<3`; Harmony Py Touch is no longer part of the default core
@@ -65,19 +65,19 @@ workflow.
 
 The default Fast environment installs `harmonypy>=2.0,<3`, torch/CUDA, CuPy,
 and AnnDataOOM. It does not install the external OmicVerse package.
-All OmicVerse-derived code and optional OmicVerse adapters are isolated under
-`src/omicverse_transfer/`. The `omicverse_cpu` backend is a vendored GPL subset
-of OmicVerse `pp` CPU core code under
-`src/omicverse_transfer/vendor/omicverse_gpl/`. External OmicVerse validation
-uses `environment_omicverse.yml` or the `omicverse` Python extra in a separate
-environment.
+The external OmicVerse project is tracked as a hidden optional submodule at
+`third_party/omicverse`; it is imported only through
+`scsp_agent_sop.omicverse_facilities` for explicit reference validation. The
+`fastcore_cpu` backend is a vendored GPL-compatible subset of OmicVerse-style
+CPU preprocessing under `src/fastcore/vendor/omicverse_gpl/`.
 
 ## Executable Backend Adapters
 
-`omicverse_cpu` is self-contained through the vendored GPL CPU subset.
-`omicverse_cpu_gpu_mixed` and `omicverse_rust_oom` are the only accelerated
-FastCore adapters. The earlier pure-GPU preprocess path has been removed from
-the active FastCore scope.
+`fastcore_cpu` is self-contained through the vendored GPL CPU subset.
+`fastcore_mixed` and `fastcore_oom` are the only optional external-adapter
+FastCore modes. The earlier pure-GPU preprocess path has been removed from the
+active FastCore scope. Legacy `omicverse_*` backend names are accepted only as
+configuration aliases.
 
 The mixed backend calls:
 
@@ -142,7 +142,7 @@ settings, timing, quality, and external artifact paths.
 
 ## Quality Gate
 
-OmicVerse-backed results are accepted only after comparison to a stable
+FastCore-backed results are accepted only after comparison to a stable
 `scanpy_legacy` reference on small and medium datasets:
 
 - PCA explained variance delta
@@ -167,7 +167,7 @@ run_omicverse_rust_oom_core(input_h5ad, output_h5ad, cfg, run_root)
 It must start from `ov.read(path, backend="rust")`, because loading a full
 AnnData into memory before calling the backend defeats the out-of-memory design.
 `scripts/02_core_analysis.py` therefore performs pre-run planning before any
-H5AD read and passes `adata=None` into the runner when `omicverse_rust_oom` is
+H5AD read and passes `adata=None` into the runner when `fastcore_oom` is
 selected.
 
 ## Risks

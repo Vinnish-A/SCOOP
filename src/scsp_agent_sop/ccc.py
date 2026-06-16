@@ -59,7 +59,7 @@ def run_cellphonedb_validation_omicverse(
     threads: int = 10,
 ) -> dict[str, Any]:
     """Run OmicVerse CellPhoneDB wrapper and immediately externalise results."""
-    from omicverse_transfer.external import require_omicverse
+    from scsp_agent_sop.omicverse_facilities import require_omicverse
 
     ov = require_omicverse()
     results_key = "_cpdb_results_tmp"
@@ -95,7 +95,7 @@ def run_cellphonedb_validation_omicverse(
 
 
 def run_liana_validation_omicverse(adata, *, groupby: str, method: str = "rank_aggregate") -> pd.DataFrame:
-    from omicverse_transfer.external import require_omicverse
+    from scsp_agent_sop.omicverse_facilities import require_omicverse
 
     ov = require_omicverse()
     res = ov.single.run_liana(adata, groupby=groupby, method=method, inplace=False)

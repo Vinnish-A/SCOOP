@@ -27,8 +27,8 @@ def test_vendored_omicverse_cpu_backend_writes_stable_core_fields(tmp_path):
             "batch_correction": {"method": "harmony2", "max_iter_harmony": 20},
             "fastcore": {
                 "fallback_backend": "scanpy_legacy",
-                "allowed_backends": ["omicverse_cpu"],
-                "enable_omicverse_cpu_backend": True,
+                "allowed_backends": ["fastcore_cpu"],
+                "enable_fastcore_cpu_backend": True,
                 "omicverse": {
                     "target_sum": 500000,
                     "n_hvgs": 25,
@@ -43,7 +43,7 @@ def test_vendored_omicverse_cpu_backend_writes_stable_core_fields(tmp_path):
 
     result = run_core_pipeline(adata, cfg, tmp_path)
 
-    assert result["backend"] == "omicverse_cpu"
+    assert result["backend"] == "fastcore_cpu"
     assert result["fallback_used"] is False
     assert result["batch_correction_method"] == "harmony2"
     assert "pca_covariance_eigh" in result["timings"]

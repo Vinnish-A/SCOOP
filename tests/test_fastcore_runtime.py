@@ -15,7 +15,7 @@ def test_detect_capabilities_does_not_raise():
 
 
 def test_planner_falls_back_when_vendored_backend_disabled():
-    cfg = {"core": {"engine": "fastcore", "fastcore": {"fallback_backend": "scanpy_legacy", "enable_omicverse_cpu_backend": False}}}
+    cfg = {"core": {"engine": "fastcore", "fastcore": {"fallback_backend": "scanpy_legacy", "enable_fastcore_cpu_backend": False}}}
     adata = AnnData(np.ones((4, 3)))
     caps = FastCoreCapabilities(
         omicverse_available=False,
@@ -31,7 +31,7 @@ def test_planner_falls_back_when_vendored_backend_disabled():
         selected_backend="scanpy_legacy",
         fallback_required=True,
         fallback_backend="scanpy_legacy",
-        reasons=["omicverse_unavailable", "omicverse_cpu_backend_disabled"],
+        reasons=["omicverse_unavailable", "fastcore_cpu_backend_disabled"],
         capabilities=caps.to_dict(),
     )
 
@@ -49,7 +49,7 @@ def test_planner_selects_vendored_cpu_backend_by_default():
         reasons=[],
     )
     plan = plan_fastcore_backend(cfg, adata=adata, capabilities=caps)
-    assert plan.selected_backend == "omicverse_cpu"
+    assert plan.selected_backend == "fastcore_cpu"
     assert plan.fallback_required is False
 
 
@@ -59,8 +59,8 @@ def test_planner_selects_cpu_when_enabled_and_available():
             "engine": "fastcore",
             "fastcore": {
                 "fallback_backend": "scanpy_legacy",
-                "enable_omicverse_cpu_backend": True,
-                "allowed_backends": ["omicverse_cpu"],
+                "enable_fastcore_cpu_backend": True,
+                "allowed_backends": ["fastcore_cpu"],
             },
         }
     }
@@ -75,5 +75,5 @@ def test_planner_selects_cpu_when_enabled_and_available():
         reasons=[],
     )
     plan = plan_fastcore_backend(cfg, adata=adata, capabilities=caps)
-    assert plan.selected_backend == "omicverse_cpu"
+    assert plan.selected_backend == "fastcore_cpu"
     assert plan.fallback_required is False

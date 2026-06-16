@@ -146,6 +146,6 @@ def run_omicverse_cnmf_validation(adata, components, output_dir: str, n_iter: in
     This is intentionally not the default. It is called only when the fast
     consensus NMF is unstable or the programme supports an important claim.
     """
-    from omicverse_transfer.external import run_cnmf_validation
+    from scsp_agent_sop.omicverse_facilities import run_cnmf_validation
 
     return run_cnmf_validation(adata, components=components, output_dir=output_dir, n_iter=n_iter, use_gpu=use_gpu)
