@@ -180,6 +180,7 @@ def run_omicverse_preprocess_scale_pca(ov, adata, options: OmicVerseCoreOptions,
         layer=options.scaled_layer,
         random_state=options.random_state,
     )
+    adata.uns.pop("_scaled_implicit", None)
     map_standard_core_keys(adata)
 
 

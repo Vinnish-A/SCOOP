@@ -87,6 +87,8 @@ class _FakePP:
     def scale(self, adata, layers_add="scaled", **kwargs):
         self.calls.append(f"scale:{layers_add}:{kwargs.get('use_implicit_centering')}")
         adata.layers[layers_add] = adata.X.copy()
+        if kwargs.get("use_implicit_centering"):
+            adata.uns["_scaled_implicit"] = object()
 
     def pca(self, adata, n_pcs=3, **kwargs):
         self.calls.append(f"pca:{n_pcs}")
@@ -151,6 +153,7 @@ def test_external_mixed_backend_runs_omicverse_steps(monkeypatch, tmp_path):
     assert "X_pca_harmony_identity" in adata.obsm
     assert "connectivities_identity" in adata.obsp
     assert "cluster_identity" in adata.obs
+    assert "_scaled_implicit" not in adata.uns
     assert any(call == "neighbors:None:pyg" for call in calls)
 
 
