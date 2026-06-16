@@ -24,7 +24,9 @@ def run_markers_omicverse(adata, groupby: str = "cluster_identity", layer: str =
     to a DataFrame and removes the heavy intermediate key to follow the
     minimal-H5AD policy.
     """
-    import omicverse as ov
+    from omicverse_transfer.external import require_omicverse
+
+    ov = require_omicverse()
     key = "_ov_markers_tmp"
     ov.single.find_markers(adata, groupby=groupby, method=method, n_genes=n_genes, key_added=key, layer=layer)
     # Prefer OmicVerse helper if present.

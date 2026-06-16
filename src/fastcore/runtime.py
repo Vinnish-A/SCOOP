@@ -29,7 +29,7 @@ def detect_capabilities() -> FastCoreCapabilities:
     """Detect optional FastCore runtime features without importing heavy stacks eagerly."""
     reasons: list[str] = []
     omicverse_available = _module_available("omicverse")
-    vendored_omicverse_available = _module_available("fastcore.vendor.omicverse_gpl")
+    vendored_omicverse_available = _module_available("omicverse_transfer.vendor.omicverse_gpl")
     torch_available = _module_available("torch")
     cuda_available = False
     if torch_available:
