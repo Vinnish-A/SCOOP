@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Iterable
 
 import numpy as np
 import pandas as pd
 
 from .abundance_data import AbundanceTable
-
-
-@dataclass
-class FeatureDesign:
-    abundance: pd.DataFrame
-    covariates: pd.DataFrame
-    features: pd.DataFrame
-    abundance_columns: list[str]
-    covariate_columns: list[str]
 
 
 def parse_covariates(covariates: str | Iterable[str] | None) -> list[str]:
@@ -38,35 +28,6 @@ def merge_metadata(table: AbundanceTable, metadata: pd.DataFrame | None, sample_
         meta = meta.reindex(table.counts.index)
     meta.index.name = table.sample_key
     return AbundanceTable(table.counts, table.proportions, meta, table.sample_key, table.celltype_key)
-
-
-def abundance_transform(
-    counts: pd.DataFrame,
-    transform: str = "clr",
-    pseudocount: float = 0.5,
-) -> pd.DataFrame:
-    values = counts.to_numpy(dtype=float)
-    if np.any(values < 0):
-        raise ValueError("abundance counts must be non-negative")
-    transform = transform.lower()
-    adjusted = values + float(pseudocount)
-    props = adjusted / adjusted.sum(axis=1, keepdims=True)
-    if transform == "proportion":
-        z = counts.div(counts.sum(axis=1).replace(0, np.nan), axis=0).fillna(0).to_numpy(dtype=float)
-    elif transform == "clr":
-        logp = np.log(props)
-        z = logp - logp.mean(axis=1, keepdims=True)
-    elif transform == "logit_proportion":
-        eps = 1e-6
-        p = np.clip(props, eps, 1.0 - eps)
-        z = np.log(p / (1.0 - p))
-    elif transform == "arcsin_sqrt":
-        z = np.arcsin(np.sqrt(props))
-    elif transform == "raw_count_with_offset":
-        z = np.log1p(adjusted)
-    else:
-        raise ValueError(f"unknown abundance transform: {transform}")
-    return pd.DataFrame(z, index=counts.index, columns=counts.columns)
 
 
 def build_covariate_matrix(metadata: pd.DataFrame, covariates: list[str]) -> pd.DataFrame:
@@ -93,24 +54,6 @@ def build_covariate_matrix(metadata: pd.DataFrame, covariates: list[str]) -> pd.
     if not parts:
         return pd.DataFrame(index=metadata.index)
     return pd.concat(parts, axis=1).astype(float)
-
-
-def build_feature_design(
-    table: AbundanceTable,
-    transform: str = "clr",
-    pseudocount: float = 0.5,
-    covariates: list[str] | None = None,
-) -> FeatureDesign:
-    abundance = abundance_transform(table.counts, transform=transform, pseudocount=pseudocount)
-    cov = build_covariate_matrix(table.metadata, covariates or [])
-    features = pd.concat([abundance, cov], axis=1).astype(float)
-    return FeatureDesign(
-        abundance=abundance,
-        covariates=cov,
-        features=features,
-        abundance_columns=list(abundance.columns),
-        covariate_columns=list(cov.columns),
-    )
 
 
 def encode_binary_labels(

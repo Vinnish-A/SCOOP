@@ -73,12 +73,10 @@ inputs are expanded into equivalent bag instances for compatibility.
 Reimplemented files:
 
 - `src/fastde/abundance_data.py`: H5AD/sample count aggregation.
-- `src/fastde/abundance_design.py`: abundance transforms and design matrices.
+- `src/fastde/abundance_design.py`: outcome encoding and covariate design.
 - `src/fastde/abundance_loss.py`: Cox, classification, and multinomial losses.
 - `src/fastde/abundance_mil.py`: scSurvival-style MIL encoder, gated attention
   pooling, task heads, and survival loss variants.
-- `src/fastde/abundance_model.py`: deterministic NumPy/sklearn model backend.
-- `src/fastde/abundance_train.py`: training wrapper.
 - `src/fastde/abundance.py`: mode-specific results, predictions, metrics, and
   manifests.
 - `src/fastde/abundance_cli.py`: `fastde abundance` CLI.
@@ -87,8 +85,7 @@ Reimplemented files:
 
 - Input focuses on cell-type or cell-state abundance rather than raw gene
   expression.
-- The default backend is PyTorch `scsurvival_mil`; the older NumPy/SciPy linear
-  model remains available as `--abundance-backend linear`.
+- The only active backend is PyTorch `scsurvival_mil`.
 - Survival mode supports the original Cox partial likelihood plus optional
   rank-loss variants.
 - Binary/multiclass/continuous modes reuse the same scSurvival-style

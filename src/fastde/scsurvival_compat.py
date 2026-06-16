@@ -7,26 +7,24 @@ import numpy as np
 import pandas as pd
 
 from .abundance_data import AbundanceTable
-from .abundance_design import FeatureDesign, build_feature_design
-from .abundance_model import ScSurvivalLikeModel
+from .abundance_mil import BagDataset, ScSurvivalMILNet, build_bags_from_counts
 from .abundance_result import AbundanceResult
-from .abundance_train import AbundanceTrainer
 
 
 @dataclass
 class ScSurvivalDataset:
     table: AbundanceTable
-    design: FeatureDesign
+    bags: BagDataset
     outcome: pd.DataFrame
     mode: str
 
     @property
     def x(self) -> np.ndarray:
-        return self.design.features.to_numpy(dtype=float)
+        return np.asarray([bag.mean(axis=0) for bag in self.bags.bags], dtype=float)
 
 
-ScSurvivalModel = ScSurvivalLikeModel
-ScSurvivalTrainer = AbundanceTrainer
+ScSurvivalModel = ScSurvivalMILNet
+ScSurvivalTrainer = None
 ScSurvivalResult = AbundanceResult
 
 
@@ -34,13 +32,11 @@ def make_scsurvival_dataset(
     table: AbundanceTable,
     mode: str,
     outcome: pd.DataFrame,
-    transform: str = "clr",
-    pseudocount: float = 0.5,
     covariates: list[str] | None = None,
 ) -> ScSurvivalDataset:
     return ScSurvivalDataset(
         table=table,
-        design=build_feature_design(table, transform=transform, pseudocount=pseudocount, covariates=covariates),
+        bags=build_bags_from_counts(table),
         outcome=outcome,
         mode=mode,
     )

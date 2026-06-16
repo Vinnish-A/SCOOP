@@ -138,9 +138,6 @@ shared instance encoder maps cells/states into latent features, gated attention
 pools each bag into a sample embedding, and the task-specific head predicts
 survival risk, binary label, multiclass subtype, or continuous phenotype.
 
-For compatibility and debugging, `--abundance-backend linear` keeps the earlier
-sample-by-celltype matrix model. It is not the default.
-
 Supported modes:
 
 - `survival`: Cox-style survival association from cell-type proportions.
