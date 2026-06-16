@@ -2,10 +2,10 @@
 """Export cluster marker and annotation evidence tables.
 
 Usage:
-  python scripts/04_annotation_markers.py --config runs/<run_id>/config/run.yaml
+  python scripts/04a_annotation_evidence.py --config runs/<run_id>/config/run.yaml
 
-This script does not assign final labels automatically. It produces evidence
-that an Agent or analyst can use for marker+NMF+kNN+reference fusion.
+This script is not a cell-type annotator. It exports data-derived evidence
+that a subagent or analyst can use with biological knowledge before commit.
 """
 from __future__ import annotations
 
@@ -57,7 +57,13 @@ def main():
 
     ensure_dir(output.parent)
     adata.write_h5ad(output)
-    log_decision(run_root, module="annotation", decision="marker_evidence_exported", reason="Marker table and evidence template exported; final annotation remains evidence-fusion task.", parameters={"marker_method": method})
+    log_decision(
+        run_root,
+        module="annotation",
+        decision="annotation_evidence_exported",
+        reason="Marker table and evidence template exported; no biological labels were assigned.",
+        parameters={"marker_method": method},
+    )
 
 
 if __name__ == "__main__":

@@ -56,14 +56,14 @@ FastCore 额外输出：
 
 输入：final clusters、marker table、NMF usage、kNN graph、reference mapping。
 
-默认工具：Scanpy marker；FastDE sparse COSG 可作为快速 marker 辅助；OmicVerse `single.find_markers(method='cosg')` 仅作为可选兼容验证；reference mapping 仅作证据。
+默认工具：`04a_annotation_evidence.py` 导出 marker、program、CNV、reference 和 curated skill 证据；Scanpy marker 是默认 marker 路径，FastDE sparse COSG 可作为快速 marker 辅助，OmicVerse `single.find_markers(method='cosg')` 仅作为可选兼容验证。`04c_annotation_export_for_agent.py` 只把证据打包成 subagent/人工可编辑的结构化模板，不产生最终标签。`04d_annotation_commit.py` 只验证并提交已接受的结构化决策。
 
 输出：
 
 - H5AD `obs`：`cell_type_lvl1/2/3`、`cell_state`、confidence；
-- 外部表：cluster markers、annotation evidence、merge/split log。
+- 外部表：cluster markers、annotation evidence bundle、decision template、validation table、merge/split log。
 
-不做：单独依赖一个 marker database、reference model、GPT 或 CellVote 决定标签。
+不做：让 marker 统计脚本、reference model 或 Python 规则自动决定细胞类型；让 subagent 直接写 H5AD；单独依赖一个 marker database、reference model、GPT 或 CellVote 决定标签。细胞类型命名由 subagent/人工结合模型世界知识和项目背景提出，但必须通过 schema、validator 和 committer。
 
 ### 04b_tumor_fastcnvpy
 

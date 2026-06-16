@@ -9,20 +9,20 @@ Inputs:
 Script:
 
 ```bash
-python scripts/04_annotation_markers.py --config runs/<run_id>/config/run.yaml
+python scripts/04a_annotation_evidence.py --config runs/<run_id>/config/run.yaml
 ```
 
 OmicVerse fast marker option:
 
 ```bash
-python scripts/04_annotation_markers.py --config runs/<run_id>/config/run.yaml --use-omicverse-cosg
+python scripts/04a_annotation_evidence.py --config runs/<run_id>/config/run.yaml --use-omicverse-cosg
 ```
 
-The OmicVerse wrapper is used only to export marker evidence. Final labels still require evidence fusion.
+The OmicVerse wrapper is used only to export marker evidence. Final labels are proposed by a subagent or analyst and must pass validation before commit.
 
 H5AD writes:
 
-- No final labels unless supplied by user/Agent after review.
+- No final labels unless supplied by a subagent or analyst after review.
 
 Sidecar outputs:
 
