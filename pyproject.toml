@@ -46,3 +46,7 @@ omicverse = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["third_party", ".git", ".venv*"]

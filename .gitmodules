@@ -1,3 +1,6 @@
 [submodule "third_party/scSurvival"]
 	path = third_party/scSurvival
 	url = https://github.com/cliffren/scSurvival.git
+[submodule "third_party/omicverse"]
+	path = third_party/omicverse
+	url = https://github.com/Starlitnightly/omicverse.git

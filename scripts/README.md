@@ -22,7 +22,7 @@ python scripts/07_prune_and_manifest.py --config runs/<run_id>/config/run.yaml
 
 空间和 CCC 模块默认在配置里关闭。需要使用时，把 `spatial.enabled` 或 `ccc.enabled` 改成 `true`，并补齐 reference、LR resource、CellPhoneDB database 等路径。
 
-`02_core_analysis.py` 现在调用 FastCore runner。SOP 入口仍是 `02_core`，但计算内核由 `core.engine` 控制；默认 `fastcore` 会先做 capability planning，OmicVerse 后端不可用或未通过策略选择时整体回退到唯一的 `scanpy_legacy` 后端。选中 `omicverse_rust_oom` 时，脚本不会预读 H5AD，而是把路径直接交给 Rust/OOM backend。
+`02_core_analysis.py` 现在调用 FastCore runner。SOP 入口仍是 `02_core`，但计算内核由 `core.engine` 控制；默认 `fastcore` 会先做 capability planning，FastCore 后端不可用或未通过策略选择时整体回退到唯一的 `scanpy_legacy` 后端。选中 `fastcore_oom` 时，脚本不会预读 H5AD，而是把路径直接交给 OOM backend。
 
 FastCore backend 基准入口：
 

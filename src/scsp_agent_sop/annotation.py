@@ -24,7 +24,7 @@ def run_markers_omicverse(adata, groupby: str = "cluster_identity", layer: str =
     to a DataFrame and removes the heavy intermediate key to follow the
     minimal-H5AD policy.
     """
-    from omicverse_transfer.external import require_omicverse
+    from scsp_agent_sop.omicverse_facilities import require_omicverse
 
     ov = require_omicverse()
     key = "_ov_markers_tmp"

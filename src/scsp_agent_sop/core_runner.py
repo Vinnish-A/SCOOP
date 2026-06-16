@@ -4,7 +4,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Mapping
 
-from fastcore.backend_plan import plan_fastcore_backend
+from fastcore.backend_plan import canonical_backend, plan_fastcore_backend
 from fastcore.backends.scanpy_legacy import run_scanpy_legacy_core
 from scsp_agent_sop.config import deep_get
 from scsp_agent_sop.decision_log import log_decision
@@ -32,7 +32,7 @@ def run_core_pipeline(
         fallback_reason = None
     elif engine == "fastcore":
         plan = plan_fastcore_backend(cfg, adata=adata, input_path=input_path)
-        backend = plan.selected_backend
+        backend = canonical_backend(plan.selected_backend)
         fallback_used = bool(plan.fallback_required)
         fallback_reason = ";".join(plan.reasons) if fallback_used and plan.reasons else None
     else:
@@ -42,17 +42,17 @@ def run_core_pipeline(
         if adata is None:
             raise ValueError("scanpy_legacy requires an in-memory AnnData object.")
         result = run_scanpy_legacy_core(adata, cfg, run_root)
-    elif backend == "omicverse_cpu":
+    elif backend == "fastcore_cpu":
         from fastcore.backends.omicverse_cpu import run_omicverse_cpu_core
 
         result = run_omicverse_cpu_core(adata, cfg, run_root)
-    elif backend == "omicverse_cpu_gpu_mixed":
+    elif backend == "fastcore_mixed":
         from fastcore.backends.omicverse_mixed import run_omicverse_mixed_core
 
         result = run_omicverse_mixed_core(adata, cfg, run_root)
-    elif backend == "omicverse_rust_oom":
+    elif backend == "fastcore_oom":
         if input_path is None or output_path is None:
-            raise ValueError("omicverse_rust_oom requires input_path and output_path.")
+            raise ValueError("fastcore_oom requires input_path and output_path.")
         from fastcore.backends.omicverse_rust_oom import run_omicverse_rust_oom_core
 
         result = run_omicverse_rust_oom_core(input_path, output_path, cfg, run_root)
@@ -62,7 +62,7 @@ def run_core_pipeline(
     result = dict(result)
     result_adata = result.pop("_adata", None)
     manifest_adata = result_adata if result_adata is not None else adata
-    result.setdefault("backend", backend)
+    result["backend"] = backend
     result["engine"] = engine
     result["fallback_used"] = fallback_used
     result["fallback_reason"] = fallback_reason
@@ -72,7 +72,7 @@ def run_core_pipeline(
         "schema_version": "fastcore_manifest.v1",
         "engine": engine,
         "backend": result["backend"],
-        "gpu": result["backend"] == "omicverse_cpu_gpu_mixed",
+        "gpu": result["backend"] == "fastcore_mixed",
         "n_obs": int(result.get("n_obs", getattr(manifest_adata, "n_obs", 0))),
         "n_vars": int(result.get("n_vars", getattr(manifest_adata, "n_vars", 0))),
         "n_hvgs": int(deep_get(cfg, "core.fastcore.omicverse.n_hvgs", deep_get(cfg, "core.n_top_hvg", 3000))),

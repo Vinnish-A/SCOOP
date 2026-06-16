@@ -30,20 +30,20 @@ Results:
 | --- | --- | --- | --- | ---: | ---: |
 | scanpy baseline | `scanpy_legacy` | `scanpy_legacy` | false | 222.10 s | 1399 MB |
 | FastCore entry before vendoring | `fastcore` | `scanpy_legacy` | true | 215.17 s | 1344 MB |
-| FastCore vendored OmicVerse CPU | `fastcore` | `omicverse_cpu` | false | 52.61 s | 1469 MB |
+| FastCore vendored CPU | `fastcore` | `fastcore_cpu` | false | 52.61 s | 1469 MB |
 
 Observed speed ratio:
 
 ```text
 scanpy_baseline / fastcore_entry_before_vendoring = 1.03x
-scanpy_baseline / fastcore_vendored_omicverse_cpu = 4.22x
+scanpy_baseline / fastcore_cpu = 4.22x
 ```
 
 The first FastCore entry was not a meaningful acceleration because it only added
 capability planning and manifest/audit output, then ran the same
-`scanpy_legacy` backend. The vendored OmicVerse CPU backend is a real compute
+`scanpy_legacy` backend. The vendored FastCore CPU backend is a real compute
 change and removes the historical 8-resolution x 5-seed Leiden sweep from the
-default FastCore path, matching OmicVerse's single-resolution core workflow.
+default FastCore path.
 
 Fallback output consistency before vendoring:
 
@@ -96,8 +96,8 @@ External backend smoke tests:
 
 | Backend | Environment | Shape | Wall time | Peak RSS | Status |
 | --- | --- | ---: | ---: | ---: | --- |
-| `omicverse_cpu_gpu_mixed` | `.venv-scoop-omicverse` | 120 x 300 | 13.91 s | 2075 MB | passed |
-| `omicverse_rust_oom` | `.venv-scoop-omicverse` + `anndataoom==0.1.8` | 120 x 300 | 20.37 s | 1199 MB | passed |
+| `fastcore_mixed` | `.venv-scoop-omicverse` | 120 x 300 | 13.91 s | 2075 MB | passed |
+| `fastcore_oom` | `.venv-scoop-omicverse` + `anndataoom==0.1.8` | 120 x 300 | 20.37 s | 1199 MB | passed |
 
 The mixed smoke confirmed the OmicVerse torch/pyg PCA-neighbors-UMAP path and
 the FastCore Harmony 2.0 CPU bridge. The Rust/OOM smoke confirmed that
@@ -128,10 +128,10 @@ Results:
 
 | Dataset | Backend | Status | Wall time | Peak RSS | Sampled GPU memory |
 | --- | --- | --- | ---: | ---: | ---: |
-| 10k public | `omicverse_cpu_gpu_mixed` | passed | 21.78 s | 2.77 GiB | 3992 -> 5055 MiB |
-| 10k public | `omicverse_rust_oom` | passed | 174.32 s | 8.23 GiB | n/a |
-| 72k public | `omicverse_cpu_gpu_mixed` | passed | 70.34 s | 15.69 GiB | 3992 -> 6741 MiB |
-| 72k public | `omicverse_rust_oom` | stopped at 8:14 | incomplete | 4.07 GiB at stop | n/a |
+| 10k public | `fastcore_mixed` | passed | 21.78 s | 2.77 GiB | 3992 -> 5055 MiB |
+| 10k public | `fastcore_oom` | passed | 174.32 s | 8.23 GiB | n/a |
+| 72k public | `fastcore_mixed` | passed | 70.34 s | 15.69 GiB | 3992 -> 6741 MiB |
+| 72k public | `fastcore_oom` | stopped at 8:14 | incomplete | 4.07 GiB at stop | n/a |
 
 10k step timings:
 
@@ -159,12 +159,12 @@ Results:
 
 Interpretation:
 
-`omicverse_cpu_gpu_mixed` is the practical external backend on the current RTX
+`fastcore_mixed` is the practical external backend on the current RTX
 3080 Ti machine. It completed the 72k public dataset in 70.34 seconds without
 GPU OOM; sampled total GPU memory increased by about 2.75 GiB over the existing
 baseline usage.
 
-`omicverse_rust_oom` currently does not behave like a faster large-data path for
+`fastcore_oom` currently does not behave like a faster large-data path for
 this 02_core workload. It keeps early RSS low on the 72k run, but the chunked
 `shiftlog|pearson` preprocessing is much slower, and after minimal
 materialization the graph/UMAP/Leiden tail is still in-memory. The 10k run also
@@ -175,7 +175,7 @@ OOM HVG path.
 
 Conclusion:
 
-The vendored OmicVerse CPU backend gives a measured `4.22x` speedup over the
+The vendored FastCore CPU backend gives a measured `4.22x` speedup over the
 historical fallback on the 10k public quick test, while matching the external
 OmicVerse CPU reference closely on the tested 2k subset. The remaining major
 bottleneck is still UMAP/neighbors.

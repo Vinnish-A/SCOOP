@@ -35,7 +35,7 @@ def main() -> None:
     input_path = Path(args.input) if args.input else run_root / "artifacts" / "adata_qc.h5ad"
     output = Path(args.output) if args.output else run_root / "artifacts" / "adata_core.h5ad"
     preplan = plan_fastcore_backend(cfg, input_path=input_path) if deep_get(cfg, "core.engine", "fastcore") == "fastcore" else None
-    if preplan is not None and preplan.selected_backend == "omicverse_rust_oom":
+    if preplan is not None and preplan.selected_backend == "fastcore_oom":
         adata = None
     else:
         adata = ad.read_h5ad(input_path)

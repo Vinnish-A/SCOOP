@@ -59,11 +59,11 @@ core:
   fastcore:
     backend_policy: auto
     allowed_backends:
-      - omicverse_rust_oom
-      - omicverse_cpu_gpu_mixed
-      - omicverse_cpu
+      - fastcore_oom
+      - fastcore_mixed
+      - fastcore_cpu
     fallback_backend: scanpy_legacy
-    enable_omicverse_cpu_backend: true
+    enable_fastcore_cpu_backend: true
     auto:
       rust_oom_min_cells: 100000
       rust_oom_min_nnz: 300000000
@@ -71,6 +71,10 @@ core:
       prefer_rust_when_backed: true
       prefer_gpu_when_available: true
     omicverse:
+      reference_enabled: false
+      reference_source: submodule
+      reference_path: third_party/omicverse
+      expose_to_agent: false
       preprocess_mode: shiftlog
       target_sum: 500000
       n_hvgs: 3000
