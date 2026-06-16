@@ -181,8 +181,6 @@ de:
     min_total_cells_per_celltype: 50
     min_samples_per_group: 3
     min_events: 5
-    transform: clr
-    pseudocount: 0.5
     model:
       architecture: scsurvival_mil
       backend: scsurvival_mil
@@ -195,13 +193,4 @@ de:
       early_stopping_patience: 50
       random_seed: 0
     loss:
-      alpha_count: 0.1
-      lambda_l1: 0.0
-      lambda_l2: 0.0001
-      lambda_group: 0.0
-      binary_class_weight: balanced
       survival_loss: cox
-    inference:
-      method: bootstrap
-      n_bootstrap: 200
-      random_seed: 0

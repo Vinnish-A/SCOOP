@@ -1,60 +1,32 @@
-# FastDE Abundance vs scSurvival Reference Benchmark
+# FastDE Abundance scSurvival Benchmark
 
-This benchmark compares `fastde abundance --mode survival` with the original
-public scSurvival implementation on a controlled synthetic cohort.
+FastDE abundance now uses a scSurvival-style multiple-instance learning backend
+as the only active implementation. Earlier linear/CLR aggregation experiments
+were removed because they did not preserve the core scSurvival idea that each
+sample is a bag of cell instances.
 
-The comparison fixture encodes cell type as one-hot single-cell features:
+## Reference Comparison Scope
 
-- scSurvival receives per-cell custom features through `feature_flavor='Custom'`.
-- FastDE abundance receives the same cells aggregated to sample-by-celltype
-  counts/proportions.
+The reference benchmark compares:
 
-This is the closest fair comparison for the new FastDE abundance scope. It does
-not claim equivalence to full original scSurvival AE/PCA expression modeling,
-because FastDE abundance intentionally tests sample-level proportions instead of
-single-cell expression bags.
+- original public `cliffren/scSurvival` at commit
+  `a76de0a00035e4c4d49df4a06001b392c8014105`;
+- FastDE `fastde abundance`, using the MIL bag encoder and gated attention
+  pooling implemented in `src/fastde/abundance_mil.py`.
+
+The synthetic reference fixture encodes cell type as one-hot single-cell
+features. Original scSurvival receives these cells through
+`feature_flavor='Custom'`; FastDE receives the same biological signal through
+sample bags built from `sample x cell_type` counts.
+
+This benchmark checks interface compatibility, top signal recovery, survival
+C-index, risk-score agreement, wall time, and peak RSS. It is not a claim that
+abundance-only bags reproduce scSurvival's expression AE/PCA workflows.
 
 Command:
 
 ```bash
 PYTHONPATH=src python scripts/fastde/benchmark_abundance_scsurvival_reference.py \
-  --output-dir tmp/fastde_abundance_scsurvival_reference \
-  --scsurvival-python /mnt/sdb/xzh/Vproject/SCOOP/.venv-scoop-omicverse/bin/python \
-  --scsurvival-source /tmp/scSurvival_ref \
-  --force-cpu
-```
-
-Reference environment note: original scSurvival requires `torch`, `scanpy`,
-`scikit-learn`, and `lifelines`. In the local run, `lifelines==0.30.3` was
-installed into the separate OmicVerse/reference environment, not the Fast
-environment.
-
-Outputs:
-
-- `benchmark_summary.tsv`
-- `benchmark_consistency.json`
-- `fastde/fastde_reference_metrics.json`
-- `scsurvival/scsurvival_reference_metrics.json`
-- framework-specific prediction tables
-
-Metrics:
-
-- wall time;
-- peak RSS;
-- survival C-index;
-- top cell-type signal;
-- Spearman correlation between FastDE and scSurvival sample risk scores;
-- speedup and RSS ratio.
-
-## Local Synthetic Result
-
-Run date: 2026-06-16.
-
-Command:
-
-```bash
-PYTHONPATH=src .venv-scoop-fast/bin/python \
-  scripts/fastde/benchmark_abundance_scsurvival_reference.py \
   --output-dir tmp/fastde_abundance_scsurvival_reference \
   --fastde-python /mnt/sdb/xzh/Vproject/SCOOP/.venv-scoop-fast/bin/python \
   --scsurvival-python /mnt/sdb/xzh/Vproject/SCOOP/.venv-scoop-omicverse/bin/python \
@@ -67,32 +39,67 @@ PYTHONPATH=src .venv-scoop-fast/bin/python \
   --n-celltypes 4
 ```
 
-Fixture:
+Outputs:
 
-- 24 samples;
-- 2,880 cells;
-- 4 cell types;
-- survival risk driven by `RiskCells` abundance;
-- CPU-only for both frameworks;
-- scSurvival used `feature_flavor='Custom'` with one-hot cell-type features.
+- `benchmark_summary.tsv`
+- `benchmark_consistency.json`
+- `fastde/fastde_reference_metrics.json`
+- `scsurvival/scsurvival_reference_metrics.json`
+- framework-specific prediction tables
 
-| Framework | Wall time | Peak RSS | C-index | Top cell type |
-| --- | ---: | ---: | ---: | --- |
-| FastDE abundance | 0.036s | 186.2 MB | 0.882 | RiskCells |
-| scSurvival reference | 15.252s | 942.8 MB | 0.878 | RiskCells |
+## Stress Test
 
-Consistency:
+The active stress entry point is:
 
-- sample risk Spearman: `0.869` (`p=3.71e-08`);
-- top cell-type signal match: `true`;
-- speedup vs scSurvival: `424.8x`;
-- scSurvival/FastDE peak RSS ratio: `5.06x`.
+```bash
+PYTHONPATH=src python scripts/fastde/stress_abundance_mil.py \
+  --output-dir tmp/fastde_abundance_mil_stress \
+  --n-samples 72 \
+  --n-celltypes 8 \
+  --cells-per-sample 1000 \
+  --max-instances-per-sample 256 \
+  --epochs 40 \
+  --learning-rate 0.02
+```
 
-Interpretation:
+It runs binary, multiclass, and survival modes end to end, records wall time and
+peak RSS, and writes:
 
-FastDE abundance is much faster here because it solves the intended sample-level
-proportion problem after aggregation. Original scSurvival carries single-cell
-MIL/attention training overhead even when the supplied custom features are just
-cell-type indicators. The two methods are consistent on the designed signal in
-this benchmark, but this should not be interpreted as full equivalence to
-scSurvival's expression-level AE/PCA workflows.
+- `stress_summary.tsv`
+- `stress_summary.json`
+- one FastDE abundance output directory per mode
+
+Local run on 2026-06-16:
+
+```bash
+PYTHONPATH=src .venv-scoop-fast/bin/python \
+  scripts/fastde/stress_abundance_mil.py \
+  --output-dir tmp/fastde_abundance_mil_stress \
+  --n-samples 72 \
+  --n-celltypes 8 \
+  --cells-per-sample 1000 \
+  --max-instances-per-sample 256 \
+  --epochs 40 \
+  --learning-rate 0.02
+```
+
+| Mode | Wall time | Peak RSS | Top cell type | Key metric |
+| --- | ---: | ---: | --- | ---: |
+| binary | 4.81s | 1.39 GB | ResponderCells | AUC 1.000 |
+| multiclass | 3.33s | 1.40 GB | Other0 | macro AUC 1.000 |
+| survival | 4.06s | 1.69 GB | RiskCells | C-index 0.781 |
+
+Fixture details:
+
+- 72 samples;
+- 8 cell types;
+- 1,000 cells per sample;
+- bags capped at 256 sampled instances per sample;
+- binary response driven by `ResponderCells`;
+- survival risk driven by `RiskCells`;
+- subtype B driven by `Other0`, so `Other0` is the expected top multiclass
+  signal in this fixture.
+
+The old linear benchmark numbers are intentionally not carried forward in this
+document. They measured a different method and are no longer a valid description
+of the default FastDE abundance implementation.

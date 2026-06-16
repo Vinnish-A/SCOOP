@@ -19,7 +19,7 @@ The module constructs:
 - `P`: sample x cell-type proportions;
 - `N`: total cells per sample;
 - `M`: sample metadata;
-- `X`: transformed abundance features plus optional covariates.
+- `X`: cell-type/cell-state bag instance features plus optional covariates.
 
 ## Modes
 
@@ -29,13 +29,9 @@ The module constructs:
 - `condition`: alias of binary condition comparison.
 - `continuous`: association with a continuous phenotype.
 
-When `--abundance-backend linear` is selected, the abundance transform defaults
-to CLR:
-
-```text
-P = (Y + 0.5) / row_sum(Y + 0.5)
-Z = log(P) - row_mean(log(P))
-```
+The current instance feature is a cell-type/cell-state one-hot vector. Count
+matrix inputs are expanded into equivalent bags for compatibility; H5AD inputs
+use the cell-level `obs[celltype_key]` values directly.
 
 ## Examples
 
@@ -50,7 +46,6 @@ fastde abundance \
   --metadata runs/<run_id>/config/sample_metadata.tsv \
   --time-col OS_time \
   --event-col OS_event \
-  --abundance-backend scsurvival_mil \
   --survival-loss cox \
   --covariates age,sex,batch \
   --output-dir runs/<run_id>/07_de/abundance_survival
@@ -68,7 +63,6 @@ fastde abundance \
   --label-col responder \
   --positive-label response \
   --negative-label non_response \
-  --abundance-backend scsurvival_mil \
   --covariates age,sex,batch \
   --output-dir runs/<run_id>/07_de/abundance_binary
 ```

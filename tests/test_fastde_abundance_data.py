@@ -5,7 +5,7 @@ import pandas as pd
 from anndata import AnnData
 
 from fastde.abundance_data import build_sample_celltype_counts_from_h5ad
-from fastde.abundance_design import abundance_transform
+from fastde.abundance_mil import build_bags_from_counts
 
 
 def test_build_sample_celltype_counts_from_h5ad() -> None:
@@ -22,8 +22,16 @@ def test_build_sample_celltype_counts_from_h5ad() -> None:
     assert "S3" not in table.counts.index
 
 
-def test_clr_transform() -> None:
+def test_build_bags_from_counts_preserves_sample_bags() -> None:
     counts = pd.DataFrame([[10, 0, 5], [2, 8, 0]], index=["S1", "S2"], columns=["A", "B", "C"])
-    z = abundance_transform(counts, transform="clr", pseudocount=0.5)
-    assert np.allclose(z.mean(axis=1), 0.0)
-    assert np.isfinite(z.to_numpy()).all()
+    table = build_sample_celltype_counts_from_h5ad(
+        AnnData(np.ones((25, 2)), obs=pd.DataFrame({"sample_id": ["S1"] * 15 + ["S2"] * 10, "cell_type_lvl3": ["A"] * 10 + ["C"] * 5 + ["A"] * 2 + ["B"] * 8})),
+        "sample_id",
+        "cell_type_lvl3",
+        min_cells_per_sample=1,
+        min_total_cells_per_celltype=1,
+    )
+    bags = build_bags_from_counts(table)
+    assert len(bags.bags) == 2
+    assert bags.bags[0].shape[0] == 15
+    assert np.allclose(bags.bags[0].sum(axis=0), table.counts.loc["S1"].to_numpy())

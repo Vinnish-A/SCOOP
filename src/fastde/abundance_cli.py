@@ -22,16 +22,12 @@ def cmd_abundance(args: argparse.Namespace) -> int:
         event_col=args.event_col,
         value_col=args.value_col,
         covariates=args.covariates,
-        transform=args.transform,
-        pseudocount=args.pseudocount,
         min_cells_per_sample=args.min_cells_per_sample,
         min_total_cells_per_celltype=args.min_total_cells_per_celltype,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
         max_epochs=args.max_epochs,
         random_seed=args.random_seed,
-        binary_class_weight=args.binary_class_weight,
-        model_backend=args.abundance_backend,
         hidden_dim=args.hidden_dim,
         dropout=args.dropout,
         max_instances_per_sample=args.max_instances_per_sample,
@@ -59,17 +55,12 @@ def add_abundance_subparser(subparsers: argparse._SubParsersAction) -> None:
     abundance.add_argument("--value-col", default=None)
     abundance.add_argument("--covariates", default=None)
     abundance.add_argument("--output-dir", required=True)
-    abundance.add_argument("--transform", choices=["proportion", "clr", "logit_proportion", "arcsin_sqrt", "raw_count_with_offset"], default="clr")
-    abundance.add_argument("--pseudocount", type=float, default=0.5)
     abundance.add_argument("--min-cells-per-sample", type=int, default=20)
     abundance.add_argument("--min-total-cells-per-celltype", type=int, default=50)
-    abundance.add_argument("--n-bootstrap", type=int, default=200, help="reserved for bootstrap inference compatibility")
     abundance.add_argument("--learning-rate", type=float, default=1e-3)
     abundance.add_argument("--weight-decay", type=float, default=1e-4)
     abundance.add_argument("--max-epochs", type=int, default=500)
     abundance.add_argument("--random-seed", type=int, default=0)
-    abundance.add_argument("--binary-class-weight", choices=["balanced", "none"], default="balanced")
-    abundance.add_argument("--abundance-backend", choices=["scsurvival_mil", "linear"], default="scsurvival_mil")
     abundance.add_argument("--hidden-dim", type=int, default=64)
     abundance.add_argument("--dropout", type=float, default=0.1)
     abundance.add_argument("--max-instances-per-sample", type=int, default=2000)
