@@ -3,6 +3,11 @@
 `fastde abundance` performs sample-level differential cell abundance and outcome
 association. It is not gene-level DE and it never uses per-cell p values.
 
+The default backend is `scsurvival_mil`, a scSurvival-style multiple-instance
+learning architecture. Each sample is treated as a bag of cell instances. The
+model uses a shared instance encoder, gated attention pooling over each sample
+bag, and a task-specific sample-level head.
+
 Input can be either:
 
 - an H5AD with `obs[sample_key]` and `obs[celltype_key]`;
@@ -24,7 +29,8 @@ The module constructs:
 - `condition`: alias of binary condition comparison.
 - `continuous`: association with a continuous phenotype.
 
-Default abundance transform is CLR:
+When `--abundance-backend linear` is selected, the abundance transform defaults
+to CLR:
 
 ```text
 P = (Y + 0.5) / row_sum(Y + 0.5)
@@ -44,6 +50,8 @@ fastde abundance \
   --metadata runs/<run_id>/config/sample_metadata.tsv \
   --time-col OS_time \
   --event-col OS_event \
+  --abundance-backend scsurvival_mil \
+  --survival-loss cox \
   --covariates age,sex,batch \
   --output-dir runs/<run_id>/07_de/abundance_survival
 ```
@@ -60,6 +68,7 @@ fastde abundance \
   --label-col responder \
   --positive-label response \
   --negative-label non_response \
+  --abundance-backend scsurvival_mil \
   --covariates age,sex,batch \
   --output-dir runs/<run_id>/07_de/abundance_binary
 ```

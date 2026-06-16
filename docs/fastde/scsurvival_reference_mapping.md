@@ -8,9 +8,9 @@
 - Package version: `1.3.0` from `setup.py`
 - License: GPL-3.0 from `setup.py` and `LICENSE`
 
-The source was not present in the SCOOP repository, submodules, or the existing
-Fast and OmicVerse virtual environments. It was found on public GitHub and
-cloned for inspection.
+The source was not present in the SCOOP repository at the start of this work.
+It was found on public GitHub, inspected locally, and then pinned as a
+third-party submodule at `third_party/scSurvival`.
 
 ## Files Inspected
 
@@ -42,12 +42,22 @@ Important source functions/classes:
   descending survival time.
 - `c_index` and `conditional_cindex`: survival evaluation.
 
-## Copied Or Ported
+## Copied, Vendored, Or Ported
 
-No GPL source file was copied verbatim into SCOOP. The implementation ports the
-public API shape and survival-loss behavior at a clean-room level:
+The original scSurvival repository is tracked as a third-party submodule for
+source provenance and direct reference:
+
+- `third_party/scSurvival`
+- pinned commit: `a76de0a00035e4c4d49df4a06001b392c8014105`
+
+No GPL source file is copied verbatim into `src/fastde`. The FastDE default
+backend ports the architecture at a clean-room level:
 
 - Cox partial likelihood with right censoring and stable log-risk-set sums.
+- sample-as-bag multiple-instance learning.
+- shared instance encoder.
+- gated attention pooling.
+- sample-level task head.
 - scSurvival-compatible names in `src/fastde/scsurvival_compat.py`:
   `ScSurvivalDataset`, `ScSurvivalModel`, `ScSurvivalTrainer`,
   `ScSurvivalResult`.
@@ -56,14 +66,17 @@ public API shape and survival-loss behavior at a clean-room level:
 ## Reimplemented
 
 The FastDE abundance module reimplements the method around SCOOP's requested
-input: a sample-by-cell-type abundance matrix. This is not the same data model
-as original scSurvival's patient-by-single-cell expression bags.
+input while preserving the original sample-as-bag idea. H5AD inputs use cells as
+bag instances with cell-type or cell-state one-hot features. Direct count-matrix
+inputs are expanded into equivalent bag instances for compatibility.
 
 Reimplemented files:
 
 - `src/fastde/abundance_data.py`: H5AD/sample count aggregation.
 - `src/fastde/abundance_design.py`: abundance transforms and design matrices.
 - `src/fastde/abundance_loss.py`: Cox, classification, and multinomial losses.
+- `src/fastde/abundance_mil.py`: scSurvival-style MIL encoder, gated attention
+  pooling, task heads, and survival loss variants.
 - `src/fastde/abundance_model.py`: deterministic NumPy/sklearn model backend.
 - `src/fastde/abundance_train.py`: training wrapper.
 - `src/fastde/abundance.py`: mode-specific results, predictions, metrics, and
@@ -72,24 +85,24 @@ Reimplemented files:
 
 ## Differences From Original scSurvival
 
-- Input is sample-level cell-type or cell-state counts/proportions, not
-  single-cell expression bags.
-- Default transform is centered log-ratio with pseudocount.
-- The default backend is NumPy/SciPy/sklearn so it runs in SCOOP's Fast
-  environment without requiring PyTorch or GPU.
-- Survival mode uses a linear Cox risk model on transformed abundance features
-  and optional covariates.
-- Binary/multiclass/continuous modes are added for FastDE abundance and are not
-  part of the inspected scSurvival public survival runner.
+- Input focuses on cell-type or cell-state abundance rather than raw gene
+  expression.
+- The default backend is PyTorch `scsurvival_mil`; the older NumPy/SciPy linear
+  model remains available as `--abundance-backend linear`.
+- Survival mode supports the original Cox partial likelihood plus optional
+  rank-loss variants.
+- Binary/multiclass/continuous modes reuse the same scSurvival-style
+  encoder-attention-bag architecture with task-specific heads. These modes are
+  FastDE extensions and are not part of the inspected scSurvival public survival
+  runner.
 - Large per-sample/cell-type tables are written as external TSV/JSON artifacts
   and are not stored inside H5AD.
-- The auxiliary abundance reconstruction loss is documented in the manifest but
-  not enabled in the current deterministic NumPy backend.
 
 ## Compatibility Gap
 
-The implementation is scSurvival-like, not a direct scSurvival clone. The main
-reason is methodological: FastDE abundance tests sample-level proportions,
+The implementation is scSurvival-style rather than a direct clone. The main
+reason is task scope: FastDE abundance tests cell-type/cell-state abundance,
 whereas original scSurvival learns from raw single-cell expression for each
-patient. The shared contract is survival/outcome association from cohort data,
-Cox-style survival loss, comparable diagnostics, and compatibility class names.
+patient. The shared contract is sample-as-bag modeling, gated attention pooling,
+survival/outcome association from cohort data, Cox-style survival loss,
+comparable diagnostics, and compatibility class names.

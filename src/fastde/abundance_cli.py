@@ -31,6 +31,11 @@ def cmd_abundance(args: argparse.Namespace) -> int:
         max_epochs=args.max_epochs,
         random_seed=args.random_seed,
         binary_class_weight=args.binary_class_weight,
+        model_backend=args.abundance_backend,
+        hidden_dim=args.hidden_dim,
+        dropout=args.dropout,
+        max_instances_per_sample=args.max_instances_per_sample,
+        survival_loss=args.survival_loss,
         output_dir=args.output_dir,
     )
     print(json.dumps(result.manifest["outputs"], indent=2))
@@ -64,4 +69,9 @@ def add_abundance_subparser(subparsers: argparse._SubParsersAction) -> None:
     abundance.add_argument("--max-epochs", type=int, default=500)
     abundance.add_argument("--random-seed", type=int, default=0)
     abundance.add_argument("--binary-class-weight", choices=["balanced", "none"], default="balanced")
+    abundance.add_argument("--abundance-backend", choices=["scsurvival_mil", "linear"], default="scsurvival_mil")
+    abundance.add_argument("--hidden-dim", type=int, default=64)
+    abundance.add_argument("--dropout", type=float, default=0.1)
+    abundance.add_argument("--max-instances-per-sample", type=int, default=2000)
+    abundance.add_argument("--survival-loss", choices=["cox", "cox_rank", "cox_plus_rank"], default="cox")
     abundance.set_defaults(func=cmd_abundance)

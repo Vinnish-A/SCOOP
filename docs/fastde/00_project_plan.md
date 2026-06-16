@@ -128,13 +128,18 @@ from roughly 0.70-0.73 to 0.98-1.00 on these fixtures.
 
 ## Abundance
 
-Default method: scSurvival-like sample-level abundance association.
+Default method: scSurvival-style multiple-instance learning over sample bags.
 
-`fastde abundance` compares sample-by-cell-type or sample-by-cell-state
-proportions across survival, binary, multiclass, continuous, or condition
-designs. It is not gene-level DE and does not use per-cell p values. The H5AD
-path only supplies sample and cell-type labels; inference is performed at the
-sample level after aggregation.
+`fastde abundance` compares sample-level cell-type or cell-state abundance
+across survival, binary, multiclass, continuous, or condition designs. It is not
+gene-level DE and does not use per-cell p values. The default backend inherits
+the key scSurvival architecture: every sample is a bag of cell instances, a
+shared instance encoder maps cells/states into latent features, gated attention
+pools each bag into a sample embedding, and the task-specific head predicts
+survival risk, binary label, multiclass subtype, or continuous phenotype.
+
+For compatibility and debugging, `--abundance-backend linear` keeps the earlier
+sample-by-celltype matrix model. It is not the default.
 
 Supported modes:
 
@@ -143,6 +148,10 @@ Supported modes:
 - `multiclass`: subtype/class association with reference-level contrasts.
 - `condition`: binary condition comparison alias.
 - `continuous`: continuous phenotype association.
+- `--survival-loss cox`: original scSurvival-style Cox partial likelihood.
+- `--survival-loss cox_rank`: pairwise ranking loss on comparable survival
+  pairs.
+- `--survival-loss cox_plus_rank`: Cox plus a light ranking penalty.
 
 The scSurvival reference mapping is documented in
 `docs/fastde/scsurvival_reference_mapping.md`.
