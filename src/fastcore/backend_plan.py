@@ -11,7 +11,6 @@ from .runtime import FastCoreCapabilities, detect_capabilities
 
 FASTCORE_BACKENDS = (
     "omicverse_rust_oom",
-    "omicverse_gpu_rapids",
     "omicverse_cpu_gpu_mixed",
     "omicverse_cpu",
 )
@@ -79,8 +78,6 @@ def plan_fastcore_backend(
         and bool(deep_get(cfg, "core.fastcore.auto.prefer_rust_when_backed", True))
     ):
         return FastCorePlan("omicverse_rust_oom", False, fallback_backend, reasons, caps.to_dict())
-    if "omicverse_gpu_rapids" in allowed and caps.omicverse_available and caps.cuda_available and caps.rapids_available and gpu_cells:
-        return FastCorePlan("omicverse_gpu_rapids", False, fallback_backend, reasons, caps.to_dict())
     if (
         "omicverse_cpu_gpu_mixed" in allowed
         and caps.omicverse_available
@@ -102,8 +99,6 @@ def _backend_capable(backend: str, caps: FastCoreCapabilities) -> bool:
         return caps.omicverse_available or getattr(caps, "vendored_omicverse_available", False)
     if backend == "omicverse_cpu_gpu_mixed":
         return caps.omicverse_available and caps.torch_available and caps.cuda_available
-    if backend == "omicverse_gpu_rapids":
-        return caps.omicverse_available and caps.cuda_available and caps.rapids_available
     if backend == "omicverse_rust_oom":
         return caps.omicverse_available and caps.rust_backend_available
     return False

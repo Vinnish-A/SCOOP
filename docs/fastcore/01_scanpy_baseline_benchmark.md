@@ -98,7 +98,6 @@ External backend smoke tests:
 | --- | --- | ---: | ---: | ---: | --- |
 | `omicverse_cpu_gpu_mixed` | `.venv-scoop-omicverse` | 120 x 300 | 13.91 s | 2075 MB | passed |
 | `omicverse_rust_oom` | `.venv-scoop-omicverse` + `anndataoom==0.1.8` | 120 x 300 | 20.37 s | 1199 MB | passed |
-| `omicverse_gpu_rapids` | not installed in current env | n/a | n/a | n/a | adapter covered by mock test; real RAPIDS env still required |
 
 The mixed smoke confirmed the OmicVerse torch/pyg PCA-neighbors-UMAP path and
 the FastCore Harmony 2.0 CPU bridge. The Rust/OOM smoke confirmed that

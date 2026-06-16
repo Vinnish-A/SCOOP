@@ -10,9 +10,6 @@ omicverse_policy:
       - omicverse.io.read_visium_hd_seg
       - omicverse.io.read_xenium
       - omicverse.io.save
-    gpu_cpu:
-      - omicverse.pp.anndata_to_GPU
-      - omicverse.pp.anndata_to_CPU
     marker_and_annotation_support:
       - omicverse.single.find_markers
       - omicverse.single.get_markers

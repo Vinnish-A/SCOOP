@@ -43,10 +43,6 @@ class OmicVerseCoreOptions:
     harmony_ncores: int
     identify_robust: bool
     use_implicit_centering: bool
-    gpu_method: str | None
-    gpu_managed_memory: bool
-    gpu_pool_allocator: bool
-    gpu_devices: int | list[int]
 
 
 def build_options(cfg: Mapping[str, Any], adata: Any | None, *, backend: str, mode: str) -> OmicVerseCoreOptions:
@@ -80,10 +76,6 @@ def build_options(cfg: Mapping[str, Any], adata: Any | None, *, backend: str, mo
         harmony_ncores=int(deep_get(cfg, "core.batch_correction.ncores", 0)),
         identify_robust=bool(deep_get(cfg, "core.fastcore.omicverse.identify_robust", False)),
         use_implicit_centering=bool(deep_get(cfg, "core.fastcore.omicverse.use_implicit_centering", mode == "cpu-gpu-mixed")),
-        gpu_method=deep_get(cfg, "core.fastcore.omicverse.neighbors.gpu_method", None),
-        gpu_managed_memory=bool(deep_get(cfg, "core.fastcore.omicverse.gpu.managed_memory", True)),
-        gpu_pool_allocator=bool(deep_get(cfg, "core.fastcore.omicverse.gpu.pool_allocator", True)),
-        gpu_devices=deep_get(cfg, "core.fastcore.omicverse.gpu.devices", 0),
     )
 
 
@@ -129,13 +121,7 @@ def map_standard_core_keys(adata) -> None:
 def configure_omicverse(ov, options: OmicVerseCoreOptions) -> None:
     if hasattr(ov, "set_seed"):
         ov.set_seed(options.random_state, verbose=False)
-    if options.mode == "gpu":
-        ov.settings.gpu_init(
-            managed_memory=options.gpu_managed_memory,
-            pool_allocator=options.gpu_pool_allocator,
-            devices=options.gpu_devices,
-        )
-    elif options.mode == "cpu-gpu-mixed":
+    if options.mode == "cpu-gpu-mixed":
         ov.settings.cpu_gpu_mixed_init()
     else:
         ov.settings.cpu_init()
@@ -214,9 +200,7 @@ def run_omicverse_graph_umap_leiden(ov, adata, options: OmicVerseCoreOptions, ti
         "key_added": "neighbors_identity",
         "random_state": options.random_state,
     }
-    if options.mode == "gpu" and options.gpu_method and options.gpu_method != "auto":
-        neighbors_kwargs["method"] = options.gpu_method
-    elif options.mode != "gpu" and options.neighbors_method and options.neighbors_method != "auto":
+    if options.neighbors_method and options.neighbors_method != "auto":
         neighbors_kwargs["method"] = options.neighbors_method
     if options.mode == "cpu-gpu-mixed" and options.neighbors_transformer and options.neighbors_transformer != "auto":
         neighbors_kwargs["transformer"] = options.neighbors_transformer

@@ -19,7 +19,6 @@ FastCore primary backends:
 
 - `omicverse_cpu`
 - `omicverse_cpu_gpu_mixed`
-- `omicverse_gpu_rapids`
 - `omicverse_rust_oom`
 
 Fallback backend:
@@ -40,7 +39,6 @@ making imports fail at module import time:
   "omicverse_available": true,
   "torch_available": true,
   "cuda_available": true,
-  "rapids_available": false,
   "anndataoom_available": true,
   "rust_backend_available": true,
   "selected_backend": null,
@@ -53,7 +51,6 @@ making imports fail at module import time:
 
 ```text
 backed or very large + AnnDataOOM/Rust available -> omicverse_rust_oom
-CUDA + RAPIDS available                         -> omicverse_gpu_rapids
 CUDA + torch available                          -> omicverse_cpu_gpu_mixed
 External or vendored OmicVerse CPU available   -> omicverse_cpu
 otherwise                                       -> scanpy_legacy
@@ -66,9 +63,9 @@ disabled or unavailable. Batch correction defaults to Harmony 2.0 through
 `harmonypy>=2.0,<3`; Harmony Py Touch is no longer part of the default core
 workflow.
 
-The default Fast environment installs `harmonypy>=2.0,<3` and does not install
-the external OmicVerse package. The `omicverse_cpu` backend is a vendored GPL
-subset of OmicVerse `pp` CPU core code under
+The default Fast environment installs `harmonypy>=2.0,<3`, torch/CUDA, CuPy,
+and AnnDataOOM. It does not install the external OmicVerse package.
+The `omicverse_cpu` backend is a vendored GPL subset of OmicVerse `pp` CPU core code under
 `src/fastcore/vendor/omicverse_gpl/`. External OmicVerse validation uses
 `environment_omicverse.yml` or the `omicverse` Python extra in a separate
 environment.
@@ -76,9 +73,9 @@ environment.
 ## Executable Backend Adapters
 
 `omicverse_cpu` is self-contained through the vendored GPL CPU subset.
-`omicverse_cpu_gpu_mixed`, `omicverse_gpu_rapids`, and `omicverse_rust_oom` are
-FastCore-owned adapters around the external OmicVerse runtime and therefore run
-only in the separate OmicVerse environment.
+`omicverse_cpu_gpu_mixed` and `omicverse_rust_oom` are the only accelerated
+FastCore adapters. The earlier pure-GPU preprocess path has been removed from
+the active FastCore scope.
 
 The mixed backend calls:
 
@@ -87,19 +84,6 @@ ov.settings.cpu_gpu_mixed_init()
 ov.pp.preprocess -> ov.pp.scale(use_implicit_centering=True) -> ov.pp.pca
 Harmony 2.0 CPU bridge
 ov.pp.neighbors(transformer='pyg') -> ov.pp.umap -> ov.pp.leiden
-```
-
-The RAPIDS backend calls:
-
-```text
-ov.settings.gpu_init()
-ov.pp.anndata_to_GPU
-ov.pp.preprocess -> ov.pp.scale -> ov.pp.pca
-ov.pp.anndata_to_CPU
-Harmony 2.0 CPU bridge
-ov.pp.anndata_to_GPU
-ov.pp.neighbors(method='cagra') -> ov.pp.umap -> ov.pp.leiden
-ov.pp.anndata_to_CPU in finally
 ```
 
 The Rust/OOM backend is path based and starts with:
@@ -190,6 +174,6 @@ selected.
   provenance and the project declares GPL-3.0-or-later compatibility.
 - OmicVerse backend output keys can differ from SCOOP stable keys; FastCore owns
   key mapping.
-- GPU, RAPIDS, torch CUDA, and AnnDataOOM dependencies are optional and must be
-  detected before execution.
+- GPU torch/CuPy and AnnDataOOM dependencies are optional and must be detected
+  before execution.
 - Agent/MCP layers must pass paths and manifests, not large matrices.

@@ -50,10 +50,6 @@ def run_core_pipeline(
         from fastcore.backends.omicverse_mixed import run_omicverse_mixed_core
 
         result = run_omicverse_mixed_core(adata, cfg, run_root)
-    elif backend == "omicverse_gpu_rapids":
-        from fastcore.backends.omicverse_gpu import run_omicverse_gpu_core
-
-        result = run_omicverse_gpu_core(adata, cfg, run_root)
     elif backend == "omicverse_rust_oom":
         if input_path is None or output_path is None:
             raise ValueError("omicverse_rust_oom requires input_path and output_path.")
@@ -76,8 +72,7 @@ def run_core_pipeline(
         "schema_version": "fastcore_manifest.v1",
         "engine": engine,
         "backend": result["backend"],
-        "gpu": result["backend"] in {"omicverse_cpu_gpu_mixed", "omicverse_gpu_rapids"},
-        "rapids": result["backend"] == "omicverse_gpu_rapids",
+        "gpu": result["backend"] == "omicverse_cpu_gpu_mixed",
         "n_obs": int(result.get("n_obs", getattr(manifest_adata, "n_obs", 0))),
         "n_vars": int(result.get("n_vars", getattr(manifest_adata, "n_vars", 0))),
         "n_hvgs": int(deep_get(cfg, "core.fastcore.omicverse.n_hvgs", deep_get(cfg, "core.n_top_hvg", 3000))),

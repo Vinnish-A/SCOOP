@@ -14,7 +14,6 @@ class FastCoreCapabilities:
     omicverse_available: bool
     torch_available: bool
     cuda_available: bool
-    rapids_available: bool
     anndataoom_available: bool
     rust_backend_available: bool
     vendored_omicverse_available: bool = True
@@ -40,15 +39,12 @@ def detect_capabilities() -> FastCoreCapabilities:
             cuda_available = bool(torch.cuda.is_available())
         except Exception as exc:  # pragma: no cover - environment-dependent.
             reasons.append(f"torch_cuda_probe_failed:{type(exc).__name__}")
-    rapids_available = any(_module_available(name) for name in ("rapids_singlecell", "cuml", "cugraph"))
     anndataoom_available = any(_module_available(name) for name in ("anndataoom", "anndata_oom", "anndata_rs"))
     rust_backend_available = omicverse_available and anndataoom_available
     if not omicverse_available:
         reasons.append("omicverse_unavailable")
     if torch_available and not cuda_available:
         reasons.append("torch_without_cuda")
-    if cuda_available and not rapids_available:
-        reasons.append("rapids_unavailable")
     if not anndataoom_available:
         reasons.append("anndataoom_unavailable")
     return FastCoreCapabilities(
@@ -56,7 +52,6 @@ def detect_capabilities() -> FastCoreCapabilities:
         vendored_omicverse_available=vendored_omicverse_available,
         torch_available=torch_available,
         cuda_available=cuda_available,
-        rapids_available=rapids_available,
         anndataoom_available=anndataoom_available,
         rust_backend_available=rust_backend_available,
         reasons=reasons,
