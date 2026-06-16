@@ -60,7 +60,6 @@ core:
     backend_policy: auto
     allowed_backends:
       - omicverse_rust_oom
-      - omicverse_gpu_rapids
       - omicverse_cpu_gpu_mixed
       - omicverse_cpu
     fallback_backend: scanpy_legacy
@@ -83,7 +82,6 @@ core:
         n_neighbors: 15
         n_pcs: 30
         method: auto
-        gpu_method: cagra
         mixed_transformer: pyg
       umap:
         min_dist: 0.3
@@ -91,10 +89,6 @@ core:
       leiden:
         resolutions: [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0]
         seeds: [0, 1, 2, 3, 4]
-      gpu:
-        managed_memory: true
-        pool_allocator: true
-        devices: 0
       rust_oom:
         preprocess_mode: shiftlog|pearson
     quality_gate:

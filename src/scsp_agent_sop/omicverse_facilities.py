@@ -21,16 +21,6 @@ def save(adata, path: str):
     return ov.io.save(adata, path)
 
 
-def to_gpu(adata):
-    ov = require_omicverse()
-    return ov.pp.anndata_to_GPU(adata)
-
-
-def to_cpu(adata):
-    ov = require_omicverse()
-    return ov.pp.anndata_to_CPU(adata)
-
-
 def generate_report(adata, output_path: str, species: str = "human", sample_key: str | None = None):
     ov = require_omicverse()
     return ov.single.generate_scRNA_report(adata, output_path=output_path, species=species, sample_key=sample_key)

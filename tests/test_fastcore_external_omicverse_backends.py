@@ -8,7 +8,6 @@ from anndata import AnnData
 from scipy import sparse
 
 from fastcore.backend_plan import FastCorePlan
-from fastcore.backends.omicverse_gpu import run_omicverse_gpu_core
 from fastcore.backends.omicverse_mixed import run_omicverse_mixed_core
 from scsp_agent_sop.core_runner import run_core_pipeline
 from scsp_agent_sop.storage import init_file_registry
@@ -39,10 +38,9 @@ def _cfg() -> dict:
                     "target_sum": 500000,
                     "n_hvgs": 4,
                     "n_pcs": 3,
-                    "neighbors": {"n_neighbors": 3, "n_pcs": 3, "method": "auto", "gpu_method": "cagra", "mixed_transformer": "pyg"},
+                    "neighbors": {"n_neighbors": 3, "n_pcs": 3, "method": "auto", "mixed_transformer": "pyg"},
                     "umap": {"min_dist": 0.3, "method": "auto"},
                     "leiden": {"resolutions": [0.6], "default_resolution": 0.6},
-                    "gpu": {"managed_memory": True, "pool_allocator": True, "devices": 0},
                     "rust_oom": {"preprocess_mode": "shiftlog|pearson"},
                 },
             },
@@ -63,20 +61,9 @@ class _FakeSettings:
         self.mode = "cpu-gpu-mixed"
         self.calls.append("mixed_init")
 
-    def gpu_init(self, **kwargs):
-        self.mode = "gpu"
-        self.calls.append(f"gpu_init:{kwargs['managed_memory']}:{kwargs['pool_allocator']}:{kwargs['devices']}")
-
-
 class _FakePP:
     def __init__(self, calls: list[str]):
         self.calls = calls
-
-    def anndata_to_GPU(self, adata):
-        self.calls.append("to_gpu")
-
-    def anndata_to_CPU(self, adata):
-        self.calls.append("to_cpu")
 
     def preprocess(self, adata, **kwargs):
         self.calls.append(f"preprocess:{kwargs['mode']}")
@@ -155,20 +142,6 @@ def test_external_mixed_backend_runs_omicverse_steps(monkeypatch, tmp_path):
     assert "cluster_identity" in adata.obs
     assert "_scaled_implicit" not in adata.uns
     assert any(call == "neighbors:None:pyg" for call in calls)
-
-
-def test_external_gpu_backend_bridges_harmony_on_cpu_and_returns_to_cpu(monkeypatch, tmp_path):
-    calls = _install_fake_omicverse(monkeypatch)
-    adata = _adata()
-
-    result = run_omicverse_gpu_core(adata, _cfg(), tmp_path)
-
-    assert result["backend"] == "omicverse_gpu_rapids"
-    assert calls.count("to_gpu") == 2
-    assert calls.count("to_cpu") == 2
-    assert calls.index("to_cpu") < calls.index("to_gpu", calls.index("to_gpu") + 1)
-    assert "X_umap_identity" in adata.obsm
-    assert "cluster_identity" in adata.obs
 
 
 def test_rust_oom_backend_is_path_based_and_writes_output(monkeypatch, tmp_path):

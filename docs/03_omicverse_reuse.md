@@ -19,15 +19,6 @@ OmicVerse 当前是一个统一的 Python 多组学平台，覆盖 bulk、single
 
 这些函数可以减少不同平台输入格式的胶水代码，但读入后仍要进入本 SOP 的 schema validation。
 
-### GPU/CPU 转换
-
-可复用：
-
-- `omicverse.pp.anndata_to_GPU`
-- `omicverse.pp.anndata_to_CPU`
-
-用途：大规模对象在 GPU/CPU 间切换时减少重复代码。但这不是算法选择，不改变 QC、HVG、batch correction、clustering 的规则。
-
 ### Marker 辅助
 
 可复用：
