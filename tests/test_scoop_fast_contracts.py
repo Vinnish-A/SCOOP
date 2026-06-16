@@ -12,7 +12,10 @@ def test_fast_registry_exposes_expected_engine_ids() -> None:
         "fastde.abundance",
         "fastcnmf.programs",
         "fastcnvpy.tumor_pooled",
-        "fastcopykat.cnv_prediction",
+        "fastcore.preprocess",
+        "fastcore.core_pipeline",
+        "fastcore.graph_embed_cluster",
+        "fastcore.quality_compare",
     }.issubset(ids)
     assert get_engine("fastde.markers").task_type == "marker_genes"
 

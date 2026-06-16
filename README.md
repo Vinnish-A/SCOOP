@@ -9,7 +9,7 @@ SCOOP（Single Cell Omics Operating Protocol）是一个面向 single cell omics
 SCOOP 当前按四层组织：
 
 1. **SOP Workflow Layer**：run 目录、模块顺序、H5AD 状态、file registry、decision log。
-2. **Fast Compute Layer**：确定性计算引擎，包括 FastDE、FastCNMF、FastCNVpy、FastCopyKAT；SCOOP 通过 `src/scoop_fast/` 提供统一 contract 和 registry。
+2. **Fast Compute Layer**：确定性计算引擎，包括 FastCore、FastDE、FastCNMF、FastCNVpy；SCOOP 通过 `src/scoop_fast/` 提供统一 contract 和 registry。
 3. **Evidence & Skill Layer**：`markers/` 和未来 `skills/` 中的 marker、state、tumor、naming 规则，只作为证据来源。
 4. **Annotation Decision Layer**：SCOOP annotation decision 模块负责 evidence bundle、结构化 decision schema、validator 和 committer。当前代码位于历史兼容路径 `src/scsp_agent_sop/annotation_decision/`。
 
@@ -46,9 +46,9 @@ SCOOP 暴露并复用这些确定性 Fast engine：
 
 - `fastde markers`：sparse COSG-like marker scoring，不 densify 大矩阵。
 - `fastde deseq2`：pseudobulk DESeq2-like negative-binomial Wald test。
+- `fastcore`：`02_core` 的 normalization、HVG、PCA、Harmony 2.0、kNN、UMAP、Leiden sweep 计算内核。
 - `fastcnmf`：FastCNMF programme discovery，默认 `n_iter=20`、`max_iter=50`。
 - `fastcnvpy`：pooled-reference tumor CNV evidence。
-- `fastcopykat`：CNV prediction compatibility path。
 
 `src/scoop_fast/registry.py` 只记录这些 engine 的 contract、输入输出 schema、CLI 和质量门；它不重写算法。
 
