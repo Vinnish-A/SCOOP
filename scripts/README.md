@@ -38,12 +38,17 @@ DE 分成两类，不要混用：
 
 - marker genes：回答“谁定义这个细胞群”，默认用 `fastde markers --method cosg`，也保留 Wilcoxon 备选；
 - condition DE：回答“同一细胞群在条件改变后发生了什么”，默认用 `fastde deseq2` 的 pseudobulk DESeq2-like NB Wald。
+- abundance：回答“样本级细胞类型/状态比例是否随条件、结局或生存改变”，默认用 `fastde abundance`，不做 per-cell p value。
 
 需要和 R DESeq2 reference 对照时：
 
 ```bash
 Rscript r/run_pseudobulk_deseq2.R runs/<run_id>/07_de/pseudobulk/<cell_type> condition ctrl test
 python scripts/fastde/benchmark_deseq2.py --output-dir tmp/fastde_deseq2_benchmark
+```
+
+```bash
+python scripts/fastde/benchmark_abundance.py --output-dir tmp/fastde_abundance_benchmark
 ```
 
 legacy logCPM/Welch 和 edgeR QL 对照仍保留，主要用于回归检查：

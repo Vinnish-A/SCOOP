@@ -178,3 +178,34 @@ de:
   method: fastde_deseq2_wald
   min_cells_per_sample_celltype: 20
   min_samples_per_group: 3
+  abundance:
+    enabled: false
+    method: fastde_abundance_scsurvival_like
+    sample_key: sample_id
+    celltype_key: cell_type_lvl3
+    min_cells_per_sample: 20
+    min_total_cells_per_celltype: 50
+    min_samples_per_group: 3
+    min_events: 5
+    transform: clr
+    pseudocount: 0.5
+    model:
+      architecture: scsurvival_like
+      hidden_dim: 64
+      latent_dim: 16
+      dropout: 0.1
+      learning_rate: 0.001
+      weight_decay: 0.0001
+      max_epochs: 500
+      early_stopping_patience: 50
+      random_seed: 0
+    loss:
+      alpha_count: 0.1
+      lambda_l1: 0.0
+      lambda_l2: 0.0001
+      lambda_group: 0.0
+      binary_class_weight: balanced
+    inference:
+      method: bootstrap
+      n_bootstrap: 200
+      random_seed: 0

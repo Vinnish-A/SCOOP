@@ -1,9 +1,11 @@
 # FastDE
 
-FastDE separates two analyses that should not be mixed:
+FastDE separates three analyses that should not be mixed:
 
 - marker genes: "which genes define this cell group?"
 - condition DE: "what changed in the same cell group after condition changes?"
+- abundance: "which cell-type or cell-state proportions vary with sample-level
+  design or outcome?"
 
 ## Marker Genes
 
@@ -123,3 +125,24 @@ The high log2FC agreement is expected because both methods use size-factor
 offsets and negative-binomial count models. The complete dispersion path is much
 slower than the earlier moments-only prototype, but it raises top-hit agreement
 from roughly 0.70-0.73 to 0.98-1.00 on these fixtures.
+
+## Abundance
+
+Default method: scSurvival-like sample-level abundance association.
+
+`fastde abundance` compares sample-by-cell-type or sample-by-cell-state
+proportions across survival, binary, multiclass, continuous, or condition
+designs. It is not gene-level DE and does not use per-cell p values. The H5AD
+path only supplies sample and cell-type labels; inference is performed at the
+sample level after aggregation.
+
+Supported modes:
+
+- `survival`: Cox-style survival association from cell-type proportions.
+- `binary`: binary outcome classification and per-cell-type association table.
+- `multiclass`: subtype/class association with reference-level contrasts.
+- `condition`: binary condition comparison alias.
+- `continuous`: continuous phenotype association.
+
+The scSurvival reference mapping is documented in
+`docs/fastde/scsurvival_reference_mapping.md`.
