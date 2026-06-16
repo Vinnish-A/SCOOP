@@ -59,7 +59,9 @@ def run_cellphonedb_validation_omicverse(
     threads: int = 10,
 ) -> dict[str, Any]:
     """Run OmicVerse CellPhoneDB wrapper and immediately externalise results."""
-    import omicverse as ov
+    from omicverse_transfer.external import require_omicverse
+
+    ov = require_omicverse()
     results_key = "_cpdb_results_tmp"
     comm_key = "_cpdb_comm_tmp"
     raw, comm = ov.single.run_cellphonedb_v5(
@@ -93,7 +95,9 @@ def run_cellphonedb_validation_omicverse(
 
 
 def run_liana_validation_omicverse(adata, *, groupby: str, method: str = "rank_aggregate") -> pd.DataFrame:
-    import omicverse as ov
+    from omicverse_transfer.external import require_omicverse
+
+    ov = require_omicverse()
     res = ov.single.run_liana(adata, groupby=groupby, method=method, inplace=False)
     if not isinstance(res, pd.DataFrame):
         raise TypeError("OmicVerse run_liana did not return a DataFrame with inplace=False")

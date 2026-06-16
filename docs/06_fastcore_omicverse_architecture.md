@@ -65,9 +65,11 @@ workflow.
 
 The default Fast environment installs `harmonypy>=2.0,<3`, torch/CUDA, CuPy,
 and AnnDataOOM. It does not install the external OmicVerse package.
-The `omicverse_cpu` backend is a vendored GPL subset of OmicVerse `pp` CPU core code under
-`src/fastcore/vendor/omicverse_gpl/`. External OmicVerse validation uses
-`environment_omicverse.yml` or the `omicverse` Python extra in a separate
+All OmicVerse-derived code and optional OmicVerse adapters are isolated under
+`src/omicverse_transfer/`. The `omicverse_cpu` backend is a vendored GPL subset
+of OmicVerse `pp` CPU core code under
+`src/omicverse_transfer/vendor/omicverse_gpl/`. External OmicVerse validation
+uses `environment_omicverse.yml` or the `omicverse` Python extra in a separate
 environment.
 
 ## Executable Backend Adapters
