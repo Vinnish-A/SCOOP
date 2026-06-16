@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import anndata as ad
@@ -14,7 +15,7 @@ from scipy import sparse
 
 
 ROOT = Path(__file__).resolve().parents[2]
-RAW_ROOT = ROOT / "data/raw/spatial/gbm_lowres_visium"
+RAW_ROOT = Path(os.environ.get("SCOOP_SPATIAL_RAW_ROOT", ROOT / ".scoop_local/data/raw/spatial/gbm_lowres_visium"))
 OUT_DIR = ROOT / "tmp/fastcnmf_harmony2"
 CORE_NPZ = OUT_DIR / "harmony_core_input.npz"
 MANIFEST = OUT_DIR / "harmony_core_input_manifest.json"

@@ -45,7 +45,7 @@ Benchmark command:
 
 ```bash
 PYTHONPATH=src python scripts/fastde/benchmark_cosg.py \
-  --input h5ad/canonical/quick_test/public_O_GSE154795_24samples_3000cells_balanced.h5ad \
+  --input .scoop_local/data/h5ad/canonical/quick_test/public_O_GSE154795_24samples_3000cells_balanced.h5ad \
   --groupby sample_id \
   --layer counts \
   --output-dir tmp/fastde_cosg_benchmark_public \

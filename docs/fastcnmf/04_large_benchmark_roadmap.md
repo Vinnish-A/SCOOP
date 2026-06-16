@@ -561,7 +561,7 @@ The same-worker runner has been promoted into a reusable script:
 
 It was run on the internal S2 dataset:
 
-- input: `h5ad/canonical/quick_test/internal_overall_sim_24samples_3000cells_balanced.h5ad`
+- input: `.scoop_local/data/h5ad/canonical/quick_test/internal_overall_sim_24samples_3000cells_balanced.h5ad`
 - shape: `72,000` cells, `24` samples, `3,000` cells/sample
 - cNMF optimized 8-worker reference total: `1135.24 s`
 
@@ -609,7 +609,7 @@ This makes both expanded S2 datasets accepted:
 - internal S2: `n_iter=20`, `max_iter=50`, `3.65x` same-worker speedup
 
 The remaining coverage gap is S1 spatial. The current manifest only has three
-GBM Visium samples available under `data/raw/spatial/gbm_lowres_visium`, so S1
+GBM Visium samples available under `.scoop_local/data/raw/spatial/gbm_lowres_visium`, so S1
 still needs either a larger spatial input or an explicit scoped benchmark
 decision before the overall goal can be closed.
 

@@ -11,7 +11,7 @@ Environment:
 
 Input:
 
-- `h5ad/canonical/quick_test/public_O_GSE154795_10samples_1000cells.h5ad`
+- `.scoop_local/data/h5ad/canonical/quick_test/public_O_GSE154795_10samples_1000cells.h5ad`
 - Shape: 10,000 cells x 31,402 genes
 - Counts layer: `counts`
 
@@ -111,8 +111,8 @@ Benchmark date: 2026-06-16
 
 Input:
 
-- 10k run: `h5ad/canonical/quick_test/public_O_GSE154795_10samples_1000cells.h5ad`
-- 72k run: `h5ad/canonical/quick_test/public_O_GSE154795_24samples_3000cells_balanced.h5ad`
+- 10k run: `.scoop_local/data/h5ad/canonical/quick_test/public_O_GSE154795_10samples_1000cells.h5ad`
+- 72k run: `.scoop_local/data/h5ad/canonical/quick_test/public_O_GSE154795_24samples_3000cells_balanced.h5ad`
 
 Configuration:
 

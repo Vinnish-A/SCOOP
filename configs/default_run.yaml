@@ -1,7 +1,7 @@
 run:
   run_id: template
-  input_h5ad: h5ad/canonical/adata_input.h5ad
-  output_h5ad: runs/template/artifacts/final_adata.h5ad
+  input_h5ad: .scoop_local/data/h5ad/canonical/adata_input.h5ad
+  output_h5ad: .scoop_local/runs/template/artifacts/final_adata.h5ad
   random_seed: 0
   organism: human
   tissue: unknown
@@ -49,8 +49,17 @@ core:
   neighbors_n_pcs: 30
   neighbors_n_neighbors: 15
   umap_min_dist: 0.3
-  leiden_resolutions: [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0]
+  leiden_resolutions: [0.25, 0.5, 0.75, 1.0, 1.25, 1.5]
   leiden_seeds: [0, 1, 2, 3, 4]
+  leiden_search:
+    strategy: coarse_to_fine
+    coarse_resolutions: [0.25, 0.75, 1.25, 1.5]
+    coarse_seeds: [0, 1]
+    refine_window: 0.25
+    refine_step: 0.125
+    min_seed_ari: 0.80
+    min_clusters: 4
+    max_clusters: 80
   batch_correction:
     method: harmony2
     max_iter_harmony: 20
@@ -91,7 +100,8 @@ core:
         min_dist: 0.3
         method: auto
       leiden:
-        resolutions: [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0]
+        resolutions: [0.25, 0.5, 0.75, 1.0, 1.25, 1.5]
+        default_resolution: 0.75
         seeds: [0, 1, 2, 3, 4]
       rust_oom:
         preprocess_mode: shiftlog|pearson
@@ -139,8 +149,8 @@ tumor_fastcnv:
 
 spatial:
   enabled: false
-  spatial_h5ad: h5ad/spatial_views/spot.h5ad
-  reference_h5ad: h5ad/canonical/adata_annotated.h5ad
+  spatial_h5ad: .scoop_local/data/h5ad/spatial_views/spot.h5ad
+  reference_h5ad: .scoop_local/data/h5ad/canonical/adata_annotated.h5ad
   rctd:
     mode_low_resolution: full
     mode_sparse_sensitivity: multi
@@ -157,12 +167,12 @@ ccc:
   fallback_groupby: cell_type_lvl2
   min_cells_per_group: 20
   fdr: 0.05
-  lr_resource: data/external/lr_resources/lr_complex_aware.parquet
+  lr_resource: .scoop_local/data/external/lr_resources/lr_complex_aware.parquet
   fastccc_command_template: "fastccc --input {input_h5ad} --groupby {groupby} --resource {lr_resource} --output {output_dir}"
   complex_validation:
     enabled: true
     method: omicverse_cellphonedb_v5
-    cpdb_file_path: data/external/lr_resources/cellphonedb.zip
+    cpdb_file_path: .scoop_local/data/external/lr_resources/cellphonedb.zip
     iterations: 1000
     threshold: 0.1
     pvalue: 0.05

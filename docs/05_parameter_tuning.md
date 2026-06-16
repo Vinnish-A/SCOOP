@@ -14,13 +14,20 @@
 
 ## Batch correction
 
-默认 Harmony 2.0。只校正技术 key，例如 `sample_id`、`library_id`、`batch_id`、`chemistry`。不得校正 `condition`、`disease`、`treatment` 或 lineage。
+默认 Harmony 2.0。只校正技术 key，例如 `sample_id`、`library_id`、`batch_id`、`chemistry`。不得校正 `condition`、`disease`、`treatment` 或 `lineage`
 
 如果 batch 与 condition 高度混淆，不做 correction，而在下游 DE 或 stratified analysis 中处理。
 
 ## Leiden resolution
 
-不要只跑一个 resolution。默认 sweep `0.2–2.0`，5 个 seed。选最低足够 resolution：
+不要只跑一个 resolution。默认搜索范围是 `0.25–1.5`，5 个 seed。默认策略是 coarse-to-fine：
+
+1. 先用 `[0.25, 0.75, 1.25, 1.5]` 和 2 个 seed 粗扫；
+2. 选择 seed 稳定、cluster 数量不过低也不过碎的最低可用 resolution；
+3. 在该 resolution 附近 `±0.25` 范围内用 `0.125` 步长和完整 5 个 seed 细扫；
+4. 最终选择最低的稳定 resolution，而不是选择 cluster 数最多的 resolution。
+
+选择时看：
 
 - marker 支持；
 - graph 连贯；

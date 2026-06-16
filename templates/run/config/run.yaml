@@ -1,0 +1,210 @@
+run:
+  run_id: template
+  input_h5ad: .scoop_local/data/h5ad/canonical/adata_input.h5ad
+  output_h5ad: .scoop_local/runs/template/artifacts/final_adata.h5ad
+  random_seed: 0
+  organism: human
+  tissue: unknown
+
+keys:
+  sample: sample_id
+  donor: donor_id
+  condition: condition
+  batch_candidates: [sample_id, library_id, batch_id, chemistry]
+  celltype_primary: cell_type_lvl3
+  celltype_fallback: cell_type_lvl2
+
+storage:
+  table_format: parquet
+  write_registry_to_uns: true
+  keep_large_tables_outside_h5ad: true
+  prune_delivery_h5ad: true
+
+qc:
+  counts_layer: counts
+  threshold_method: per_sample_mad_quantile
+  mad:
+    low_counts: 3.0
+    low_genes: 3.0
+    high_mt: 3.0
+    high_ribo: 4.0
+    high_hb: 4.0
+  quantiles:
+    low: 0.10
+    high: 0.90
+    high_strict: 0.95
+  scrublet:
+    expected_doublet_rate: 0.05
+    stdev_doublet_rate: 0.02
+    sim_doublet_ratio: 2.0
+    random_state: 0
+
+core:
+  engine: fastcore
+  fallback_engine: scanpy_legacy
+  normalize_total_target_sum: 10000
+  hvg_flavor: seurat_v3
+  n_top_hvg: 3000
+  n_pcs: 50
+  neighbors_n_pcs: 30
+  neighbors_n_neighbors: 15
+  umap_min_dist: 0.3
+  leiden_resolutions: [0.25, 0.5, 0.75, 1.0, 1.25, 1.5]
+  leiden_seeds: [0, 1, 2, 3, 4]
+  leiden_search:
+    strategy: coarse_to_fine
+    coarse_resolutions: [0.25, 0.75, 1.25, 1.5]
+    coarse_seeds: [0, 1]
+    refine_window: 0.25
+    refine_step: 0.125
+    min_seed_ari: 0.80
+    min_clusters: 4
+    max_clusters: 80
+  batch_correction:
+    method: harmony2
+    max_iter_harmony: 20
+    ncores: 0
+    accept_only_if_not_confounded: true
+  fastcore:
+    backend_policy: auto
+    allowed_backends:
+      - fastcore_oom
+      - fastcore_mixed
+      - fastcore_cpu
+    fallback_backend: scanpy_legacy
+    enable_fastcore_cpu_backend: true
+    auto:
+      rust_oom_min_cells: 100000
+      rust_oom_min_nnz: 300000000
+      gpu_min_cells: 30000
+      prefer_rust_when_backed: true
+      prefer_gpu_when_available: true
+    omicverse:
+      reference_enabled: false
+      reference_source: submodule
+      reference_path: third_party/omicverse
+      expose_to_agent: false
+      preprocess_mode: shiftlog
+      target_sum: 500000
+      n_hvgs: 3000
+      scaled_layer: scaled
+      n_pcs: 50
+      identify_robust: false
+      use_implicit_centering: true
+      neighbors:
+        n_neighbors: 15
+        n_pcs: 30
+        method: auto
+        mixed_transformer: pyg
+      umap:
+        min_dist: 0.3
+        method: auto
+      leiden:
+        resolutions: [0.25, 0.5, 0.75, 1.0, 1.25, 1.5]
+        default_resolution: 0.75
+        seeds: [0, 1, 2, 3, 4]
+      rust_oom:
+        preprocess_mode: shiftlog|pearson
+    quality_gate:
+      min_pc_subspace_cosine: 0.98
+      min_neighbor_overlap: 0.90
+      min_leiden_ari_vs_reference: 0.90
+      max_explained_variance_delta: 0.03
+
+programs:
+  method: fastcnmf
+  layer: log1p_norm
+  n_top_hvg: 2500
+  k_grid: [5, 8, 10, 12, 15, 20]
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+  max_iter: 50
+  stability_threshold: 0.70
+  fallback_validation: omicverse_cnmf
+
+annotation:
+  default_marker_method: wilcoxon
+  fast_marker_method: fastde_cosg
+  marker_n_genes: 100
+  major_lineage_key: cell_type_lvl1
+  decision:
+    enabled: false
+    schema: configs/annotation_decision_schema.yaml
+    cluster_key: cluster_identity
+    output_dir: 04_annotation/decisions
+    min_cells_high_confidence: 20
+    min_samples_high_confidence: 2
+    require_review_for_unvalidated: true
+  program_sanitizer:
+    enabled: true
+    fraction_threshold: 0.35
+    overlap_threshold: 2
+
+tumor_fastcnv:
+  enabled: false
+  parenchymal_lineages: Epithelial
+  normal_status_key: null
+  normal_status_labels: [normal, non_tumor, healthy]
+  h5ad_mode: dense
+  n_jobs: 1
+
+spatial:
+  enabled: false
+  spatial_h5ad: .scoop_local/data/h5ad/spatial_views/spot.h5ad
+  reference_h5ad: .scoop_local/data/h5ad/canonical/adata_annotated.h5ad
+  rctd:
+    mode_low_resolution: full
+    mode_sparse_sensitivity: multi
+    expected_cells_per_unit: null
+    umi_min_low_resolution: 100
+    umi_min_bin: 20
+    cell_type_key: cell_type_lvl3
+    command_template: "rctd-py --spatial {spatial_h5ad} --reference {reference_h5ad} --cell-type-key {cell_type_key} --mode {mode} --output {output_h5ad}"
+
+ccc:
+  enabled: false
+  primary_method: fastccc
+  groupby: cell_type_lvl3
+  fallback_groupby: cell_type_lvl2
+  min_cells_per_group: 20
+  fdr: 0.05
+  lr_resource: .scoop_local/data/external/lr_resources/lr_complex_aware.parquet
+  fastccc_command_template: "fastccc --input {input_h5ad} --groupby {groupby} --resource {lr_resource} --output {output_dir}"
+  complex_validation:
+    enabled: true
+    method: omicverse_cellphonedb_v5
+    cpdb_file_path: .scoop_local/data/external/lr_resources/cellphonedb.zip
+    iterations: 1000
+    threshold: 0.1
+    pvalue: 0.05
+    threads: 10
+  liana_validation:
+    enabled: false
+    method: rank_aggregate
+
+de:
+  enabled: false
+  method: fastde_deseq2_wald
+  min_cells_per_sample_celltype: 20
+  min_samples_per_group: 3
+  abundance:
+    enabled: false
+    method: fastde_abundance_scsurvival_like
+    sample_key: sample_id
+    celltype_key: cell_type_lvl3
+    min_cells_per_sample: 20
+    min_total_cells_per_celltype: 50
+    min_samples_per_group: 3
+    min_events: 5
+    model:
+      architecture: scsurvival_mil
+      backend: scsurvival_mil
+      hidden_dim: 64
+      latent_dim: 16
+      dropout: 0.1
+      learning_rate: 0.001
+      weight_decay: 0.0001
+      max_epochs: 500
+      early_stopping_patience: 50
+      random_seed: 0
+    loss:
+      survival_loss: cox

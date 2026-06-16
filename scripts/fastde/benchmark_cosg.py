@@ -105,7 +105,10 @@ def _compare_tables(left_path: str, right_path: str, *, top_n: int) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--input", default="h5ad/canonical/quick_test/public_O_GSE154795_24samples_3000cells_balanced.h5ad")
+    ap.add_argument(
+        "--input",
+        default=os.environ.get("SCOOP_TEST_H5AD", ".scoop_local/data/h5ad/canonical/quick_test/public_O_GSE154795_24samples_3000cells_balanced.h5ad"),
+    )
     ap.add_argument("--groupby", default="sample_id")
     ap.add_argument("--layer", default="counts")
     ap.add_argument("--output-dir", default="tmp/fastde_cosg_benchmark")

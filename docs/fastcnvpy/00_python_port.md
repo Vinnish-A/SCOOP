@@ -31,7 +31,7 @@ The port uses the exported Ensembl v113 fastCNV `geneMetadata` table stored at
 
 ```bash
 PYTHONPATH=src python -m fastcnvpy run \
-  --input h5ad/canonical/quick_test/private_overall_sim_10samples_1000cells.h5ad \
+  --input .scoop_local/data/h5ad/canonical/quick_test/private_overall_sim_10samples_1000cells.h5ad \
   --gene-metadata tmp/fastcnvpy_reference/geneMetadata_ensembl113.tsv \
   --output-dir tmp/fastcnvpy_project_smoke \
   --sample-name private_quick \

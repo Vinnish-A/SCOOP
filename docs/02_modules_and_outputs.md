@@ -28,6 +28,8 @@
 - H5AD `obs`：最终 cluster；
 - 外部表：HVG rank、PC covariate association、Leiden sweep、cluster stability。
 
+Leiden 默认在 `0.25-1.5` 内做 coarse-to-fine 搜索：先用少量 resolution/seed 找到稳定候选，再在候选附近细扫完整 seed。这样避免全量密集网格的成本，同时不把单个固定 resolution 当成默认答案。
+
 不做：把所有 resolution/seed 的 cluster 都留在 `obs`；把 UMAP 距离用于注释；对 condition 做 batch correction。
 
 FastCore 额外输出：
