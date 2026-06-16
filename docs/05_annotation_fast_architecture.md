@@ -1,4 +1,4 @@
-# SCOOP Fast & Annotation Decision Architecture
+# SCOOP Fast & Annotation Agent Handoff Architecture
 
 Target repository path: `docs/05_annotation_fast_architecture.md`
 
@@ -13,9 +13,9 @@ The target architecture has four layers:
 1. **SOP Workflow Layer**: run directories, module ordering, H5AD state, file registry, decision log.
 2. **Fast Compute Layer**: deterministic engines such as FastCore, FastDE, FastCNMF, and FastCNVpy.
 3. **Evidence & Skill Layer**: curated marker/state/tumor/naming rules, versioned as retrievable skills.
-4. **Annotation Decision Layer**: schema-bound evidence fusion, validation, and commit into H5AD.
+4. **Annotation Handoff Layer**: schema-bound evidence packaging, validation, and commit into H5AD.
 
-The Agent/AI layer must not directly mutate H5AD or invent labels. It may only propose structured annotation decisions that pass deterministic validators.
+The subagent/AI layer is where biological naming happens: it uses world knowledge, project context, and exported evidence to propose labels. It must not directly mutate H5AD. It may only return structured annotation decisions that pass deterministic validators.
 
 MCP is a future control-plane interface. Large matrices and long tables must stay in run artifacts; MCP tools should pass paths, manifests, and registry references, not matrix payloads.
 
@@ -30,11 +30,11 @@ Existing architecture already contains the right primitives:
 - `docs/02_modules_and_outputs.md` defines the seven modules and already includes `04b_tumor_fastcnvpy`.
 - `scripts/README.md` defines scripts as Agent execution interfaces.
 - `src/scsp_agent_sop/decision_log.py` already supports decision evidence, fallback metadata, and human review flags.
-- `scripts/04_annotation_markers.py` exports annotation evidence but intentionally does not assign final labels.
+- `scripts/04a_annotation_evidence.py` exports annotation evidence but intentionally does not assign final labels.
 - `src/scsp_agent_sop/annotation.py` creates an evidence template with `review_required` defaults.
 - `pyproject.toml` exposes `fastcore`, `fastde`, `fastcnmf`, and `fastcnvpy` as CLI entry points.
 
-The missing layer is a deterministic **Annotation Decision Layer** that consumes evidence and skills, validates proposed labels, commits accepted labels, and logs the decision.
+The missing layer is a deterministic **Annotation Handoff Layer** that packages evidence for the subagent/analyst, validates proposed labels, commits accepted labels, and logs the decision.
 
 ---
 
@@ -43,9 +43,9 @@ The missing layer is a deterministic **Annotation Decision Layer** that consumes
 ```text
 SCOOP/
   scripts/
-    04_annotation_markers.py          # existing evidence export
+    04a_annotation_evidence.py        # existing evidence export
     04b_tumor_fastcnvpy.py            # existing tumor CNV evidence gate
-    04c_annotation_decide.py          # new: produce/validate decision drafts
+    04c_annotation_export_for_agent.py # new: evidence bundle and blank decision template
     04d_annotation_commit.py          # new: commit accepted decisions
 
   src/
@@ -57,7 +57,7 @@ SCOOP/
       registry.py
 
     scsp_agent_sop/
-      annotation_decision/            # new: evidence-native annotation layer
+      annotation_decision/            # schema/validation/commit layer
         __init__.py
         evidence_bundle.py
         decision_schema.py
@@ -171,7 +171,7 @@ Do not rewrite existing algorithms in this PR.
 
 ---
 
-## 4. Annotation Decision Layer
+## 4. Annotation Handoff Layer
 
 ### 4.1 State Machine
 
@@ -197,7 +197,7 @@ Invalid transitions must be rejected in future workflow code. The first implemen
 
 ### 4.2 Evidence Bundle
 
-`AnnotationEvidenceBundle` is the input to AI/human annotation decisions.
+`AnnotationEvidenceBundle` is the input to subagent or analyst annotation decisions.
 
 Required fields:
 
@@ -236,7 +236,7 @@ class AnnotationEvidenceBundle:
 
 ### 4.3 Annotation Decision Schema
 
-AI/human output must use a strict schema.
+Subagent or analyst output must use a strict schema.
 
 ```python
 @dataclass(frozen=True)
@@ -471,7 +471,7 @@ Update:
   - add `annotation.program_sanitizer`
   - add `tumor_fastcnv`
 - `scripts/README.md`
-  - include `04b_tumor_fastcnvpy.py`, `04c_annotation_decide.py`, and `04d_annotation_commit.py` in the intended flow.
+  - include `04b_tumor_fastcnvpy.py`, `04c_annotation_export_for_agent.py`, and `04d_annotation_commit.py` in the intended flow.
 
 ### Phase 1: Fast Contract Skeleton
 
@@ -541,13 +541,13 @@ Tests:
 Add:
 
 - `committer.py`
-- `scripts/04c_annotation_decide.py`
+- `scripts/04c_annotation_export_for_agent.py`
 - `scripts/04d_annotation_commit.py`
 
 Behavior:
 
-- `04c` builds evidence bundle and writes a decision template JSON/TSV. It must not call an LLM.
-- `04d` reads user/AI-edited decisions, validates them, commits accepted fields into H5AD, writes audit tables, and logs decisions.
+- `04c` builds an evidence bundle and writes a blank decision template JSON/TSV for a subagent or analyst. It must not call an LLM or infer labels.
+- `04d` reads subagent/analyst-edited decisions, validates them, commits accepted fields into H5AD, writes audit tables, and logs decisions.
 
 Tests:
 
@@ -560,9 +560,9 @@ Tests:
 Update documentation and config so tumor samples run:
 
 ```text
-04_annotation_markers.py
+04a_annotation_evidence.py
 04b_tumor_fastcnvpy.py
-04c_annotation_decide.py
+04c_annotation_export_for_agent.py
 04d_annotation_commit.py
 ```
 

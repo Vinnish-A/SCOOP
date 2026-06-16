@@ -1,7 +1,8 @@
 #!/usr/bin/env python
-"""Build annotation evidence and a deterministic decision template.
+"""Build annotation evidence and a structured decision template.
 
-This script does not call an LLM and does not assign final labels.
+This script does not call an LLM and does not assign final labels. It prepares
+the evidence bundle and blank template that a subagent or analyst fills in.
 """
 from __future__ import annotations
 
@@ -78,7 +79,7 @@ def main() -> None:
                 negative_markers_absent=(),
                 conflicts=(),
                 review_required=True,
-                reason="template only; human or AI decision required",
+                reason="template only; subagent or analyst decision required",
             ).to_dict()
         )
     ensure_dir(output_dir)
@@ -87,12 +88,12 @@ def main() -> None:
     log_decision(
         run_root,
         module="annotation",
-        decision="annotation_decision_template_created",
-        reason="Evidence bundle and decision template created without assigning labels.",
+        decision="annotation_agent_payload_created",
+        reason="Evidence bundle and structured decision template created without assigning labels.",
         parameters={"cluster_key": cluster_key, "input_h5ad": str(input_path)},
         evidence={"evidence_bundle": str(bundle_path), "decision_template": str(template_path), "n_clusters": len(bundle.clusters)},
         human_review_required=True,
-        review_reason="Decision template requires human or AI-edited structured decisions before commit.",
+        review_reason="Decision template requires subagent- or analyst-edited structured decisions before commit.",
     )
 
 
