@@ -27,6 +27,7 @@ from .abundance_metrics import (
 )
 from .abundance_result import AbundanceResult
 from .abundance_train import AbundanceTrainer, AbundanceTrainingConfig
+from .abundance_mil import run_mil_abundance
 
 
 def load_abundance_table(
@@ -285,6 +286,7 @@ def run_abundance(
     mode = mode.lower()
     if mode == "condition":
         mode = "binary"
+    model_backend = str(kwargs.get("model_backend", "scsurvival_mil"))
     table = load_abundance_table(
         input_h5ad=input_h5ad,
         counts=counts,
@@ -301,6 +303,33 @@ def run_abundance(
     outdir = Path(output_dir)
     write_abundance_inputs(table, outdir)
     cov = parse_covariates(covariates)
+
+    if model_backend in {"scsurvival_mil", "mil"}:
+        return run_mil_abundance(
+            mode=mode,
+            table=table,
+            output_dir=outdir,
+            input_h5ad=input_h5ad,
+            sample_key=sample_key,
+            celltype_key=celltype_key,
+            label_col=label_col,
+            positive_label=positive_label,
+            negative_label=negative_label,
+            reference_level=reference_level,
+            time_col=time_col,
+            event_col=event_col,
+            value_col=value_col,
+            covariates=covariates,
+            max_instances_per_sample=int(kwargs.get("max_instances_per_sample", 2000)),
+            hidden_dim=int(kwargs.get("hidden_dim", 64)),
+            dropout=float(kwargs.get("dropout", 0.1)),
+            learning_rate=float(kwargs.get("learning_rate", 1e-3)),
+            weight_decay=float(kwargs.get("weight_decay", 1e-4)),
+            max_epochs=int(kwargs.get("max_epochs", 500)),
+            random_seed=int(kwargs.get("random_seed", 0)),
+            survival_loss=str(kwargs.get("survival_loss", "cox")),
+            manifest_factory=_manifest,
+        )
 
     if mode == "binary":
         if not label_col or positive_label is None or negative_label is None:

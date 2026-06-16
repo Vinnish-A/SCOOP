@@ -73,3 +73,25 @@ def test_cli_survival_writes_outputs(tmp_path) -> None:
     assert rc == 0
     assert (tmp_path / "out" / "abundance_survival_results.tsv").exists()
     assert "concordance_index" in result.metrics
+
+
+def test_survival_mil_backend_supports_rank_loss(tmp_path) -> None:
+    counts, meta = _survival_fixture()
+    counts_path = tmp_path / "counts.tsv"
+    meta_path = tmp_path / "metadata.tsv"
+    counts.to_csv(counts_path, sep="\t")
+    meta.to_csv(meta_path, sep="\t", index=False)
+    result = run_abundance(
+        mode="survival",
+        counts=counts_path,
+        metadata=meta_path,
+        time_col="OS_time",
+        event_col="OS_event",
+        max_epochs=20,
+        learning_rate=0.02,
+        survival_loss="cox_rank",
+        output_dir=tmp_path / "rank",
+    )
+    assert result.manifest["model"]["backend"] == "scsurvival_mil"
+    assert result.manifest["model"]["survival_loss"] == "cox_rank"
+    assert (tmp_path / "rank" / "abundance_survival_predictions.tsv").exists()

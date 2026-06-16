@@ -16,6 +16,10 @@ dependencies:
   - matplotlib
   - pip:
       - harmonypy>=2.0,<3
+      - torch>=2.0
+      - cupy-cuda12x
+      - anndataoom
+      - lifelines>=0.30
       - fastccc
       - liana
       - cellphonedb

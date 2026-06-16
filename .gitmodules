@@ -1,0 +1,3 @@
+[submodule "third_party/scSurvival"]
+	path = third_party/scSurvival
+	url = https://github.com/cliffren/scSurvival.git
