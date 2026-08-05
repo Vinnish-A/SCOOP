@@ -87,6 +87,34 @@ def _atomic_symlink(target: Path, link: Path) -> None:
     os.replace(temporary, link)
 
 
+def _release_ready(path: Path) -> bool:
+    return path.is_dir() and (path / "manifest.json").is_file() and (path / "environment.path").is_file()
+
+
+def _select_previous_release(home: Path, current: Path, candidate: Path) -> str | None:
+    if not current.is_symlink():
+        return None
+    active = current.resolve()
+    if active != candidate:
+        return str(active)
+    activation = home / "state" / "activation.json"
+    if activation.is_file():
+        try:
+            recorded = json.loads(activation.read_text(encoding="utf-8")).get("previous_release")
+        except (OSError, json.JSONDecodeError):
+            recorded = None
+        if recorded:
+            previous = Path(recorded).resolve()
+            if previous != candidate and _release_ready(previous):
+                return str(previous)
+    alternatives = sorted(
+        (path for path in (home / "releases").iterdir() if path != candidate and _release_ready(path)),
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+    return str(alternatives[0].resolve()) if alternatives else None
+
+
 def _write_launcher(home: Path) -> None:
     launcher = home / "bin" / "scoop"
     launcher.parent.mkdir(parents=True, exist_ok=True)
@@ -169,7 +197,6 @@ def install(home: Path) -> Path:
         release = home / "releases" / content_id
         environment = home / "envs" / f"{RUNTIME_NAME}-{content_id}"
         current = home / "current"
-        previous = str(current.resolve()) if current.is_symlink() else None
 
         if not release.exists():
             staging = home / f".release-{content_id}-{uuid.uuid4().hex}"
@@ -200,6 +227,8 @@ def install(home: Path) -> Path:
                 json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
             )
             os.replace(staging, release)
+
+        previous = _select_previous_release(home, current, release)
 
         completion_path = environment / ".complete.json"
         expected_completion = _completion_record(content_id)
