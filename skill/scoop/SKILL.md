@@ -59,7 +59,6 @@ Choose the narrowest workflow that satisfies the request:
 | Spatial deconvolution or spatial graph | `spatial` | [spatial stage](references/stages/spatial.md), [parameter rules](references/docs/parameter-tuning.md) |
 | Candidate cell-cell communication | `ccc` | [CCC stage](references/stages/ccc.md), [modules](references/docs/modules-and-outputs.md) |
 | Marker, condition DE, abundance, or survival | `differential-expression` | [DE stage](references/stages/differential-expression.md), [modules](references/docs/modules-and-outputs.md) |
-| Extend or release SCOOP | `development` | [development contract](references/development-contract.md), [reference catalog](references/catalog.md) |
 
 Create a plan before expensive computation:
 

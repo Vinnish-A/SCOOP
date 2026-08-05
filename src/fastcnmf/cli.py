@@ -19,14 +19,6 @@ from .stage_report import write_stage_report
 from .tasks import build_nmf_tasks
 
 
-def cmd_status(args: argparse.Namespace) -> int:
-    report = Path(args.report)
-    if not report.exists():
-        raise FileNotFoundError(f"status report not found: {report}")
-    print(report.read_text(encoding="utf-8"))
-    return 0
-
-
 def cmd_plan_tasks(args: argparse.Namespace) -> int:
     manifest = build_nmf_tasks(
         run_name=args.run_name,
@@ -270,8 +262,12 @@ def cmd_fast_prepare(args: argparse.Namespace) -> int:
         precomputed_tpm_stats=Path(args.precomputed_tpm_stats) if args.precomputed_tpm_stats else None,
         precomputed_tpm_hvg_raw=Path(args.precomputed_tpm_hvg_raw) if args.precomputed_tpm_hvg_raw else None,
         precomputed_tpm_hvg_scaled=Path(args.precomputed_tpm_hvg_scaled) if args.precomputed_tpm_hvg_scaled else None,
-        precomputed_tpm_hvg_obs_names=Path(args.precomputed_tpm_hvg_obs_names) if args.precomputed_tpm_hvg_obs_names else None,
-        precomputed_tpm_hvg_var_names=Path(args.precomputed_tpm_hvg_var_names) if args.precomputed_tpm_hvg_var_names else None,
+        precomputed_tpm_hvg_obs_names=(
+            Path(args.precomputed_tpm_hvg_obs_names) if args.precomputed_tpm_hvg_obs_names else None
+        ),
+        precomputed_tpm_hvg_var_names=(
+            Path(args.precomputed_tpm_hvg_var_names) if args.precomputed_tpm_hvg_var_names else None
+        ),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -345,10 +341,6 @@ def write_gate_markdown(result, path: Path) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="fastcnmf")
     sub = parser.add_subparsers(dest="command", required=True)
-
-    status = sub.add_parser("status", help="print the FastCNMF execution status document")
-    status.add_argument("--report", default="docs/fastcnmf/02_execution_status.md")
-    status.set_defaults(func=cmd_status)
 
     plan_tasks = sub.add_parser("plan-tasks", help="write an NMF replicate task manifest")
     plan_tasks.add_argument("--run-name", default="fastcnmf")
@@ -430,7 +422,10 @@ def build_parser() -> argparse.ArgumentParser:
     fast_pre.add_argument("--no-tp10k-h5ad", action="store_true", default=False)
     fast_pre.set_defaults(func=cmd_fast_preprocess)
 
-    cmp_pre = sub.add_parser("compare-preprocess", help="compare reference and candidate corrected preprocess H5AD files")
+    cmp_pre = sub.add_parser(
+        "compare-preprocess",
+        help="compare reference and candidate corrected preprocess H5AD files",
+    )
     cmp_pre.add_argument("--reference-h5ad", required=True)
     cmp_pre.add_argument("--candidate-h5ad", required=True)
     cmp_pre.add_argument("--output-json", required=True)
@@ -463,7 +458,11 @@ def build_parser() -> argparse.ArgumentParser:
     fast_prepare.add_argument("-k", type=int, nargs="+", required=True)
     fast_prepare.add_argument("--n-iter", type=int, required=True)
     fast_prepare.add_argument("--seed", type=int, default=20260614)
-    fast_prepare.add_argument("--beta-loss", choices=["frobenius", "kullback-leibler", "itakura-saito"], default="frobenius")
+    fast_prepare.add_argument(
+        "--beta-loss",
+        choices=["frobenius", "kullback-leibler", "itakura-saito"],
+        default="frobenius",
+    )
     fast_prepare.add_argument("--max-nmf-iter", type=int, default=50)
     fast_prepare.add_argument("--init", choices=["random", "nndsvd"], default="random")
     fast_prepare.add_argument("--norm-dtype", choices=["float64", "float32"], default="float64")
