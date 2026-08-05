@@ -37,7 +37,7 @@ STAGE_DIRECTORIES = {
 class StageSpec:
     name: str
     depends_on: tuple[str, ...] = ()
-    profile: str = "core"
+    capability: str = "core"
     review_gate: bool = False
 
 
@@ -66,22 +66,22 @@ WORKFLOWS: dict[str, tuple[StageSpec, ...]] = {
     "atlas": (
         StageSpec("validate"),
         StageSpec("qc", ("validate",)),
-        StageSpec("atlas-integrate", ("qc",), profile="atlas"),
+        StageSpec("atlas-integrate", ("qc",), capability="atlas"),
         StageSpec("programs", ("atlas-integrate",)),
-        StageSpec("atlas-annotate", ("programs",), profile="atlas"),
-        StageSpec("atlas-report", ("atlas-annotate",), profile="atlas", review_gate=True),
-        StageSpec("atlas-approval", ("atlas-report",), profile="atlas", review_gate=True),
-        StageSpec("atlas-scpoli", ("atlas-approval",), profile="atlas"),
-        StageSpec("atlas-validate", ("atlas-scpoli",), profile="atlas"),
+        StageSpec("atlas-annotate", ("programs",), capability="atlas"),
+        StageSpec("atlas-report", ("atlas-annotate",), capability="atlas", review_gate=True),
+        StageSpec("atlas-approval", ("atlas-report",), capability="atlas", review_gate=True),
+        StageSpec("atlas-scpoli", ("atlas-approval",), capability="atlas"),
+        StageSpec("atlas-validate", ("atlas-scpoli",), capability="atlas"),
         StageSpec("deliver", ("atlas-validate",)),
     ),
     "spatial": (
         StageSpec("annotation-commit"),
-        StageSpec("spatial", ("annotation-commit",), profile="spatial"),
+        StageSpec("spatial", ("annotation-commit",), capability="spatial"),
     ),
     "ccc": (
         StageSpec("annotation-commit"),
-        StageSpec("ccc", ("annotation-commit",), profile="ccc"),
+        StageSpec("ccc", ("annotation-commit",), capability="ccc"),
     ),
     "differential-expression": (
         StageSpec("annotation-commit"),
@@ -98,7 +98,7 @@ def workflow_plan(name: str, config_path: str | Path) -> dict[str, Any]:
     config = read_yaml(config_path)
     run_root = resolve_run_root(config_path, config).resolve()
     return {
-        "schema_version": "scoop.workflow-plan.v1",
+        "schema_version": "scoop.workflow-plan.v2",
         "workflow": name,
         "run_id": str(config.get("run", {}).get("run_id", run_root.name)),
         "config": str(config_path),

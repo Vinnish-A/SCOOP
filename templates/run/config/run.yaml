@@ -80,10 +80,6 @@ core:
       prefer_rust_when_backed: true
       prefer_gpu_when_available: true
     omicverse:
-      reference_enabled: false
-      reference_source: submodule
-      reference_path: third_party/omicverse
-      expose_to_agent: false
       preprocess_mode: shiftlog
       target_sum: 500000
       n_hvgs: 3000
@@ -168,7 +164,8 @@ ccc:
   min_cells_per_group: 20
   fdr: 0.05
   lr_resource: .scoop_local/data/external/lr_resources/lr_complex_aware.parquet
-  fastccc_command_template: "fastccc --input {input_h5ad} --groupby {groupby} --resource {lr_resource} --output {output_dir}"
+  fastccc_database: .scoop_local/data/external/lr_resources/cellphonedb.zip
+  fastccc_command_template: "scoop-fastccc --input {input_h5ad} --groupby {groupby} --database {fastccc_database} --output {output_dir}"
   complex_validation:
     enabled: true
     method: omicverse_cellphonedb_v5

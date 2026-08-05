@@ -61,7 +61,7 @@ def integrate(
         import scanpy as sc
         import scvi
     except ImportError as exc:
-        raise RuntimeError("atlas integration requires the managed atlas profile: scvi-tools") from exc
+        raise RuntimeError("atlas integration requires scvi-tools in the managed SCOOP runtime") from exc
 
     config_path = Path(config_path).resolve()
     config = read_yaml(config_path)
@@ -599,7 +599,7 @@ def train_scpoli(*, gate_path: str | Path, output_path: str | Path | None = None
     try:
         from scarches.models.scpoli import scPoli
     except ImportError as exc:
-        raise RuntimeError("scPoli training requires the managed atlas profile: scarches") from exc
+        raise RuntimeError("scPoli training requires scarches in the managed SCOOP runtime") from exc
 
     condition_keys = [key for key in ("sample_id",) if key in adata.obs]
     if not condition_keys:

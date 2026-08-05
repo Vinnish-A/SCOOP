@@ -26,7 +26,7 @@ check before computation:
 ```
 
 Read [runtime](references/runtime.md) when installing, diagnosing dependencies,
-selecting an environment profile, or resolving paths.
+checking runtime capabilities, or resolving paths.
 
 ## Operating contract
 

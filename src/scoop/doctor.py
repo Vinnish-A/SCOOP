@@ -14,6 +14,7 @@ from typing import Any
 from .home import ScoopHomeError, resolve_home
 
 MODULE_NAMES = {
+    "cupy-cuda12x": "cupy",
     "pyyaml": "yaml",
     "scvi-tools": "scvi",
 }
@@ -46,12 +47,27 @@ def health() -> dict[str, Any]:
     packages = {
         name: _package(name, required=True) for name in ("anndata", "scanpy", "numpy", "pandas", "scipy", "pyyaml")
     }
-    optional = {
-        name: _package(name, required=False)
-        for name in ("scvi-tools", "scarches", "omicverse", "squidpy", "spatialdata", "liana", "cellphonedb")
+    extensions = {
+        name: _package(name, required=True)
+        for name in (
+            "anndataoom",
+            "cellphonedb",
+            "cupy-cuda12x",
+            "fastccc",
+            "liana",
+            "omicverse",
+            "scarches",
+            "scvi-tools",
+            "spatialdata",
+            "squidpy",
+        )
     }
     core_ok = all(value["available"] for value in packages.values())
-    atlas_ok = optional["scvi-tools"]["available"] and optional["scarches"]["available"]
+    atlas_ok = all(extensions[name]["available"] for name in ("scvi-tools", "scarches"))
+    spatial_ok = all(extensions[name]["available"] for name in ("squidpy", "spatialdata"))
+    ccc_ok = all(extensions[name]["available"] for name in ("fastccc", "liana", "cellphonedb"))
+    omicverse_ok = extensions["omicverse"]["available"]
+    oom_ok = omicverse_ok and extensions["anndataoom"]["available"]
     try:
         import torch
 
@@ -64,9 +80,15 @@ def health() -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover - environment dependent
         torch_check = {"available": False, "error": str(exc)}
 
+    torch_check["cupy"] = extensions["cupy-cuda12x"]
+    torch_check["ok"] = bool(
+        torch_check["available"] and torch_check.get("cuda_available") and extensions["cupy-cuda12x"]["available"]
+    )
+    unified_ok = core_ok and atlas_ok and spatial_ok and ccc_ok and omicverse_ok and oom_ok
+
     return {
         "schema_version": "scoop.doctor.v1",
-        "ok": core_ok and home_error is None,
+        "ok": unified_ok and home_error is None,
         "home": str(home),
         "home_error": home_error,
         "runtime": {
@@ -78,10 +100,17 @@ def health() -> dict[str, Any]:
         },
         "capabilities": {
             "core": {"ok": core_ok, "packages": packages},
-            "atlas": {"ok": atlas_ok, "packages": {k: optional[k] for k in ("scvi-tools", "scarches")}},
-            "spatial": {"ok": optional["squidpy"]["available"] and optional["spatialdata"]["available"]},
-            "ccc": {"ok": optional["liana"]["available"] or optional["cellphonedb"]["available"]},
-            "omicverse": {"ok": optional["omicverse"]["available"]},
+            "atlas": {"ok": atlas_ok, "packages": {k: extensions[k] for k in ("scvi-tools", "scarches")}},
+            "spatial": {"ok": spatial_ok, "packages": {k: extensions[k] for k in ("squidpy", "spatialdata")}},
+            "ccc": {
+                "ok": ccc_ok,
+                "packages": {k: extensions[k] for k in ("fastccc", "liana", "cellphonedb")},
+            },
+            "omicverse": {"ok": omicverse_ok, "packages": {"omicverse": extensions["omicverse"]}},
+            "oom": {
+                "ok": oom_ok,
+                "packages": {"anndataoom": extensions["anndataoom"]},
+            },
             "r-reference": {"ok": _command("Rscript")["available"], "Rscript": _command("Rscript")},
             "gpu": torch_check,
         },

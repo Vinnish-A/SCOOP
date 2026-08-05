@@ -63,13 +63,11 @@ disabled or unavailable. Batch correction defaults to Harmony 2.0 through
 `harmonypy>=2.0,<3`; Harmony Py Touch is no longer part of the default core
 workflow.
 
-The default Fast environment installs `harmonypy>=2.0,<3`, torch/CUDA, CuPy,
-and AnnDataOOM. It does not install the external OmicVerse package.
-The external OmicVerse project is tracked as a hidden optional submodule at
-`third_party/omicverse`; it is imported only through
-`scsp_agent_sop.omicverse_facilities` for explicit reference validation. The
-`fastcore_cpu` backend is a vendored GPL-compatible subset of OmicVerse-style
-CPU preprocessing under `src/fastcore/vendor/omicverse_gpl/`.
+The unified SCOOP environment installs the locked OmicVerse release together
+with Harmony, torch/CUDA, CuPy and AnnDataOOM. OmicVerse is imported only from
+that managed environment; repository submodule and `sys.path` fallbacks are not
+allowed. The `fastcore_cpu` backend remains a vendored GPL-compatible subset of
+OmicVerse-style CPU preprocessing under `src/fastcore/vendor/omicverse_gpl/`.
 
 ## Executable Backend Adapters
 

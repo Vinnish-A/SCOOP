@@ -20,7 +20,7 @@ def test_fastcore_cpu_uses_vendored_compat_path() -> None:
     assert callable(run_vendored_omicverse_cpu_core)
 
 
-def test_require_omicverse_prefers_imported_module(monkeypatch) -> None:
-    fake = types.SimpleNamespace(marker="installed_or_submodule")
+def test_require_omicverse_uses_installed_module(monkeypatch) -> None:
+    fake = types.SimpleNamespace(marker="managed_runtime")
     monkeypatch.setitem(sys.modules, "omicverse", fake)
     assert require_omicverse() is fake

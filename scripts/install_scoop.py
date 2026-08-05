@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -14,6 +15,39 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PYTHON_VERSION = "3.11"
+RUNTIME_NAME = "runtime"
+SOURCE_DATE_EPOCH = "315532800"
+REQUIRED_CAPABILITIES = ("core", "atlas", "spatial", "ccc", "omicverse", "oom")
+RUNTIME_IMPORTS = (
+    "anndataoom",
+    "cellphonedb",
+    "fastccc",
+    "liana",
+    "omicverse",
+    "scarches",
+    "scvi",
+    "spatialdata",
+    "squidpy",
+)
+
+
+def _runtime_imports() -> tuple[str, ...]:
+    imports: tuple[str, ...] = RUNTIME_IMPORTS
+    if platform.system() == "Linux" and platform.machine() == "x86_64":
+        imports += ("cupy",)
+    return imports
+
+
+def _completion_record(content_id: str) -> dict[str, object]:
+    return {
+        "content_id": content_id,
+        "runtime": RUNTIME_NAME,
+        "python": PYTHON_VERSION,
+        "platform": platform.system().lower(),
+        "machine": platform.machine(),
+        "smoke_imports": list(_runtime_imports()),
+    }
 
 
 def _run(arguments: list[str], *, cwd: Path = ROOT, environment: dict[str, str] | None = None) -> None:
@@ -67,7 +101,29 @@ exec \"$(cat \"$SCOOP_ROOT/current/environment.path\")/bin/scoop\" \"$@\"
     os.replace(temporary, launcher)
 
 
-def install(home: Path, profile: str) -> Path:
+def _smoke_runtime(python: Path) -> None:
+    code = """
+import importlib
+modules = %r
+for name in modules:
+    importlib.import_module(name)
+import omicverse as ov
+if not hasattr(ov, "pp") or not hasattr(ov, "single"):
+    raise RuntimeError("OmicVerse public APIs pp/single are unavailable")
+""" % (_runtime_imports(),)
+    completed = subprocess.run(
+        [str(python), "-c", code],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode:
+        detail = (completed.stderr or completed.stdout)[-4000:]
+        raise RuntimeError(f"candidate unified runtime import smoke failed:\n{detail}")
+
+
+def install(home: Path) -> Path:
     if not home.is_absolute():
         raise ValueError("installation home must be absolute")
     home.mkdir(parents=True, exist_ok=True)
@@ -87,16 +143,31 @@ def install(home: Path, profile: str) -> Path:
     with tempfile.TemporaryDirectory(prefix="scoop-build-") as temporary_name:
         temporary = Path(temporary_name)
         dist = temporary / "dist"
-        _run(["uv", "build", "--wheel", "--out-dir", str(dist)])
+        build_environment = dict(os.environ)
+        build_environment["SOURCE_DATE_EPOCH"] = SOURCE_DATE_EPOCH
+        _run(["uv", "build", "--quiet", "--wheel", "--out-dir", str(dist)], environment=build_environment)
         wheel = next(dist.glob("*.whl"))
-        requirements = temporary / f"requirements-{profile}.lock"
-        export = ["uv", "export", "--frozen", "--no-dev", "--no-emit-project", "--output-file", str(requirements)]
-        if profile != "core":
-            export.extend(["--extra", profile])
-        _run(export)
+        requirements = temporary / "requirements-runtime.lock"
+        export = [
+            "uv",
+            "export",
+            "--frozen",
+            "--no-dev",
+            "--no-emit-project",
+            "--extra",
+            "runtime",
+        ]
+        export_process = subprocess.run(
+            export,
+            cwd=ROOT,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        )
+        requirements.write_text(export_process.stdout, encoding="utf-8")
         content_id = _content_id(skill_source, wheel, lock, requirements)
         release = home / "releases" / content_id
-        environment = home / "envs" / f"{profile}-{content_id}"
+        environment = home / "envs" / f"{RUNTIME_NAME}-{content_id}"
         current = home / "current"
         previous = str(current.resolve()) if current.is_symlink() else None
 
@@ -117,10 +188,12 @@ def install(home: Path, profile: str) -> Path:
                     }
                 )
             manifest = {
-                "schema_version": "scoop.release.v1",
+                "schema_version": "scoop.release.v2",
                 "content_id": content_id,
-                "profile": profile,
-                "python": "3.11",
+                "runtime": RUNTIME_NAME,
+                "python": PYTHON_VERSION,
+                "platform": platform.system().lower(),
+                "machine": platform.machine(),
                 "files": records,
             }
             (staging / "manifest.json").write_text(
@@ -128,11 +201,20 @@ def install(home: Path, profile: str) -> Path:
             )
             os.replace(staging, release)
 
-        if not (environment / ".complete.json").is_file():
+        completion_path = environment / ".complete.json"
+        expected_completion = _completion_record(content_id)
+        if completion_path.is_file():
+            try:
+                actual_completion = json.loads(completion_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError(f"invalid environment completion manifest: {completion_path}") from exc
+            if actual_completion != expected_completion:
+                raise RuntimeError(f"environment identity mismatch: {environment}")
+        else:
             if environment.exists():
                 raise RuntimeError(f"incomplete environment requires manual inspection: {environment}")
-            _run(["uv", "venv", "--python", "3.11", str(environment)])
-            release_requirements = release / f"requirements-{profile}.lock"
+            _run(["uv", "venv", "--python", PYTHON_VERSION, str(environment)])
+            release_requirements = release / "requirements-runtime.lock"
             _run(
                 [
                     "uv",
@@ -157,9 +239,8 @@ def install(home: Path, profile: str) -> Path:
                 ]
             )
             _run([str(environment / "bin" / "scoop"), "--version"])
-            (environment / ".complete.json").write_text(
-                json.dumps({"content_id": content_id, "profile": profile}) + "\n", encoding="utf-8"
-            )
+            _smoke_runtime(environment / "bin" / "python")
+            completion_path.write_text(json.dumps(expected_completion) + "\n", encoding="utf-8")
 
         (release / "environment.path").write_text(str(environment.resolve()) + "\n", encoding="utf-8")
         process_environment = dict(os.environ)
@@ -173,8 +254,9 @@ def install(home: Path, profile: str) -> Path:
             stdout=subprocess.PIPE,
         )
         doctor = json.loads(doctor_process.stdout)
-        if profile != "core" and not doctor["capabilities"][profile]["ok"]:
-            raise RuntimeError(f"candidate environment does not provide requested profile: {profile}")
+        unavailable = [name for name in REQUIRED_CAPABILITIES if not doctor["capabilities"][name]["ok"]]
+        if unavailable:
+            raise RuntimeError(f"candidate unified runtime lacks capabilities: {', '.join(unavailable)}")
         _atomic_symlink(release, current)
         _atomic_symlink(release / "skill", home / "skills" / "scoop" / "current")
         _write_launcher(home)
@@ -195,9 +277,8 @@ def install(home: Path, profile: str) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--home", default=os.environ.get("SCOOP_HOME", str(Path.home() / ".scoop")))
-    parser.add_argument("--profile", choices=("core", "atlas", "spatial", "ccc"), default="atlas")
     args = parser.parse_args()
-    print(install(Path(args.home).expanduser().resolve(), args.profile))
+    print(install(Path(args.home).expanduser().resolve()))
     return 0
 
 

@@ -62,14 +62,18 @@ def main() -> None:
     )
     output_dir = run_root / "ccc" / "fastccc"
     ensure_dir(output_dir / "tables")
+    fastccc_database = project_root / deep_get(cfg, "ccc.fastccc_database")
     cmd = build_fastccc_command(
         deep_get(cfg, "ccc.fastccc_command_template"),
         input_h5ad=input_h5ad,
         groupby=groupby,
-        lr_resource=lr_resource,
+        fastccc_database=fastccc_database,
         output_dir=output_dir,
     )
-    write_json({"command": cmd, "groupby": groupby}, run_root / "ccc" / "fastccc" / "fastccc_command.json")
+    write_json(
+        {"command": cmd, "groupby": groupby, "database": str(fastccc_database)},
+        run_root / "ccc" / "fastccc" / "fastccc_command.json",
+    )
     if args.dry_run:
         print(" ".join(cmd))
         return

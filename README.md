@@ -77,7 +77,7 @@ and validation rules.
 ## Quick start
 
 ```bash
-python scripts/install_scoop.py --profile atlas
+python scripts/install_scoop.py
 
 ~/.scoop/bin/scoop init \
   --project <project> \
@@ -123,3 +123,8 @@ skill/          the SCOOP Skill, references, schemas, and report assets
 src/            SCOOP and Fast engine code
 tests/          regression and validation tests
 ```
+
+Runtime dependencies have one source of truth: `pyproject.toml`. `uv.lock` is
+generated from it and must not be edited manually. The installer creates one
+unified environment containing core, atlas, OmicVerse, spatial and CCC
+capabilities.

@@ -14,7 +14,7 @@ env/
 # SCOOP run outputs and temporary benchmark material
 tmp/
 .scoop_local/
-data/
+/data/
 runs/
 runs/*/artifacts/
 runs/*/logs/

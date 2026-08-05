@@ -4,5 +4,5 @@ The package name `scsp_agent_sop` is retained as a legacy import path. New
 user-facing documentation should use the official project name, SCOOP.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 OFFICIAL_NAME = "SCOOP: Single Cell Omics Operating Protocol"
