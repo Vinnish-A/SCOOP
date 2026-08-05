@@ -48,7 +48,7 @@ fastde abundance \
   --event-col OS_event \
   --survival-loss cox \
   --covariates age,sex,batch \
-  --output-dir runs/<run_id>/07_de/abundance_survival
+  --output-dir runs/<run_id>/differential-expression/abundance_survival
 ```
 
 Binary:
@@ -64,7 +64,7 @@ fastde abundance \
   --positive-label response \
   --negative-label non_response \
   --covariates age,sex,batch \
-  --output-dir runs/<run_id>/07_de/abundance_binary
+  --output-dir runs/<run_id>/differential-expression/abundance_binary
 ```
 
 Multiclass:
@@ -79,7 +79,7 @@ fastde abundance \
   --label-col subtype \
   --reference-level control \
   --covariates batch,sex \
-  --output-dir runs/<run_id>/07_de/abundance_multiclass
+  --output-dir runs/<run_id>/differential-expression/abundance_multiclass
 ```
 
 Direct matrix:

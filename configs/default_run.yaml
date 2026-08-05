@@ -121,6 +121,37 @@ programs:
   stability_threshold: 0.70
   fallback_validation: omicverse_cnmf
 
+atlas:
+  enabled: false
+  split:
+    unit: donor_id
+    validation_units: []
+    held_out_query_units: []
+  scvi:
+    counts_layer: counts
+    batch_key: sample_id
+    categorical_covariate_keys: [study_id, chemistry]
+    n_latent: 30
+    gene_likelihood: nb
+    max_epochs: 400
+  graph:
+    n_neighbors: 30
+    leiden_resolution: 1.0
+    cluster_key: leiden_scvi
+  annotation:
+    version: atlas-v1
+    marker_layer: log1p_norm
+    marker_references:
+      - references/markers/major-cell-types.md
+    external_references: []
+    confidence_levels: [high, medium, low]
+    supervised_confidence: high
+  scpoli:
+    condition_keys: [sample_id]
+    cell_type_key: scvi_curated_cell_type
+    n_epochs: 100
+    require_hash_bound_approval: true
+
 annotation:
   default_marker_method: wilcoxon
   fast_marker_method: fastde_cosg
@@ -130,7 +161,7 @@ annotation:
     enabled: false
     schema: configs/annotation_decision_schema.yaml
     cluster_key: cluster_identity
-    output_dir: 04_annotation/decisions
+    output_dir: annotation/decisions
     min_cells_high_confidence: 20
     min_samples_high_confidence: 2
     require_review_for_unvalidated: true

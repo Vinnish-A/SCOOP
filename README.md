@@ -17,24 +17,24 @@ In other words: do not boil the ocean. Take one validated scoop.
 SCOOP is organized as a small set of modules:
 
 ```text
-01_qc
-02_core
-03_programs
-04_annotation
-05_spatial
-06_ccc
-07_de
+qc
+core
+programs
+annotation
+spatial
+ccc
+differential-expression
 ```
 
 Each module has a clear job.
 
-* `01_qc`: QC, doublet detection, ambient or suspicious-cell flags.
-* `02_core`: normalization, HVG, PCA, batch correction, graph, UMAP, clustering.
-* `03_programs`: FastCNMF gene program discovery.
-* `04_annotation`: marker, program, CNV, and skill-based evidence for annotation.
-* `05_spatial`: spatial reference and deconvolution when needed.
-* `06_ccc`: candidate cell-cell communication.
-* `07_de`: pseudobulk condition-level differential expression.
+* `qc`: QC, doublet detection, ambient or suspicious-cell flags.
+* `core`: normalization, HVG, PCA, batch correction, graph, UMAP, clustering.
+* `programs`: FastCNMF gene program discovery.
+* `annotation`: marker, program, CNV, and skill-based evidence for annotation.
+* `spatial`: spatial reference and deconvolution when needed.
+* `ccc`: candidate cell-cell communication.
+* `differential-expression`: pseudobulk condition-level differential expression.
 
 SCOOP avoids adding trajectory, velocity, drug response, foundation-model zoo, or tool-zoo analysis as default modules.
 
@@ -77,37 +77,39 @@ and validation rules.
 ## Quick start
 
 ```bash
-pip install -e .
+python scripts/install_scoop.py --profile atlas
 
-mkdir -p .scoop_local/runs .scoop_local/data
-cp -r templates/run .scoop_local/runs/my_run
+~/.scoop/bin/scoop init \
+  --project <project> \
+  --run-id my-run \
+  --input-h5ad <project>/data/input.h5ad
 
-python scripts/01_qc_scrublet.py \
-  --config .scoop_local/runs/my_run/config/run.yaml
+~/.scoop/bin/scoop qc \
+  --config <project>/runs/my-run/config/run.yaml
 
-python scripts/02_core_analysis.py \
-  --config .scoop_local/runs/my_run/config/run.yaml
+~/.scoop/bin/scoop core \
+  --config <project>/runs/my-run/config/run.yaml
 
-python scripts/03_fast_consensus_nmf.py \
-  --config .scoop_local/runs/my_run/config/run.yaml
+~/.scoop/bin/scoop programs \
+  --config <project>/runs/my-run/config/run.yaml
 
-python scripts/04a_annotation_evidence.py \
-  --config .scoop_local/runs/my_run/config/run.yaml
+~/.scoop/bin/scoop annotate evidence \
+  --config <project>/runs/my-run/config/run.yaml
 
-python scripts/04c_annotation_export_for_agent.py \
-  --config .scoop_local/runs/my_run/config/run.yaml
+~/.scoop/bin/scoop annotate review \
+  --config <project>/runs/my-run/config/run.yaml
 
-python scripts/04d_annotation_commit.py \
-  --config .scoop_local/runs/my_run/config/run.yaml \
-  --decisions .scoop_local/runs/my_run/04_annotation/decisions/annotation_decision_template.json
+~/.scoop/bin/scoop annotate commit \
+  --config <project>/runs/my-run/config/run.yaml \
+  --decisions <project>/runs/my-run/annotation/decisions/annotation_decision_template.json
 ```
 
 For tumor samples, run FastCNVpy evidence before committing tumor labels:
 
 ```bash
-python scripts/04b_tumor_fastcnvpy.py \
-  --config .scoop_local/runs/my_run/config/run.yaml \
-  --gene-metadata .scoop_local/data/external/references/gene_metadata.tsv
+~/.scoop/bin/scoop annotate tumor-cnv \
+  --config <project>/runs/my-run/config/run.yaml \
+  --gene-metadata <project>/data/external/references/gene_metadata.tsv
 ```
 
 ## Repository layout
@@ -116,7 +118,8 @@ python scripts/04b_tumor_fastcnvpy.py \
 configs/        default configuration and schemas
 docs/           design notes and module documentation
 markers/        curated marker skills
-scripts/        executable workflow entry points
+scripts/        release helpers and explicit benchmark utilities
+skill/          the SCOOP Skill, references, schemas, and report assets
 src/            SCOOP and Fast engine code
 tests/          regression and validation tests
 ```

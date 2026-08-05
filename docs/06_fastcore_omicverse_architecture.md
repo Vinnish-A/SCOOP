@@ -1,10 +1,10 @@
-# 06. FastCore 02_core Architecture
+# 06. FastCore core Architecture
 
-FastCore is the new compute engine for the existing `02_core` SOP module. It is
+FastCore is the new compute engine for the existing `core` SOP module. It is
 not a new eighth SOP module. The public entry point remains:
 
 ```text
-scripts/02_core_analysis.py
+scoop core
   -> scsp_agent_sop.core_runner.run_core_pipeline()
 ```
 
@@ -142,7 +142,7 @@ default selected resolution for those adapters is `0.75`.
 Every FastCore run writes:
 
 ```text
-runs/<run_id>/02_core/fastcore/
+runs/<run_id>/core/fastcore/
   fastcore_manifest.json
   core_quality.json
 ```
@@ -184,7 +184,7 @@ run_omicverse_rust_oom_core(input_h5ad, output_h5ad, cfg, run_root)
 
 It must start from `ov.read(path, backend="rust")`, because loading a full
 AnnData into memory before calling the backend defeats the out-of-memory design.
-`scripts/02_core_analysis.py` therefore performs pre-run planning before any
+`scoop core` therefore performs pre-run planning before any
 H5AD read and passes `adata=None` into the runner when `fastcore_oom` is
 selected.
 

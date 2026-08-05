@@ -2,7 +2,7 @@
 # Run edgeR quasi-likelihood pseudobulk DE for one cell-type directory.
 #
 # Usage:
-#   Rscript scripts/r/run_pseudobulk_edger.R runs/<run_id>/07_de/pseudobulk/<cell_type> condition ctrl test
+#   Rscript scripts/r/run_pseudobulk_edger.R runs/<run_id>/differential-expression/pseudobulk/<cell_type> condition ctrl test
 #
 # Required files in the cell-type directory:
 #   counts.tsv: rows=pseudobulk samples, columns=genes, first column pseudobulk_id

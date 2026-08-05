@@ -10,7 +10,7 @@
 ## QC
 
 ```bash
-python scripts/01_qc_scrublet.py --config runs/<run_id>/config/run.yaml
+scoop qc --config runs/<run_id>/config/run.yaml
 ```
 
 关键参数在配置文件的 `qc` 段：
@@ -26,7 +26,7 @@ python scripts/01_qc_scrublet.py --config runs/<run_id>/config/run.yaml
 ## Core analysis
 
 ```bash
-python scripts/02_core_analysis.py --config runs/<run_id>/config/run.yaml
+scoop core --config runs/<run_id>/config/run.yaml
 ```
 
 关键参数：
@@ -42,7 +42,7 @@ python scripts/02_core_analysis.py --config runs/<run_id>/config/run.yaml
 ## FastCNMF programme discovery
 
 ```bash
-python scripts/03_fast_consensus_nmf.py --config runs/<run_id>/config/run.yaml
+scoop programs --config runs/<run_id>/config/run.yaml
 ```
 
 关键参数：
@@ -59,7 +59,7 @@ python scripts/03_fast_consensus_nmf.py --config runs/<run_id>/config/run.yaml
 ## Spatial RCTD-py
 
 ```bash
-python scripts/04_spatial_rctd.py --config runs/<run_id>/config/run.yaml
+scoop spatial --config runs/<run_id>/config/run.yaml
 ```
 
 关键参数：
@@ -74,7 +74,7 @@ python scripts/04_spatial_rctd.py --config runs/<run_id>/config/run.yaml
 ## CCC
 
 ```bash
-python scripts/05_ccc_fastccc.py --config runs/<run_id>/config/run.yaml
+scoop ccc --config runs/<run_id>/config/run.yaml
 ```
 
 关键参数：
@@ -89,7 +89,7 @@ python scripts/05_ccc_fastccc.py --config runs/<run_id>/config/run.yaml
 ## Prune and manifest
 
 ```bash
-python scripts/06_prune_and_manifest.py --config runs/<run_id>/config/run.yaml
+scoop deliver --config runs/<run_id>/config/run.yaml
 ```
 
 该步骤会基于 `configs/h5ad_schema.yaml` 删除临时列、写出 `manifest.json`、生成瘦身 H5AD。

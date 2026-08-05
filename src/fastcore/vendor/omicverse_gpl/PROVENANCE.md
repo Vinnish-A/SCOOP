@@ -19,7 +19,7 @@ Upstream:
 FastCore modifications:
 
 - The implementation is reduced to the CPU single-cell core path needed by
-  SCOOP `02_core`.
+  SCOOP `core`.
 - Optional GPU, Rust/OOM, report, registry, plotting, and lazy pipeline hooks are
   intentionally excluded from this vendored subset.
 - Output keys are mapped to SCOOP stable fields.

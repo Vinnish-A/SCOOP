@@ -4,6 +4,8 @@ obs_keep:
   identity:
     - sample_id
     - donor_id
+    - study_id
+    - dataset_id
     - condition
     - batch_id
     - library_id
@@ -47,6 +49,12 @@ obs_keep:
     - cell_state
     - annotation_confidence
     - annotation_status
+    - annotation_source
+    - annotation_version
+    - scvi_curated_cell_type
+    - scpoli_predicted_cell_type
+    - scpoli_uncertainty
+    - scpoli_weighted_distance
   spatial:
     - spatial_unit_type
     - resolution_um
@@ -84,6 +92,8 @@ obsm_keep:
   - X_umap_biology
   - X_umap_identity
   - X_nmf_usage
+  - X_scVI
+  - X_scPoli
   - spatial
 
 obsp_keep:
@@ -92,6 +102,8 @@ obsp_keep:
   - connectivities_biology
   - connectivities_spatial
   - connectivities_joint
+  - scvi_connectivities
+  - scvi_distances
 
 uns_keep:
   - schema_version

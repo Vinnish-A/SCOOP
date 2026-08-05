@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scoop-operating-protocol"
-version = "0.2.0"
+version = "0.3.0"
 description = "SCOOP: Single Cell Omics Operating Protocol for robust, auditable single cell omics workflows."
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.13"
 license = "GPL-3.0-or-later"
 dependencies = [
   "anndata>=0.10",
@@ -28,6 +28,7 @@ fastde = "fastde.cli:main"
 fastcnmf = "fastcnmf.cli:main"
 fastcnvpy = "fastcnvpy.cli:main"
 fastcore = "fastcore.cli:main"
+scoop = "scoop.cli:main"
 
 [project.optional-dependencies]
 full = [
@@ -42,10 +43,45 @@ omicverse = [
   "omicverse>=2.0",
   "spatialdata"
 ]
+atlas = [
+  "scvi-tools>=1.3,<2",
+  "scarches>=0.6,<0.7"
+]
+spatial = [
+  "squidpy>=1.4",
+  "spatialdata"
+]
+ccc = [
+  "fastccc",
+  "cellphonedb",
+  "liana"
+]
+dev = [
+  "pytest>=8",
+  "ruff>=0.9",
+  "mypy>=1.14",
+  "types-PyYAML>=6"
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+scoop = ["data/*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["third_party", ".git", ".venv*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["third_party", "tmp"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = "^(third_party|tmp)/"

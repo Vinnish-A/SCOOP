@@ -19,7 +19,7 @@ def run_core_pipeline(
     input_path: str | Path | None = None,
     output_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Run 02_core through FastCore planning with one allowed legacy fallback."""
+    """Run core through FastCore planning with one allowed legacy fallback."""
     run_root = Path(run_root)
     engine = str(deep_get(cfg, "core.engine", "fastcore"))
     start = perf_counter()
@@ -84,7 +84,7 @@ def run_core_pipeline(
         "plan": plan.to_dict() if plan is not None else None,
         "artifacts": result.get("artifacts", {}),
     }
-    fastcore_dir = ensure_dir(run_root / "02_core" / "fastcore")
+    fastcore_dir = ensure_dir(run_root / "core" / "fastcore")
     manifest_path = write_json(manifest, fastcore_dir / "fastcore_manifest.json")
     quality_path = write_json(result.get("quality", {"accepted": True, "backend": result["backend"]}), fastcore_dir / "core_quality.json")
     if manifest_adata is not None:
@@ -99,7 +99,7 @@ def run_core_pipeline(
         run_root,
         module="core_analysis",
         decision="fastcore_complete" if engine == "fastcore" else "scanpy_legacy_complete",
-        reason="02_core executed through FastCore planner; Scanpy legacy is the only non-FastCore fallback.",
+        reason="core executed through FastCore planner; Scanpy legacy is the only non-FastCore fallback.",
         parameters={
             "selected_backend": result["backend"],
             "fallback_backend": deep_get(cfg, "core.fastcore.fallback_backend", deep_get(cfg, "core.fallback_engine", "scanpy_legacy")),

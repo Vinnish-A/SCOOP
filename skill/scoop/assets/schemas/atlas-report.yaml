@@ -1,0 +1,18 @@
+schema_version: scoop.atlas-report.v1
+required_sections:
+  - overview
+  - subgroup_distribution
+  - graph_neighbours
+  - markers_and_conflicts
+  - reference_concordance
+  - cnmf_programmes
+  - qc_risks
+  - confidence_and_supervision
+required_tables:
+  - scvi_subgroup_distribution
+  - scvi_cluster_neighbours
+  - scvi_cluster_markers
+  - scvi_annotation_cards
+  - cnmf_program_classification
+  - cnmf_usage_by_subgroup
+  - reference_mapping_concordance

@@ -30,7 +30,7 @@ Existing architecture already contains the right primitives:
 - `docs/02_modules_and_outputs.md` defines the seven modules and already includes `04b_tumor_fastcnvpy`.
 - `scripts/README.md` defines scripts as Agent execution interfaces.
 - `src/scsp_agent_sop/decision_log.py` already supports decision evidence, fallback metadata, and human review flags.
-- `scripts/04a_annotation_evidence.py` exports annotation evidence but intentionally does not assign final labels.
+- `scoop annotate evidence` exports annotation evidence but intentionally does not assign final labels.
 - `src/scsp_agent_sop/annotation.py` creates an evidence template with `review_required` defaults.
 - `pyproject.toml` exposes `fastcore`, `fastde`, `fastcnmf`, and `fastcnvpy` as CLI entry points.
 
@@ -541,8 +541,8 @@ Tests:
 Add:
 
 - `committer.py`
-- `scripts/04c_annotation_export_for_agent.py`
-- `scripts/04d_annotation_commit.py`
+- `scoop annotate review`
+- `scoop annotate commit`
 
 Behavior:
 

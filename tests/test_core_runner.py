@@ -43,7 +43,7 @@ def test_core_runner_writes_manifest_with_planned_fallback(tmp_path, monkeypatch
     result = run_core_pipeline(adata, cfg, tmp_path)
     assert result["backend"] == "scanpy_legacy"
     assert result["fallback_used"] is True
-    manifest = json.loads((tmp_path / "02_core" / "fastcore" / "fastcore_manifest.json").read_text())
+    manifest = json.loads((tmp_path / "core" / "fastcore" / "fastcore_manifest.json").read_text())
     assert manifest["backend"] == "scanpy_legacy"
     assert manifest["fallback_used"] is True
     assert "fastcore_manifest" in adata.uns["file_registry"]["artifacts"]

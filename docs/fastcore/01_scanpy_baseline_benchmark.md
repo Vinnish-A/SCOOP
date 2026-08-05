@@ -101,7 +101,7 @@ External backend smoke tests:
 
 The mixed smoke confirmed the OmicVerse torch/pyg PCA-neighbors-UMAP path and
 the FastCore Harmony 2.0 CPU bridge. The Rust/OOM smoke confirmed that
-`scripts/02_core_analysis.py` avoids pre-reading the H5AD and starts through
+`scoop core` avoids pre-reading the H5AD and starts through
 `ov.read(..., backend='rust')`; graph/UMAP/Leiden still run after the final
 minimal AnnData materialization.
 
@@ -165,7 +165,7 @@ GPU OOM; sampled total GPU memory increased by about 2.75 GiB over the existing
 baseline usage.
 
 `fastcore_oom` currently does not behave like a faster large-data path for
-this 02_core workload. It keeps early RSS low on the 72k run, but the chunked
+this core workload. It keeps early RSS low on the 72k run, but the chunked
 `shiftlog|pearson` preprocessing is much slower, and after minimal
 materialization the graph/UMAP/Leiden tail is still in-memory. The 10k run also
 shows larger output (`1.5 GiB` versus `406 MiB`) because the external OOM path

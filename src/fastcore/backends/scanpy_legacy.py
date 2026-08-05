@@ -27,7 +27,7 @@ def _time_step(timings: dict[str, float], name: str, fn, *args, **kwargs):
 
 
 def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) -> dict[str, Any]:
-    """Run the original SCOOP 02_core implementation as the single legacy fallback."""
+    """Run the original SCOOP core implementation as the single legacy fallback."""
     run_root = Path(run_root)
     timings: dict[str, float] = {}
     counts_layer = deep_get(cfg, "qc.counts_layer", "counts")
@@ -55,12 +55,12 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
         n_top_genes=deep_get(cfg, "core.n_top_hvg", 3000),
         output_key="highly_variable_biology",
     )
-    hvg_path = write_table(hvg, run_root / "02_core" / "tables" / "hvg_biology.parquet")
+    hvg_path = write_table(hvg, run_root / "core" / "tables" / "hvg_biology.parquet")
     register_file(adata, key="hvg_biology", path=hvg_path, schema="hvg_table.v1")
 
     _time_step(timings, "pca_biology", run_pca, adata, hvg_key="highly_variable_biology", obsm_key="X_pca_biology", n_comps=deep_get(cfg, "core.n_pcs", 50))
     identity_hvg = _time_step(timings, "build_identity_hvg", build_identity_hvg_from_program_decision, adata)
-    id_path = write_table(identity_hvg, run_root / "02_core" / "tables" / "hvg_identity.parquet")
+    id_path = write_table(identity_hvg, run_root / "core" / "tables" / "hvg_identity.parquet")
     register_file(adata, key="hvg_identity", path=id_path, schema="hvg_identity.v1")
     _time_step(timings, "pca_identity_prebatch", run_pca, adata, hvg_key="highly_variable_identity", obsm_key="X_pca_identity_prebatch", n_comps=deep_get(cfg, "core.n_pcs", 50))
 
@@ -124,8 +124,8 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
         seeds=deep_get(cfg, "core.leiden_seeds", [0, 1, 2, 3, 4]),
         search_config=deep_get(cfg, "core.leiden_search", {}),
     )
-    sweep_path = write_table(sweep, run_root / "02_core" / "tables" / "leiden_sweep.parquet")
-    st_path = write_table(stability, run_root / "02_core" / "tables" / "cluster_stability.parquet")
+    sweep_path = write_table(sweep, run_root / "core" / "tables" / "leiden_sweep.parquet")
+    st_path = write_table(stability, run_root / "core" / "tables" / "cluster_stability.parquet")
     register_file(adata, key="leiden_sweep", path=sweep_path, schema="leiden_sweep.v1")
     register_file(adata, key="cluster_stability", path=st_path, schema="cluster_stability.v1")
 

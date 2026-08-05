@@ -195,7 +195,7 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
     _time_step(timings, "copy_counts", _copy_counts_to_x, adata, counts_layer)
     _time_step(timings, "shiftlog_normalize", _normalize_shiftlog, adata, target_sum=target_sum)
     hvg = _time_step(timings, "hvg_seurat", _select_hvg_seurat, adata, counts_layer=counts_layer, batch_key=sample_key, n_top_genes=n_hvgs)
-    hvg_path = write_table(hvg, run_root / "02_core" / "tables" / "hvg_biology.parquet")
+    hvg_path = write_table(hvg, run_root / "core" / "tables" / "hvg_biology.parquet")
     register_file(adata, key="hvg_biology", path=hvg_path, schema="hvg_table.v1")
 
     _time_step(timings, "scale_hvg", _scale_hvg_layer, adata, layer="log1p_norm", hvg_key="highly_variable_biology", max_value=10.0, layer_out=str(deep_get(cfg, "core.fastcore.omicverse.scaled_layer", "scaled")))
@@ -240,8 +240,8 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
         seeds=deep_get(cfg, "core.fastcore.omicverse.leiden.seeds", deep_get(cfg, "core.leiden_seeds", [0, 1, 2, 3, 4])),
         search_config=deep_get(cfg, "core.leiden_search", {}),
     )
-    sweep_path = write_table(sweep, run_root / "02_core" / "tables" / "leiden_sweep.parquet")
-    st_path = write_table(stability, run_root / "02_core" / "tables" / "cluster_stability.parquet")
+    sweep_path = write_table(sweep, run_root / "core" / "tables" / "leiden_sweep.parquet")
+    st_path = write_table(stability, run_root / "core" / "tables" / "cluster_stability.parquet")
     register_file(adata, key="leiden_sweep", path=sweep_path, schema="leiden_sweep.v1")
     register_file(adata, key="cluster_stability", path=st_path, schema="cluster_stability.v1")
     chosen_resolution = float(stability.loc[stability["chosen"], "resolution"].iloc[0]) if "chosen" in stability else resolution

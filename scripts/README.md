@@ -1,28 +1,28 @@
 # Scripts
 
-这些脚本是 Agent 的执行接口。每个脚本只执行一个模块，并且通过 `--config` 读取 run 配置。
+工作流执行统一走 `${SCOOP_HOME:-$HOME/.scoop}/bin/scoop`。本目录只保留安装、基准、R reference 和专项开发工具，不再作为生产工作流入口。
 
 执行顺序：
 
 ```bash
-python scripts/00_validate_input.py --config runs/<run_id>/config/run.yaml
-python scripts/01_qc_scrublet.py --config runs/<run_id>/config/run.yaml
-python scripts/02_core_analysis.py --config runs/<run_id>/config/run.yaml
-python scripts/03_fast_consensus_nmf.py --config runs/<run_id>/config/run.yaml
-python scripts/04a_annotation_evidence.py --config runs/<run_id>/config/run.yaml
-python scripts/04b_tumor_fastcnvpy.py --config runs/<run_id>/config/run.yaml --gene-metadata <project_root>/data/external/references/gene_metadata.tsv
-python scripts/04c_annotation_export_for_agent.py --config runs/<run_id>/config/run.yaml
-python scripts/04d_annotation_commit.py --config runs/<run_id>/config/run.yaml --decisions runs/<run_id>/04_annotation/decisions/annotation_decision_template.json
-python scripts/05_spatial_rctd.py --config runs/<run_id>/config/run.yaml --dry-run
-python scripts/06_ccc_fastccc.py --config runs/<run_id>/config/run.yaml --dry-run
-python scripts/08_prepare_pseudobulk.py --config runs/<run_id>/config/run.yaml
-fastde deseq2 runs/<run_id>/07_de/pseudobulk/<cell_type> condition ctrl test
-python scripts/07_prune_and_manifest.py --config runs/<run_id>/config/run.yaml
+scoop validate --config runs/<run_id>/config/run.yaml
+scoop qc --config runs/<run_id>/config/run.yaml
+scoop core --config runs/<run_id>/config/run.yaml
+scoop programs --config runs/<run_id>/config/run.yaml
+scoop annotate evidence --config runs/<run_id>/config/run.yaml
+scoop annotate tumor-cnv --config runs/<run_id>/config/run.yaml --gene-metadata <project_root>/data/external/references/gene_metadata.tsv
+scoop annotate review --config runs/<run_id>/config/run.yaml
+scoop annotate commit --config runs/<run_id>/config/run.yaml --decisions runs/<run_id>/annotation/decisions/annotation_decision_template.json
+scoop spatial --config runs/<run_id>/config/run.yaml --dry-run
+scoop ccc --config runs/<run_id>/config/run.yaml --dry-run
+scoop de prepare --config runs/<run_id>/config/run.yaml
+scoop de run runs/<run_id>/differential-expression/pseudobulk/<cell_type> condition ctrl test
+scoop deliver --config runs/<run_id>/config/run.yaml
 ```
 
 空间和 CCC 模块默认在配置里关闭。需要使用时，把 `spatial.enabled` 或 `ccc.enabled` 改成 `true`，并补齐 reference、LR resource、CellPhoneDB database 等路径。
 
-`02_core_analysis.py` 现在调用 FastCore runner。SOP 入口仍是 `02_core`，但计算内核由 `core.engine` 控制；默认 `fastcore` 会先做 capability planning，FastCore 后端不可用或未通过策略选择时整体回退到唯一的 `scanpy_legacy` 后端。选中 `fastcore_oom` 时，脚本不会预读 H5AD，而是把路径直接交给 OOM backend。
+`scoop core` 调用 FastCore runner。计算内核由 `core.engine` 控制；默认 `fastcore` 会先做 capability planning，FastCore 后端不可用或未通过策略选择时整体回退到唯一的 `scanpy_legacy` 后端。选中 `fastcore_oom` 时，命令不会预读 H5AD，而是把路径直接交给 OOM backend。
 
 FastCore backend 基准入口：
 
@@ -43,7 +43,7 @@ DE 分成两类，不要混用：
 需要和 R DESeq2 reference 对照时：
 
 ```bash
-Rscript scripts/r/run_pseudobulk_deseq2.R runs/<run_id>/07_de/pseudobulk/<cell_type> condition ctrl test
+Rscript scripts/r/run_pseudobulk_deseq2.R runs/<run_id>/differential-expression/pseudobulk/<cell_type> condition ctrl test
 python scripts/fastde/benchmark_deseq2.py --output-dir tmp/fastde_deseq2_benchmark
 ```
 
@@ -54,6 +54,6 @@ python scripts/fastde/benchmark_abundance.py --output-dir tmp/fastde_abundance_b
 legacy logCPM/Welch 和 edgeR QL 对照仍保留，主要用于回归检查：
 
 ```bash
-Rscript scripts/r/run_pseudobulk_edger.R runs/<run_id>/07_de/pseudobulk/<cell_type> condition ctrl test
+Rscript scripts/r/run_pseudobulk_edger.R runs/<run_id>/differential-expression/pseudobulk/<cell_type> condition ctrl test
 python scripts/benchmark_pseudobulk_de_python_vs_edger.py --output-dir tmp/pseudobulk_de_python_benchmark
 ```

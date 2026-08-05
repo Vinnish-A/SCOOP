@@ -30,7 +30,7 @@ Existing architecture already contains the right primitives:
 - `docs/02_modules_and_outputs.md` defines the seven modules and already includes `04b_tumor_fastcnvpy`.
 - `scripts/README.md` defines scripts as Agent execution interfaces.
 - `src/scsp_agent_sop/decision_log.py` already supports decision evidence, fallback metadata, and human review flags.
-- `scripts/04_annotation_markers.py` exports annotation evidence but intentionally does not assign final labels.
+- `scripts/annotation_markers.py` exports annotation evidence but intentionally does not assign final labels.
 - `src/scsp_agent_sop/annotation.py` creates an evidence template with `review_required` defaults.
 - `pyproject.toml` exposes `fastde`, `fastcnmf`, `fastcopykat`, and `fastcnvpy` as CLI entry points.
 
@@ -43,7 +43,7 @@ The missing layer is a deterministic **Annotation Decision Layer** that consumes
 ```text
 SCOOP/
   scripts/
-    04_annotation_markers.py          # existing evidence export
+    annotation_markers.py          # existing evidence export
     04b_tumor_fastcnvpy.py            # existing tumor CNV evidence gate
     04c_annotation_decide.py          # new: produce/validate decision drafts
     04d_annotation_commit.py          # new: commit accepted decisions
@@ -538,8 +538,8 @@ Tests:
 Add:
 
 - `committer.py`
-- `scripts/04c_annotation_decide.py`
-- `scripts/04d_annotation_commit.py`
+- `scoop annotate review`
+- `scoop annotate commit`
 
 Behavior:
 
@@ -557,7 +557,7 @@ Tests:
 Update documentation and config so tumor samples run:
 
 ```text
-04_annotation_markers.py
+annotation_markers.py
 04b_tumor_fastcnvpy.py
 04c_annotation_decide.py
 04d_annotation_commit.py

@@ -1,0 +1,133 @@
+# 02. 模块与交付物
+
+## qc
+
+输入：`adata.layers['counts']`、`obs['sample_id']`、gene symbols。
+
+默认工具：Scanpy QC metrics，逐样本 robust MAD/quantile threshold，`scanpy.pp.scrublet`。
+
+输出：
+
+- H5AD `obs`：QC 指标、QC flag、doublet score、doublet call；
+- 外部表：`qc_thresholds_by_sample.tsv`、`scrublet_scores.parquet`；
+- 图：QC violin/scatter、Scrublet histograms；
+- 日志：每个 sample 的阈值和删除比例。
+
+不做：全局 `mt > 10%` 删除；默认删除 ribosomal-high 或 proliferation-high；把 Scrublet 分数当成唯一 doublet 证据。
+
+## core
+
+输入：QC 后 H5AD。
+
+默认工具：FastCore。当前稳定路径通过 pre-run capability planner 选择 `fastcore_cpu`、`fastcore_mixed` 或 `fastcore_oom`；未通过验证或环境缺依赖时，唯一 fallback 是 `scanpy_legacy`，即原始 Scanpy normalization/HVG/PCA/kNN/UMAP/Leiden 加 Harmony 2.0 路径。OmicVerse 只作为隐藏的可选 reference/submodule，不作为 agent-facing 默认 engine。
+
+输出：
+
+- H5AD `layers['log1p_norm']`；
+- H5AD `obsm`：biology PCA、identity PCA、Harmony PCA、UMAP；
+- H5AD `obs`：最终 cluster；
+- 外部表：HVG rank、PC covariate association、Leiden sweep、cluster stability。
+
+Leiden 默认在 `0.25-1.5` 内做 coarse-to-fine 搜索：先用少量 resolution/seed 找到稳定候选，再在候选附近细扫完整 seed。这样避免全量密集网格的成本，同时不把单个固定 resolution 当成默认答案。
+
+不做：把所有 resolution/seed 的 cluster 都留在 `obs`；把 UMAP 距离用于注释；对 condition 做 batch correction。
+
+FastCore 额外输出：
+
+- 外部 JSON：`core/fastcore/fastcore_manifest.json`、`core/fastcore/core_quality.json`；
+- 运行日志：记录 selected backend、fallback backend、fallback 是否使用和质量文件路径；
+- registry：把 FastCore manifest 和 quality report 注册到 `adata.uns['file_registry']['artifacts']`。
+
+## programs
+
+输入：log-normalized expression 或 counts 派生的非负矩阵。
+
+默认工具：FastCNMF profile，使用 exact coordinate-descent NMF、K sweep、20 个 replicate seeds 和 `max_iter=50`。OmicVerse `single.cNMF` 只作为稳健性验证。
+
+输出：
+
+- H5AD `obsm['X_nmf_usage']`，如果程序数和 cell 数可控；
+- 外部表：NMF gene weights、K sweep、programme summary；
+- H5AD `obs`：dominant programme 和 programme entropy 可选。
+
+不做：默认运行所有 NMF zoo；把单次 NMF 结果当作稳定 gene program。
+
+## annotation
+
+输入：final clusters、marker table、NMF usage、kNN graph、reference mapping。
+
+默认工具：`04a_annotation_evidence.py` 导出 marker、program、CNV、reference 和 curated skill 证据；Scanpy marker 是默认 marker 路径，FastDE sparse COSG 可作为快速 marker 辅助，OmicVerse `single.find_markers(method='cosg')` 仅作为可选兼容验证。`04c_annotation_export_for_agent.py` 只把证据打包成 subagent/人工可编辑的结构化模板，不产生最终标签。`04d_annotation_commit.py` 只验证并提交已接受的结构化决策。
+
+输出：
+
+- H5AD `obs`：`cell_type_lvl1/2/3`、`cell_state`、confidence；
+- 外部表：cluster markers、annotation evidence bundle、decision template、validation table、merge/split log。
+
+不做：让 marker 统计脚本、reference model 或 Python 规则自动决定细胞类型；让 subagent 直接写 H5AD；单独依赖一个 marker database、reference model、GPT 或 CellVote 决定标签。细胞类型命名由 subagent/人工结合模型世界知识和项目背景提出，但必须通过 schema、validator 和 committer。
+
+### 04b_tumor_fastcnvpy
+
+触发条件：样本为肿瘤组织，并且已经完成第一层 `Major Lineage` 注释。
+
+默认逻辑：
+
+- 先用 `cell_type_lvl1` 区分实质性细胞和非实质性细胞；
+- 非实质性正常细胞进入 `fastcnv_reference_pool = normal_nonparenchymal`；
+- 如果实质性正常细胞能与肿瘤/候选细胞分开，则进入 `normal_parenchymal`；
+- 如果正常实质细胞和肿瘤细胞混杂，仍然运行 FastCNVpy，用 pooled nonparenchymal reference 给候选实质细胞提供 CNV 证据；
+- FastCNVpy 在合并 H5AD 上构建 pooled reference，但按 `sample_id` 拆分后逐样本计算 CNV，避免单样本 reference 偏移导致误判。
+
+输出：
+
+- H5AD `obs`：`fastcnv_reference_pool`、`fastcnv_cnv_fraction`、`fastcnv_normal_threshold`、`fastcnv_tumor_evidence`；
+- 外部表：pooled manifest、pooled cell metadata、pooled chromosome-arm CNV、genomic windows、每样本 FastCNVpy 结果；
+- 日志：reference 构成、是否加入正常实质细胞、candidate cell 数、并行参数和 dense/sparse H5AD 模式。
+
+并行策略：默认 `n_jobs=1`，保证峰值内存最低；如果样本数较多且每样本细胞数适中，可以把 `n_jobs` 提到 2-4。每个 worker 只持有一个样本的 selected-gene dense 矩阵，避免把整个合并对象复制到多个进程。大型 H5AD 默认 `--h5ad-mode dense` 追求速度；内存紧张时用 `--h5ad-mode sparse`，但当前基准更慢。
+
+## spatial
+
+输入：spatial H5AD view、reference H5AD、坐标和空间 metadata。
+
+默认工具：RCTD-py for deconvolution，Squidpy/spatial graph，BANKSY for domain 可选。
+
+输出：
+
+- H5AD `obs`：spatial unit metadata、deconvolution summary、domain label；
+- H5AD `obsm['spatial']`；
+- 外部表：RCTD weights、mode sensitivity、spatial domain table；
+- SpatialData/Zarr 或 GeoParquet：图像、polygon、transcript points。
+
+默认规则：低分辨率 spot/ROI 用 RCTD-py `full`；如果每个单位预期只有少数主导 cell types，再运行 `multi` 作为敏感性分析。
+
+## ccc
+
+输入：annotated H5AD、cell-type group、LR resource。
+
+默认工具：FastCCC。复杂 ligand/receptor 用 CellPhoneDB v5 或 LIANA 验证，可通过 OmicVerse wrapper 调用。
+
+输出：
+
+- 外部表：FastCCC all/significant/differential，complex-sensitive validation；
+- H5AD `uns`：方法摘要、路径、hash、显著结果数量；
+- 可选 H5AD `obs`：cell-type-level sender/receiver summary。
+
+不做：把 FastCCC 全结果写进 `adata.uns`；把 CCC 当作机制证明；忽略多聚体 ligand/receptor 的 subunit 表达。
+
+## differential-expression
+
+输入：raw counts、cell type/state label、donor/sample/condition metadata。
+
+默认工具：FastDE pseudobulk DESeq2-like negative-binomial Wald。R DESeq2 和 edgeR quasi-likelihood 保留为 reference validation。样本级细胞丰度/状态比例比较由 `fastde abundance` 单独处理。
+
+输出：
+
+- 外部表：pseudobulk counts、metadata、FastDE design matrix、FastDE DE table、size factors、dispersions、benchmark/R reference validation table、GSEA；
+- 外部表：`fastde abundance` 的 sample-by-celltype counts/proportions、mode-specific results、predictions、metrics、manifest；
+- H5AD：只存结果索引和必要 summary。
+
+不做：用 Harmony/scVI/integrated expression 做 DE；用 per-cell p value 证明 condition-level 差异；把 marker gene 检验解释成 condition DE；把 abundance 解释成 gene-level DE；把当前 FastDE 解释成 `lfcShrink` 的完全复刻。
+
+FastDE condition DE 输出列保持 DESeq2 风格：`gene`、`baseMean`、`log2FoldChange`、`lfcSE`、`stat`、`pvalue`、`padj`、`dispersion`，并额外写出 `dispGeneEst`、`dispFit`、`dispMAP`、`dispOutlier`。当前完整 dispersion 基准中，30k genes / 12 pseudobulk samples 下 FastDE 耗时约 `18.55s`，R DESeq2 reference 约 `19.68s`；两者 log2FC Spearman 约 `0.99999`，top100 overlap 为 `1.00`。
+
+FastDE abundance 输出列按模式区分：survival 写 `hazard_ratio_approx` 和 concordance；binary 写 `odds_ratio_approx`、positive/negative mean proportions 和分类 metrics；multiclass 写 class/reference contrast。所有 abundance 推断都是 sample-level。

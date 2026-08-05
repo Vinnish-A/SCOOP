@@ -55,4 +55,4 @@ def test_vendored_omicverse_cpu_backend_writes_stable_core_fields(tmp_path):
     assert "X_umap_identity" in adata.obsm
     assert "cluster_identity" in adata.obs
     assert adata.uns["fastcore_omicverse_gpl"]["license"] == "GPL-3.0-or-later"
-    assert (tmp_path / "02_core" / "fastcore" / "fastcore_manifest.json").exists()
+    assert (tmp_path / "core" / "fastcore" / "fastcore_manifest.json").exists()

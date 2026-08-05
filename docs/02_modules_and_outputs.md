@@ -1,6 +1,6 @@
 # 02. 模块与交付物
 
-## 01_qc
+## qc
 
 输入：`adata.layers['counts']`、`obs['sample_id']`、gene symbols。
 
@@ -15,7 +15,7 @@
 
 不做：全局 `mt > 10%` 删除；默认删除 ribosomal-high 或 proliferation-high；把 Scrublet 分数当成唯一 doublet 证据。
 
-## 02_core
+## core
 
 输入：QC 后 H5AD。
 
@@ -34,11 +34,11 @@ Leiden 默认在 `0.25-1.5` 内做 coarse-to-fine 搜索：先用少量 resoluti
 
 FastCore 额外输出：
 
-- 外部 JSON：`02_core/fastcore/fastcore_manifest.json`、`02_core/fastcore/core_quality.json`；
+- 外部 JSON：`core/fastcore/fastcore_manifest.json`、`core/fastcore/core_quality.json`；
 - 运行日志：记录 selected backend、fallback backend、fallback 是否使用和质量文件路径；
 - registry：把 FastCore manifest 和 quality report 注册到 `adata.uns['file_registry']['artifacts']`。
 
-## 03_programs
+## programs
 
 输入：log-normalized expression 或 counts 派生的非负矩阵。
 
@@ -52,7 +52,7 @@ FastCore 额外输出：
 
 不做：默认运行所有 NMF zoo；把单次 NMF 结果当作稳定 gene program。
 
-## 04_annotation
+## annotation
 
 输入：final clusters、marker table、NMF usage、kNN graph、reference mapping。
 
@@ -85,7 +85,7 @@ FastCore 额外输出：
 
 并行策略：默认 `n_jobs=1`，保证峰值内存最低；如果样本数较多且每样本细胞数适中，可以把 `n_jobs` 提到 2-4。每个 worker 只持有一个样本的 selected-gene dense 矩阵，避免把整个合并对象复制到多个进程。大型 H5AD 默认 `--h5ad-mode dense` 追求速度；内存紧张时用 `--h5ad-mode sparse`，但当前基准更慢。
 
-## 05_spatial
+## spatial
 
 输入：spatial H5AD view、reference H5AD、坐标和空间 metadata。
 
@@ -100,7 +100,7 @@ FastCore 额外输出：
 
 默认规则：低分辨率 spot/ROI 用 RCTD-py `full`；如果每个单位预期只有少数主导 cell types，再运行 `multi` 作为敏感性分析。
 
-## 06_ccc
+## ccc
 
 输入：annotated H5AD、cell-type group、LR resource。
 
@@ -114,7 +114,7 @@ FastCore 额外输出：
 
 不做：把 FastCCC 全结果写进 `adata.uns`；把 CCC 当作机制证明；忽略多聚体 ligand/receptor 的 subunit 表达。
 
-## 07_de
+## differential-expression
 
 输入：raw counts、cell type/state label、donor/sample/condition metadata。
 

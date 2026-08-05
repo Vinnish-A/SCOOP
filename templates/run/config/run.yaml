@@ -130,7 +130,7 @@ annotation:
     enabled: false
     schema: configs/annotation_decision_schema.yaml
     cluster_key: cluster_identity
-    output_dir: 04_annotation/decisions
+    output_dir: annotation/decisions
     min_cells_high_confidence: 20
     min_samples_high_confidence: 2
     require_review_for_unvalidated: true

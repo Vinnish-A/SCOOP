@@ -239,7 +239,7 @@ def hvg_table_from_adata(adata, *, method: str) -> pd.DataFrame:
 
 def write_core_tables(adata, run_root: str | Path, *, method: str, options: OmicVerseCoreOptions) -> dict[str, str]:
     run_root = Path(run_root)
-    hvg_path = write_table(hvg_table_from_adata(adata, method=method), run_root / "02_core" / "tables" / "hvg_biology.parquet")
+    hvg_path = write_table(hvg_table_from_adata(adata, method=method), run_root / "core" / "tables" / "hvg_biology.parquet")
     sweep = pd.DataFrame(
         [
             {
@@ -262,8 +262,8 @@ def write_core_tables(adata, run_root: str | Path, *, method: str, options: Omic
             }
         ]
     )
-    sweep_path = write_table(sweep, run_root / "02_core" / "tables" / "leiden_sweep.parquet")
-    st_path = write_table(stability, run_root / "02_core" / "tables" / "cluster_stability.parquet")
+    sweep_path = write_table(sweep, run_root / "core" / "tables" / "leiden_sweep.parquet")
+    st_path = write_table(stability, run_root / "core" / "tables" / "cluster_stability.parquet")
     register_file(adata, key="hvg_biology", path=hvg_path, schema="hvg_table.v1")
     register_file(adata, key="leiden_sweep", path=sweep_path, schema="leiden_sweep.v1")
     register_file(adata, key="cluster_stability", path=st_path, schema="cluster_stability.v1")

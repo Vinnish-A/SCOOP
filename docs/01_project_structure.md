@@ -13,13 +13,13 @@ SCOOP/
   templates/
     run/
       config/run.yaml
-      01_qc/
-      02_core/
-      03_programs/
-      04_annotation/
-      05_spatial/
-      06_ccc/
-      07_de/
+      qc/
+      core/
+      programs/
+      annotation/
+      spatial/
+      ccc/
+      differential-expression/
       reports/
       artifacts/
   src/scsp_agent_sop/

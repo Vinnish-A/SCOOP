@@ -1,0 +1,39 @@
+schema_version: scoop.annotation_decision_schema.v1
+allowed_confidence:
+  - high
+  - medium
+  - low
+required_obs_fields:
+  - cell_type_lvl1
+  - cell_type_lvl2
+  - cell_type_lvl3
+  - cell_state
+  - annotation_confidence
+  - annotation_status
+tumor_gate:
+  enabled: true
+  tumor_terms:
+    - malignant
+    - tumor
+    - tumour
+    - cancer
+    - neoplastic
+  required_evidence:
+    - fastcnv_tumor_evidence
+    - fastcnv_cnv_fraction
+program_sanitizer:
+  classes:
+    - identity
+    - ribosomal
+    - cell_cycle
+    - stress
+    - mitochondrial
+    - hemoglobin
+    - ambient
+    - mixed
+    - unknown
+  actions:
+    - keep_for_identity
+    - state_only
+    - exclude_from_identity
+    - review

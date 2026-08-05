@@ -94,7 +94,7 @@ Not yet implemented:
 CLI:
 
 ```bash
-fastde deseq2 runs/<run_id>/07_de/pseudobulk/<cell_type> condition ctrl test
+fastde deseq2 runs/<run_id>/differential-expression/pseudobulk/<cell_type> condition ctrl test
 ```
 
 The output table uses DESeq2-style columns: `gene`, `baseMean`,

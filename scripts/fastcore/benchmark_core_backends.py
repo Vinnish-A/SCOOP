@@ -35,7 +35,7 @@ def main() -> None:
     run_root = resolve_run_root(args.config, cfg)
     input_path = Path(args.input)
     output_h5ad = Path(args.output_h5ad) if args.output_h5ad else run_root / "artifacts" / "adata_core_benchmark.h5ad"
-    output_json = Path(args.output_json) if args.output_json else run_root / "02_core" / "fastcore" / "benchmark_core_backends.json"
+    output_json = Path(args.output_json) if args.output_json else run_root / "core" / "fastcore" / "benchmark_core_backends.json"
 
     adata = ad.read_h5ad(input_path)
     init_file_registry(adata, str(cfg.get("run", {}).get("run_id", run_root.name)))
