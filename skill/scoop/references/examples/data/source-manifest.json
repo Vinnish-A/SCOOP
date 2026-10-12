@@ -1,0 +1,124 @@
+{
+  "checked": "2026-10-07",
+  "mode": "read_existing_tables_no_refit",
+  "remote_source_repo": "/mnt/sdb/xzh/Vproject/SCOOP",
+  "tables": [
+    {
+      "file": "dap12-scsurvival-summary.csv",
+      "source": "/mnt/sdb/xzh/Vproject/DAP12/result/GSE274546_myeloid_survival/scsurvival/cluster_scsurvival_myd88_summary.csv",
+      "sha256": "a9d1fda30d8d3951c1f15f5417d3beef1783ee6d60a6ab99b2962635e92fd671"
+    },
+    {
+      "file": "brca-state-primary-or.tsv",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/fig1_vstory_20261005/rebuild_scrna/forest49_primary_OR_pCR.tsv",
+      "sha256": "35de227866a550e5348bba922b7413d8bd18864e5b71c744cf52fc6cb5449827"
+    },
+    {
+      "file": "brca-lam-lpl-comparison.tsv",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/LAM_outcome_EDA_20261005/SC/same70_LAM_function_MyeLPL_pCR_comparison.tsv",
+      "sha256": "03bf4e4eb14f816c60d30e5288f1d164505835cb0e94e3b34888cdefffc5b7ee"
+    },
+    {
+      "file": "brca-lam-rare-audit.tsv",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/LAM_outcome_EDA_20261005/SC/original49_LAM_rare_method_audit.tsv",
+      "sha256": "52f763b7838a84c5d6aa10c05b13160170973e29b75cae69b35a730e63b1420a"
+    }
+  ],
+  "source_receipts": [
+    {
+      "file": "scoop-skill.md",
+      "source": "/mnt/sdb/xzh/Vproject/SCOOP/skill/scoop/SKILL.md",
+      "sha256": "3b934432b121c1d917f095e358ddf37fcaa7e4727b6f12dc8597104233f2474e"
+    },
+    {
+      "file": "scoop-de.md",
+      "source": "/mnt/sdb/xzh/Vproject/SCOOP/skill/scoop/references/stages/differential-expression.md",
+      "sha256": "33a2ea04ec2ec7052924d9b648e0b23b2b493b44a493441827f3a19217e1d840"
+    },
+    {
+      "file": "scoop-catalog.md",
+      "source": "/mnt/sdb/xzh/Vproject/SCOOP/skill/scoop/references/catalog.md",
+      "sha256": "81b5b85fc92365d633cf59c48fb05ffdc8810eea66c6e39828a8d906e1a89e9f"
+    },
+    {
+      "file": "scsurvival-readme.md",
+      "source": "/mnt/sdb/xzh/Vproject/SCOOP/third_party/scSurvival/README.md",
+      "sha256": "da8c429b3f92f6e3288b8b239eaf84fb74d223276ce274d24db56138b456b1a2"
+    },
+    {
+      "file": "dap12-summary.csv",
+      "source": "/mnt/sdb/xzh/Vproject/DAP12/result/GSE274546_myeloid_survival/scsurvival/cluster_scsurvival_myd88_summary.csv",
+      "sha256": "a9d1fda30d8d3951c1f15f5417d3beef1783ee6d60a6ab99b2962635e92fd671"
+    },
+    {
+      "file": "dap12-proportion-results.csv",
+      "source": "/mnt/sdb/xzh/Vproject/DAP12/result/GSE274546_myeloid_survival/myeloid_scSurvival_like_results.csv",
+      "sha256": "181ef52934c1ab6c2b298715d4f744d664f18ed0a49973a822b0c474aa6f1fdc"
+    },
+    {
+      "file": "dap12-run.py",
+      "source": "/mnt/sdb/xzh/Vproject/DAP12/script/run_gse274546_scsurvival_myd88.py",
+      "sha256": "e8d3bfa7c4a111fcf5c63f78f51d1e764c605a597013d30fbc9e2238cc08dac0"
+    },
+    {
+      "file": "brca-REPORT.zh.md",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/LAM_outcome_EDA_20261005/SC/REPORT.zh.md",
+      "sha256": "b85e93ac4a4e900efc6f107aa9b04b0ead792c1ce64a1f57447a8d537f0d448b"
+    },
+    {
+      "file": "brca-original49_LAM_rare_method_audit.tsv",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/LAM_outcome_EDA_20261005/SC/original49_LAM_rare_method_audit.tsv",
+      "sha256": "52f763b7838a84c5d6aa10c05b13160170973e29b75cae69b35a730e63b1420a"
+    },
+    {
+      "file": "brca-SC_primary_LAM_raw_and_FAM_outcomes.tsv",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/LAM_outcome_EDA_20261005/SC/SC_primary_LAM_raw_and_FAM_outcomes.tsv",
+      "sha256": "768959486884a203a7d5f7980ce28ee6fb3c59752340c28d93ecab8cb216e547"
+    },
+    {
+      "file": "brca-same70_LAM_function_MyeLPL_pCR_comparison.tsv",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/LAM_outcome_EDA_20261005/SC/same70_LAM_function_MyeLPL_pCR_comparison.tsv",
+      "sha256": "03bf4e4eb14f816c60d30e5288f1d164505835cb0e94e3b34888cdefffc5b7ee"
+    },
+    {
+      "file": "forest49_primary_OR_pCR.tsv",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/fig1_vstory_20261005/rebuild_scrna/forest49_primary_OR_pCR.tsv",
+      "sha256": "35de227866a550e5348bba922b7413d8bd18864e5b71c744cf52fc6cb5449827"
+    },
+    {
+      "file": "REBUILD_SCRNA_METHODS.zh.md",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/fig1_vstory_20261005/rebuild_scrna/REBUILD_SCRNA_METHODS.zh.md",
+      "sha256": "3bda41767c28a8a40a43b4286b68edcfdc9eb522e8c61211a512c4daa1c8a56f"
+    },
+    {
+      "file": "rare_flags.tsv",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/fig1_vstory_20261005/rebuild_scrna/rare_flags.tsv",
+      "sha256": "0242cba6842719beeb3c7fe1959255021c79fe0c6239e88977b995eeb14b90ce"
+    },
+    {
+      "file": "analysis_config.json",
+      "source": "/mnt/nfs_data/xzh/BRCA/results/fig1_vstory_20261005/rebuild_scrna/analysis_config.json",
+      "sha256": "f05018ee4098e59ad2a24f4abd6ec9d3e8cd032cd1c4dd09d9a400e1010b8731"
+    },
+    {
+      "file": "sample_scsurvival_hazards_primary_os.csv",
+      "source": "/mnt/sdb/xzh/Vproject/DAP12/result/GSE274546_myeloid_survival/scsurvival/sample_scsurvival_hazards_primary_os.csv",
+      "sha256": "96f3f24801a59b8cd34128fab53475361e8fad0a0b7371f68887e133ece52dbb"
+    }
+  ],
+  "coverage": {
+    "DAP12_input_patients": 56,
+    "DAP12_input_events": 46,
+    "DAP12_output_patients": 54,
+    "DAP12_output_events": 45,
+    "DAP12_output_cells": 39842,
+    "DAP12_missing_input_samples": [
+      "P28T1",
+      "P75T1"
+    ],
+    "BRCA_all_patients": 101,
+    "BRCA_QC_cells": 417698,
+    "BRCA_original_forest_n": 82,
+    "BRCA_count_comparison_n": 70
+  }
+}

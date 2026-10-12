@@ -2,7 +2,7 @@
 
 版本：v1.0-refined  
 范围：human colorectal cancer malignant epithelial and normal intestinal epithelial scRNA-seq。  
-定位：只在 epithelial 候选细胞上使用；必须先经过 FastCNVpy / SNV / reference 判定 malignant_status。
+定位：只在 epithelial 候选细胞上使用；malignant_status 综合遗传、正常图谱、患者结构与组织背景判断。FastCNVpy 是支持证据，不是所有恶性细胞必须通过的阳性门槛。
 
 ---
 
@@ -12,7 +12,7 @@
 1. Epithelial gate: EPCAM/TACSTD2/KRT8/KRT18/KRT19/KRT20/CDH1/CLDN3/CLDN4
 2. Exclude immune, fibroblast, endothelial, mural doublets
 3. Assign malignant_status using FastCNVpy/SNV/reference/patient-specific clustering
-4. CNV-neutral cells -> normal gut epithelial lineages
+4. CNV-low / neutral cells -> joint review of normal reference, tumor programme and patient/tissue context; never automatically normal
 5. malignant cells -> iCMS2 / iCMS3 / mixed / indeterminate
 6. Add cNMF overlays: stem-like, TA-proliferative, goblet-mucinous, IFN, metabolic, EMT-invasive, fetal-regenerative, hypoxia, DTP-like
 7. CMS/CRIS/IMF/PDS are orthogonal/pseudobulk layers, not direct per-cell labels
@@ -35,7 +35,7 @@
 
 ## 3. Normal intestinal epithelial phenotypes
 
-Only use these labels for CNV-neutral / SNV-negative / normal-reference matched cells.
+Normal labels require coherent intestinal lineage plus matched-normal-reference and tissue-context support. CNV neutrality or an unassayed/undetected SNV is not proof of normality; CNV-low malignant candidates remain in the malignancy review.
 
 | phenotype | markers | final label |
 |---|---|---|
@@ -161,7 +161,7 @@ Use mixed when iCMS2 and iCMS3 scores are close and malignant evidence is clear.
 | TA / proliferative | `MKI67, TOP2A, PCNA, MCM2-7, TYMS, CENPF, UBE2C, CDK1, CCNB1` | `TAProliferative` | cycling overlay; can dominate clustering |
 | Enterocyte / absorptive-like | `CA1, CA2, AQP8, SLC26A3, CEACAM7, MS4A12, GUCA2A/B, KRT20, FABP1, APOA1/4` | `AbsorptiveLike` | easily confused with normal colonocyte |
 | Goblet / mucinous | `MUC2, TFF3, SPINK4, CLCA1, FCGBP, AGR2, REG4, MUC5AC, MUC5B` | `GobletMucinous` | require multiple mucin genes; check ambient mucin RNA |
-| BEST4+ absorptive-like | `BEST4, OTOP2, SPIB, GUCA2B, CA7, NPY` | `BEST4Like` | default normal unless CNV/SNV supports malignant |
+| BEST4+ absorptive-like | `BEST4, OTOP2, SPIB, GUCA2B, CA7, NPY` | `BEST4Like` | differentiation identity only; adjudicate malignancy using CNV/SNV, normal atlas and patient/tissue context |
 | Enteroendocrine-like | `CHGA, CHGB, NEUROD1, PAX6, PYY, GCG, TPH1, SCG5` | `EnteroendocrineLike` | if `SYP/INSM1/DLL3/ASCL1`, consider neuroendocrine component |
 | Tuft-like | `DCLK1, TRPM5, POU2F3, AVIL, SH2D6, GFI1B` | `TuftLike` | rare; exclude normal tuft |
 | Paneth-like / DCS | `DEFA5, DEFA6, LYZ, REG3A, PLA2G2A, MMP7, KIT, SOX9` | `PanethLike` | `LYZ` alone insufficient |

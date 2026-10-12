@@ -26,6 +26,12 @@ Their paths are semantic; their original prose remains available for audit.
 - [Spatial](stages/spatial.md)
 - [CCC](stages/ccc.md)
 - [Differential expression](stages/differential-expression.md)
+- [Patient outcomes: scSurvival, proportions and UCell](stages/outcome-association.md)
+
+## Worked patient-outcome examples
+
+- [DAP12 / GSE274546: original scSurvival and cellular risk](examples/scsurvival-dap12.md)
+- [BRCA / ARTEMIS: parent-relative counts, UCell and pCR](examples/proportion-ucell-brca.md)
 
 ## Markers
 

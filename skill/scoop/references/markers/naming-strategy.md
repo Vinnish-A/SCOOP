@@ -189,6 +189,6 @@ GBM_PutativeMalignant_OPC-like_lowConfidence
 禁止：CAF_FAP                            # FAP 单基因不足
 禁止：CMS4_cell                          # CMS 是 bulk/sample/TME 层，不是单细胞上皮标签
 禁止：GBM_MES_only_by_CD44               # CD44 单基因不足
-禁止：BRCA_NormalLike_malignant          # normal-like 优先解释为正常/污染/混合，除非 CNV/SNV 支持
+禁止：BRCA_NormalLike_malignant          # normal-like 本身不证明恶性；联合基因组、正常图谱、患者/组织证据复核，不要求CNV必须升高
 禁止：Cycling_cell                        # cycling 是状态，不是独立身份
 ```

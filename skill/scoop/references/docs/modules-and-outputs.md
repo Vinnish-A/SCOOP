@@ -19,7 +19,7 @@
 
 输入：QC 后 H5AD。
 
-默认工具：FastCore。当前稳定路径通过 pre-run capability planner 选择 `fastcore_cpu`、`fastcore_mixed` 或 `fastcore_oom`；未通过验证或环境缺依赖时，唯一 fallback 是 `scanpy_legacy`，即原始 Scanpy normalization/HVG/PCA/kNN/UMAP/Leiden 加 Harmony 2.0 路径。OmicVerse 只作为隐藏的可选 reference/submodule，不作为 agent-facing 默认 engine。
+默认工具：FastCore。原生planner选择 `fastcore_cpu`、`fastcore_mixed` 或 `fastcore_oom`，内置fallback为 `scanpy_legacy`（Scanpy normalization/HVG/PCA/kNN/UMAP/Leiden加Harmony 2.0）。这不是项目适配的排他限制；入口不好用按[第一性原则](design-principles.md)绕过并记录实际后端，不冒充原生运行。
 
 输出：
 
@@ -72,7 +72,7 @@ FastCore 额外输出：
 默认逻辑：
 
 - 先用 `cell_type_lvl1` 区分实质性细胞和非实质性细胞；
-- 非实质性正常细胞进入 `fastcnv_reference_pool = normal_nonparenchymal`；
+- 审定高置信非实质身份allowlist进入 `fastcnv_reference_pool = normal_nonparenchymal`，平衡供者/身份并排除mixed/unresolved/低质量；不得直接将所有非上皮纳为正常参考；
 - 如果实质性正常细胞能与肿瘤/候选细胞分开，则进入 `normal_parenchymal`；
 - 如果正常实质细胞和肿瘤细胞混杂，仍然运行 FastCNVpy，用 pooled nonparenchymal reference 给候选实质细胞提供 CNV 证据；
 - FastCNVpy 在合并 H5AD 上构建 pooled reference，但按 `sample_id` 拆分后逐样本计算 CNV，避免单样本 reference 偏移导致误判。
@@ -83,7 +83,7 @@ FastCore 额外输出：
 - 外部表：pooled manifest、pooled cell metadata、pooled chromosome-arm CNV、genomic windows、每样本 FastCNVpy 结果；
 - 日志：reference 构成、是否加入正常实质细胞、candidate cell 数、并行参数和 dense/sparse H5AD 模式。
 
-并行策略：默认 `n_jobs=1`，保证峰值内存最低；如果样本数较多且每样本细胞数适中，可以把 `n_jobs` 提到 2-4。每个 worker 只持有一个样本的 selected-gene dense 矩阵，避免把整个合并对象复制到多个进程。大型 H5AD 默认 `--h5ad-mode dense` 追求速度；内存紧张时用 `--h5ad-mode sparse`，但当前基准更慢。
+按真实pilot选择并行度和dense/sparse路径，不把旧基准设为大对象默认。控制worker总内存/线程，避免整对象复制和N²细胞聚类；必要时关闭非必需聚类，以固定审定reference分块并保存checkpoint。CNV连续/臂级证据与最终恶性判断分开，低CNV仍可恶性。
 
 ## spatial
 

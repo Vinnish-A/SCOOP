@@ -58,35 +58,36 @@ cluster DEG + marker evidence
   -> final label
 ```
 
-### 3.2 肿瘤样本，大群时必须加入 FastCNVpy
+### 3.2 肿瘤样本，独立审阅恶性证据
 
 ```text
 broad annotation
   -> identify epithelial / parenchymal / glial / other candidate malignant compartments
-  -> FastCNVpy
-  -> malignant_status assignment
-  -> tumor cancer-type skill only for malignant cells
-  -> normal tissue skill for CNV-neutral parenchymal cells
+  -> CNV/SNV, normal reference and patient/tissue-context review
+  -> malignant_status assignment separate from differentiation/state
+  -> cancer-type references support candidate review; malignant subtype names require supported malignancy
+  -> normal tissue skill for normal-reference/context-supported parenchymal cells; CNV-neutral alone does not route cells to normal
 ```
 
 #### 情况 A：正常实质与肿瘤细胞已经分开
 
-FastCNVpy 用于确认：
+FastCNVpy 提供辅助证据：
 
 ```text
-marker-defined tumor-like cluster + CNV abnormal -> malignant-high
-marker-defined normal parenchymal cluster + CNV neutral -> normal-high
+tumor-like programme + concordant CNV/context -> reviewed malignant support
+coherent normal lineage + matched normal-reference + tissue-context support -> normal-high; CNV neutrality alone is insufficient
 ```
 
 #### 情况 B：正常实质与肿瘤细胞没有分开
 
-FastCNVpy 用于拆分：
+联合证据区分来源：
 
 ```text
 same marker-defined parenchymal/epithelial cluster
-  -> CNV abnormal cells: malignant/probable malignant
-  -> CNV neutral cells: normal parenchymal/epithelial
-  -> CNV weak or conflicting: ambiguous, require SNV/reference/spatial/pathology review
+  -> CNV abnormal cells: supporting evidence; review reference, programme and context
+  -> CNV neutral cells: inspect normal atlas, tumor programmes, patient structure and tissue context; may be normal, malignant-probable or unresolved
+  -> CNV weak or absent with concordant non-CNV tumor evidence: retain malignant-probable as an option
+  -> unresolved multi-source conflict: ambiguous; record alternatives and confidence
 ```
 
 ---
@@ -140,6 +141,8 @@ rare-state-detection: 对少量特殊状态给出低/中置信度状态标签，
 ---
 
 ## 6. subagent 注释规则
+
+**最终注释由分析者或推理模型结合组织匹配图谱、可核验原始文献、实际marker/排除marker、相邻群和跨样本证据综合判断。禁止依赖SingleR、CellTypist、scANVI等机械分类或自动标签传播来决定最终细胞名称；图谱匹配只作支持材料。逐群记录来源、备选身份、理由和置信度，经结构化验证后提交。治疗响应/生存结局不参与身份命名。CNV中性本身也不能证明正常，仍需正常身份与组织背景支持。**
 
 subagent 读取每个 cluster/subcluster 的证据后，按如下顺序执行：
 

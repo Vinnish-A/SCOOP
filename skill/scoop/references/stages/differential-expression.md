@@ -1,5 +1,9 @@
 # Pseudobulk DE
 
+For patient-level abundance, scSurvival, proportion/UCell, survival or response,
+read [outcome association](outcome-association.md) instead of treating the question
+as gene-level condition DE. The two worked cases include actual output tables.
+
 
 Inputs:
 

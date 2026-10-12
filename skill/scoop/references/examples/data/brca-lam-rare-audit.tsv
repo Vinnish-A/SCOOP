@@ -1,0 +1,3 @@
+state_id	parent	state	n_cells	n_patients_detected	mean_total_fraction_observed	mean_total_fraction_zero_filled	rare	primary_method	n_source_markers	reference	rarity_source
+22	Mye	mac-lip-C1Q	5687	97	0.0133482426483115	0.012819599375111	True	UCell	20	Nature_ARTEMIS2026_SupplementaryTable8	zzu_gp_R_0Fig1.5.R_observed_patient_mean_lt0.015
+24	Mye	mac-lip-CD36	266	14	0.0070040704211259	0.0009708612464927	True	UCell	20	Nature_ARTEMIS2026_SupplementaryTable8	zzu_gp_R_0Fig1.5.R_observed_patient_mean_lt0.015

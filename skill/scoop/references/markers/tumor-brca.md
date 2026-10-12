@@ -12,7 +12,7 @@
 1. Epithelial gate: EPCAM/TACSTD2/KRT8/KRT18/KRT19/CDH1/MUC1
 2. Exclude immune, endothelial, fibroblast, mural, adipocyte doublets
 3. Assign malignant_status using FastCNVpy/SNV/reference/spatial/pathology
-4. CNV-neutral cells -> normal breast epithelial phenotypes
+4. CNV-low/neutral cells -> joint malignancy review; normal breast phenotypes require normal-reference and tissue-context support
 5. malignant cells -> BRCA malignant intrinsic subtype
 6. cNMF programs -> functional overlays: HRhi, Prolifhi, HER2Signalhi, BasalStemhi, EMThi, Hypoxiahi, IFN_MHChi, etc.
 ```
@@ -34,7 +34,7 @@
 
 ## 3. 正常乳腺实质上皮细胞
 
-Only use these labels for CNV-neutral / SNV-negative / normal-reference matched cells.
+Normal origin requires coherent breast lineage plus normal-reference and tissue-context support. CNV neutrality or absent/unassayed tumour SNVs alone does not establish normality.
 
 | phenotype | markers | final label | notes |
 |---|---|---|---|
@@ -43,7 +43,7 @@ Only use these labels for CNV-neutral / SNV-negative / normal-reference matched 
 | Luminal adaptive secretory progenitor / luminal progenitor | `EHF, ELF5, KIT, ALDH1A3, LTF, SLPI, S100A14, KRT8, KRT18, KRT19` | `BRCA_NormalEpi_LASP` | `ESR1/PGR` low or negative |
 | Mature secretory / lactocyte-like | `LALBA, CSN2, CSN3, LTF, WFDC2, ELF5, MUC1` | `BRCA_NormalEpi_Secretory` or `BRCA_NormalEpi_Lactocyte` | depends on pregnancy/lactation/background |
 | Basal / myoepithelial cell | `KRT5, KRT14, KRT15, KRT17, TP63, ACTA2, MYL9, TAGLN, ITGA6` | `BRCA_NormalEpi_BasalMyo` | normal duct/lobule bilayer context supports |
-| Cycling epithelial | parent marker + `MKI67, TOP2A, UBE2C, CDC20, CDK1, CCNB1, PCNA, MCM2, MCM5, MCM6` | `BRCA_NormalEpi_Cycling_<parent>` | CNV-neutral required; cycling does not imply malignant |
+| Cycling epithelial | parent marker + `MKI67, TOP2A, UBE2C, CDC20, CDK1, CCNB1, PCNA, MCM2, MCM5, MCM6` | `BRCA_NormalEpi_Cycling_<parent>` | normal-reference/context support required; cycling does not imply malignant |
 
 ---
 
@@ -59,7 +59,7 @@ Only use the following labels for `malignant-high` or `malignant-probable` epith
 | Basal-like / TNBC-like | `KRT5, KRT14, KRT17, KRT6A, KRT6B, KRT6C, EGFR, TP63, ITGA6, LAMC2, S100A2, CD44` | `ESR1/PGR/ERBB2` low; clinical TNBC and basal-like are related but not identical | `BRCA_MalignantEpi_BasalLike` or `BRCA_MalignantEpi_TNBC_BasalLike` |
 | Claudin-low / mesenchymal-like | high `VIM, FN1, ZEB1, ZEB2, SNAI2, TWIST1, AXL, CDH2, COL1A1, COL1A2, ACTA2, SPARC, ITGA5, CD44, ALDH1A1`; low `CLDN3, CLDN4, CLDN7, EPCAM, CDH1, MUC1, CD24` | best used as phenotype/tag, not mutually exclusive subtype; exclude CAF doublet | `BRCA_MalignantEpi_ClaudinLowLike` or overlay `EMThi` |
 | TNBC-LAR / AR-luminal-like | `AR, FOXA1, GATA3, XBP1, KRT8, KRT18, MUC1`; usually low ER/PR/HER2 | use mainly in TNBC/HR-low malignant cells | `BRCA_MalignantEpi_TNBC_LAR` or `BRCA_MalignantEpi_BasalLike_ARhi` |
-| Normal-like | not recommended as primary tumor label | often normal admixture, low purity, doublet, or ambient RNA | use `BRCA_AmbiguousEpi_NormalLike_CNVreview` unless CNV/SNV proves malignancy |
+| Normal-like | not recommended as primary tumor label | often normal admixture, low purity, doublet, or ambient RNA | use `BRCA_AmbiguousEpi_NormalLike_CNVreview` pending joint genomic, reference and patient/tissue review |
 
 ---
 
@@ -109,6 +109,6 @@ Do not call malignant breast epithelial from EPCAM/KRT alone.
 Do not call Luminal A vs Luminal B without proliferation evidence.
 Do not call HER2E from ERBB2 single gene without GRB7/STARD3/amp or module support.
 Do not call claudin-low as a mutually exclusive subtype unless the whole signature supports it.
-Do not call normal-like tumor without CNV/SNV; default to normal admixture/ambient/doublet review.
+Do not assign malignancy from normal-like expression alone; review normal admixture, ambient RNA and doublets alongside genomic and patient/tissue evidence. CNV-low alone does not exclude malignancy.
 Do not interpret cNMF state overlays as primary tumor subtype.
 ```

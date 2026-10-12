@@ -26,10 +26,12 @@ differential-expression:
   annotation-commit -> de-prepare -> de-run
 ```
 
-Optional branches do not change the dependencies of committed stages. Delivery
-must select the newest committed H5AD from the actual dependency graph; it must
-not guess by numbered filename or fall back from committed annotation to an
-evidence-only artifact.
+Use the narrowest route; these managed dependencies do not require every module.
+Unusable interfaces permit validated `project-adapter` artifacts with reason,
+method/environment, inputs/config, outputs/hashes and checks in existing records.
+Do not fabricate managed approval/completion. Follow actual validated dependencies,
+not numbered filenames; reviewed annotation cannot become evidence-only output.
+Invalidate only descendants affected by changed inputs, labels or configuration.
 
 ## Stage receipt
 
@@ -62,9 +64,13 @@ a clean retry.
 
 ## Gates
 
-- QC removal above the configured review threshold pauses downstream work.
-- Unstable embedding or clustering pauses annotation.
-- Annotation decisions with unresolved conflicts pause commit.
-- Malignant labels require tumor evidence or explicit review.
+- Review QC removal and unstable embeddings before dependent interpretation.
+- Review annotation conflicts before commit; an explicit unresolved identity is
+  a valid reviewed result, not a reason to stop every branch.
+- Malignant labels require joint biological evidence/review; CNV neutrality does
+  not establish normality.
 - scPoli requires a current approved annotation gate bound to exact artifacts.
-- Delivery requires every mandatory ancestor to be committed.
+- Delivery requires complete, validated ancestors, managed or explicitly adapted.
+
+Review pauses affected decisions/dependents, not independent work. Tool bypass
+cannot replace missing biological evidence or supervision approval.
