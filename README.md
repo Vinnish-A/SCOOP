@@ -4,13 +4,13 @@
 
 SCOOP means **Single Cell Omics Operating Protocol**. It is a small, auditable workflow for common single-cell and spatial omics projects.
 
-SCOOP follows three rules:
+SCOOP follows three principles:
 
-1. **Fast** — use lightweight deterministic engines where possible.
-2. **Robust** — do not trust a single marker, model, or reference.
-3. **Simple** — keep one default method; keep fallbacks explicit.
+1. **Biology first** — judge identity and malignancy from convergent evidence, not one classifier or CNV threshold.
+2. **Measurements first** — preserve patient units, denominators and endpoints; computational success does not establish biology.
+3. **Practical execution** — bypass unusable interfaces with a recorded real API or project adapter; resume valid work instead of rebuilding the framework.
 
-In other words: do not boil the ocean. Take one validated scoop.
+Read the [first principles](skill/scoop/references/docs/design-principles.md) for the working contract.
 
 ## Workflow
 
@@ -52,8 +52,8 @@ FastCNVpy
 They are compute engines.
 They do not decide biology by themselves.
 
-Biological labels are proposed by a subagent or analyst using world knowledge,
-then checked by the annotation schema and validator before they are committed.
+Biological labels are adjudicated from tissue-matched atlases, primary literature
+and actual expression/sample evidence, then validated and committed deterministically.
 
 ## Annotation
 
