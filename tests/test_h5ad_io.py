@@ -1,8 +1,6 @@
-from pathlib import Path
 
 import anndata as ad
 import numpy as np
-import pandas as pd
 import pytest
 from scipy import sparse
 
