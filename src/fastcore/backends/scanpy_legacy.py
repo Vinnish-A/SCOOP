@@ -8,6 +8,7 @@ from scsp_agent_sop.config import deep_get
 from scsp_agent_sop.core import (
     build_identity_hvg_from_program_decision,
     leiden_sweep,
+    leiden_search_options,
     neighbors_umap,
     normalize_log1p,
     robust_z_by_sample,
@@ -41,8 +42,22 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
         counts_layer=counts_layer,
         target_sum=deep_get(cfg, "core.normalize_total_target_sum", 10000),
     )
-    _time_step(timings, "score_programs", score_programs, adata, organism=deep_get(cfg, "run.organism", "human"), layer="log1p_norm")
-    _time_step(timings, "robust_z_by_sample", robust_z_by_sample, adata, ["stress_score", "ribo_score", "proliferation_score"], sample_key=sample_key)
+    _time_step(
+        timings,
+        "score_programs",
+        score_programs,
+        adata,
+        organism=deep_get(cfg, "run.organism", "human"),
+        layer="log1p_norm",
+    )
+    _time_step(
+        timings,
+        "robust_z_by_sample",
+        robust_z_by_sample,
+        adata,
+        ["stress_score", "ribo_score", "proliferation_score"],
+        sample_key=sample_key,
+    )
 
     hvg = _time_step(
         timings,
@@ -54,15 +69,35 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
         flavor=deep_get(cfg, "core.hvg_flavor", "seurat_v3"),
         n_top_genes=deep_get(cfg, "core.n_top_hvg", 3000),
         output_key="highly_variable_biology",
+        span=float(deep_get(cfg, "core.hvg_span", 0.3)),
+        retry_spans=deep_get(cfg, "core.hvg_retry_spans", []),
+        fallback=deep_get(cfg, "core.hvg_fallback", "seurat"),
+        min_cells=int(deep_get(cfg, "core.hvg_min_cells", 1)),
     )
     hvg_path = write_table(hvg, run_root / "core" / "tables" / "hvg_biology.parquet")
     register_file(adata, key="hvg_biology", path=hvg_path, schema="hvg_table.v1")
 
-    _time_step(timings, "pca_biology", run_pca, adata, hvg_key="highly_variable_biology", obsm_key="X_pca_biology", n_comps=deep_get(cfg, "core.n_pcs", 50))
+    _time_step(
+        timings,
+        "pca_biology",
+        run_pca,
+        adata,
+        hvg_key="highly_variable_biology",
+        obsm_key="X_pca_biology",
+        n_comps=deep_get(cfg, "core.n_pcs", 50),
+    )
     identity_hvg = _time_step(timings, "build_identity_hvg", build_identity_hvg_from_program_decision, adata)
     id_path = write_table(identity_hvg, run_root / "core" / "tables" / "hvg_identity.parquet")
     register_file(adata, key="hvg_identity", path=id_path, schema="hvg_identity.v1")
-    _time_step(timings, "pca_identity_prebatch", run_pca, adata, hvg_key="highly_variable_identity", obsm_key="X_pca_identity_prebatch", n_comps=deep_get(cfg, "core.n_pcs", 50))
+    _time_step(
+        timings,
+        "pca_identity_prebatch",
+        run_pca,
+        adata,
+        hvg_key="highly_variable_identity",
+        obsm_key="X_pca_identity_prebatch",
+        n_comps=deep_get(cfg, "core.n_pcs", 50),
+    )
 
     batch_keys = [k for k in deep_get(cfg, "keys.batch_candidates", ["sample_id"]) if k in adata.obs]
     batch_method = str(deep_get(cfg, "core.batch_correction.method", "harmony2"))
@@ -118,11 +153,12 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
         timings,
         "leiden_sweep",
         leiden_sweep,
+        leiden_search_options,
         adata,
         graph_prefix="identity",
         resolutions=deep_get(cfg, "core.leiden_resolutions", [0.25, 0.5, 0.75, 1.0, 1.25, 1.5]),
         seeds=deep_get(cfg, "core.leiden_seeds", [0, 1, 2, 3, 4]),
-        search_config=deep_get(cfg, "core.leiden_search", {}),
+        search_config=leiden_search_options(cfg, run_root),
     )
     sweep_path = write_table(sweep, run_root / "core" / "tables" / "leiden_sweep.parquet")
     st_path = write_table(stability, run_root / "core" / "tables" / "cluster_stability.parquet")

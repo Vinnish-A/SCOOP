@@ -13,7 +13,7 @@ dependencies = [
   "scanpy>=1.10,<1.12",
   "pandas>=2.0,<3",
   "numpy>=1.24,<3",
-  "scipy>=1.10",
+  "scipy>=1.10,<1.17",  # AnnData <0.12 uses the pre-1.17 sparse indexing API
   "scikit-learn>=1.3",
   "pyyaml>=6.0",
   "pyarrow>=14.0",
@@ -33,6 +33,9 @@ scoop-fastccc = "scoop.fastccc_cli:main"
 
 [project.optional-dependencies]
 runtime = [
+  "networkit>=11.1,<12",
+  "rctd-py==0.3.9",
+  "cnmf==1.7.1",
   "anndataoom==0.1.8",
   "cellphonedb==5.0.1",
   "cupy-cuda12x>=13,<14; sys_platform == 'linux' and platform_machine == 'x86_64'",

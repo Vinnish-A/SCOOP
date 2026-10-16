@@ -41,6 +41,7 @@ obs_keep:
     - program_dominated_class
     - program_action
   clustering_annotation:
+    - leiden_scvi
     - cluster_identity
     - cluster_biology
     - cell_type_lvl1
@@ -86,6 +87,7 @@ layers_keep:
   - counts_ambient_corrected
 
 obsm_keep:
+  - X_umap
   - X_pca_biology
   - X_pca_identity
   - X_pca_harmony_identity
@@ -106,6 +108,8 @@ obsp_keep:
   - scvi_distances
 
 uns_keep:
+  - qc_inheritance
+  - nmf_program_names
   - schema_version
   - pipeline_versions
   - input_hashes

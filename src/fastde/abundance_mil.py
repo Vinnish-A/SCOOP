@@ -141,8 +141,10 @@ def build_bags_from_h5ad(
     random_seed: int = 0,
 ) -> BagDataset:
     rng = np.random.default_rng(random_seed)
-    adata = ad.read_h5ad(input_h5ad, backed="r")
-    obs = adata.obs[[sample_key, celltype_key]].dropna().copy()
+    from scsp_agent_sop.h5ad_io import H5ADReader
+    with H5ADReader(input_h5ad) as reader:
+        source_obs = reader.obs[[sample_key, celltype_key]].copy()
+    obs = source_obs.dropna().copy()
     obs[sample_key] = obs[sample_key].astype(str)
     obs[celltype_key] = obs[celltype_key].astype(str)
     celltypes = list(table.counts.columns.astype(str))
@@ -157,8 +159,6 @@ def build_bags_from_h5ad(
         if len(idx) > max_instances_per_sample:
             idx = rng.choice(idx, size=max_instances_per_sample, replace=False)
         bags.append(eye[idx])
-    if getattr(adata, "isbacked", False):
-        adata.file.close()
     return BagDataset(sample_ids=list(table.counts.index.astype(str)), bags=bags, celltype_names=celltypes)
 
 

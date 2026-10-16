@@ -16,9 +16,10 @@ from pathlib import Path
 import anndata as ad
 
 from fastcore.backend_plan import plan_fastcore_backend
+from scsp_agent_sop.assays import assay_profile
 from scsp_agent_sop.config import deep_get, read_yaml, resolve_run_root
 from scsp_agent_sop.core_runner import run_core_pipeline
-from scsp_agent_sop.storage import ensure_dir, init_file_registry
+from scsp_agent_sop.storage import write_h5ad_atomic, ensure_dir, init_file_registry
 
 
 def main() -> None:
@@ -33,7 +34,7 @@ def main() -> None:
     output = Path(args.output) if args.output else run_root / "artifacts" / "adata_core.h5ad"
     preplan = (
         plan_fastcore_backend(cfg, input_path=input_path)
-        if deep_get(cfg, "core.engine", "fastcore") == "fastcore"
+        if assay_profile(cfg) == "scrna" and deep_get(cfg, "core.engine", "fastcore") == "fastcore"
         else None
     )
     if preplan is not None and preplan.selected_backend == "fastcore_oom":
@@ -52,7 +53,7 @@ def main() -> None:
 
     if adata is not None:
         ensure_dir(output.parent)
-        adata.write_h5ad(output)
+        write_h5ad_atomic(adata, output)
 
 
 if __name__ == "__main__":

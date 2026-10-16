@@ -9,7 +9,7 @@ import pandas as pd
 from scipy import sparse
 
 from scsp_agent_sop.config import deep_get
-from scsp_agent_sop.core import leiden_sweep, run_harmony2
+from scsp_agent_sop.core import leiden_sweep, leiden_search_options, run_harmony2, select_hvg
 from scsp_agent_sop.storage import register_file, write_table
 
 
@@ -46,42 +46,20 @@ def _normalize_shiftlog(adata, *, target_sum: float, layer_out: str = "log1p_nor
     adata.layers[layer_out] = adata.X.copy()
 
 
-def _select_hvg_seurat(adata, *, counts_layer: str, batch_key: str | None, n_top_genes: int) -> pd.DataFrame:
+def _select_hvg_seurat(
+    adata, *, counts_layer: str, batch_key: str | None, n_top_genes: int, hvg_options: Mapping[str, Any] | None = None
+) -> pd.DataFrame:
     """Vendored OmicVerse-style Seurat v3 HVG selection."""
-    import scanpy as sc
-
-    use_seurat_v3 = adata.n_obs >= 50 and adata.n_vars >= 50
-    try:
-        if use_seurat_v3:
-            sc.pp.highly_variable_genes(
-                adata,
-                layer=counts_layer,
-                batch_key=batch_key if batch_key in adata.obs else None,
-                flavor="seurat_v3",
-                n_top_genes=n_top_genes,
-                inplace=True,
-            )
-            method = "omicverse_gpl_shiftlog_seurat_v3"
-        else:
-            raise ValueError("tiny matrix uses deterministic HVG fallback")
-    except Exception:
-        sc.pp.highly_variable_genes(
-            adata,
-            layer=None,
-            batch_key=batch_key if batch_key in adata.obs else None,
-            flavor="cell_ranger",
-            n_top_genes=n_top_genes,
-            inplace=True,
-        )
-        method = "omicverse_gpl_shiftlog_cell_ranger_fallback"
-
-    adata.var["highly_variable_biology"] = adata.var["highly_variable"].astype(bool)
+    out = select_hvg(
+        adata,
+        counts_layer=counts_layer,
+        batch_key=batch_key,
+        flavor="seurat_v3",
+        n_top_genes=n_top_genes,
+        **dict(hvg_options or {}),
+    )
     adata.var["highly_variable_identity"] = adata.var["highly_variable_biology"].astype(bool)
-    rank_cols = [c for c in ["highly_variable", "highly_variable_rank", "means", "variances", "variances_norm"] if c in adata.var]
-    out = adata.var[rank_cols].copy()
-    out.insert(0, "gene", adata.var_names)
-    out["hvg_key"] = "highly_variable_biology"
-    out["method"] = method
+    out["backend"] = "omicverse_gpl_shiftlog"
     return out
 
 
@@ -187,38 +165,78 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
     target_sum = float(deep_get(cfg, "core.fastcore.omicverse.target_sum", 500000))
     n_hvgs = int(deep_get(cfg, "core.fastcore.omicverse.n_hvgs", deep_get(cfg, "core.n_top_hvg", 3000)))
     n_pcs = int(deep_get(cfg, "core.fastcore.omicverse.n_pcs", deep_get(cfg, "core.n_pcs", 50)))
-    n_neighbors = int(deep_get(cfg, "core.fastcore.omicverse.neighbors.n_neighbors", deep_get(cfg, "core.neighbors_n_neighbors", 15)))
+    n_neighbors = int(
+        deep_get(cfg, "core.fastcore.omicverse.neighbors.n_neighbors", deep_get(cfg, "core.neighbors_n_neighbors", 15))
+    )
     min_dist = float(deep_get(cfg, "core.fastcore.omicverse.umap.min_dist", deep_get(cfg, "core.umap_min_dist", 0.3)))
-    resolutions = list(deep_get(cfg, "core.fastcore.omicverse.leiden.resolutions", deep_get(cfg, "core.leiden_resolutions", [0.75])))
-    resolution = float(deep_get(cfg, "core.fastcore.omicverse.leiden.default_resolution", resolutions[min(len(resolutions) // 2, len(resolutions) - 1)]))
+    resolutions = list(
+        deep_get(cfg, "core.fastcore.omicverse.leiden.resolutions", deep_get(cfg, "core.leiden_resolutions", [0.75]))
+    )
+    resolution = float(
+        deep_get(
+            cfg,
+            "core.fastcore.omicverse.leiden.default_resolution",
+            resolutions[min(len(resolutions) // 2, len(resolutions) - 1)],
+        )
+    )
 
     _time_step(timings, "copy_counts", _copy_counts_to_x, adata, counts_layer)
     _time_step(timings, "shiftlog_normalize", _normalize_shiftlog, adata, target_sum=target_sum)
-    hvg = _time_step(timings, "hvg_seurat", _select_hvg_seurat, adata, counts_layer=counts_layer, batch_key=sample_key, n_top_genes=n_hvgs)
+    hvg = _time_step(
+        timings,
+        "hvg_seurat",
+        _select_hvg_seurat,
+        adata,
+        counts_layer=counts_layer,
+        batch_key=sample_key,
+        n_top_genes=n_hvgs,
+        hvg_options={
+            "span": float(deep_get(cfg, "core.hvg_span", 0.3)),
+            "retry_spans": deep_get(cfg, "core.hvg_retry_spans", []),
+            "fallback": deep_get(cfg, "core.hvg_fallback", "seurat"),
+            "min_cells": int(deep_get(cfg, "core.hvg_min_cells", 1)),
+        },
+    )
     hvg_path = write_table(hvg, run_root / "core" / "tables" / "hvg_biology.parquet")
     register_file(adata, key="hvg_biology", path=hvg_path, schema="hvg_table.v1")
 
-    _time_step(timings, "scale_hvg", _scale_hvg_layer, adata, layer="log1p_norm", hvg_key="highly_variable_biology", max_value=10.0, layer_out=str(deep_get(cfg, "core.fastcore.omicverse.scaled_layer", "scaled")))
+    _time_step(
+        timings,
+        "scale_hvg",
+        _scale_hvg_layer,
+        adata,
+        layer="log1p_norm",
+        hvg_key="highly_variable_biology",
+        max_value=10.0,
+        layer_out=str(deep_get(cfg, "core.fastcore.omicverse.scaled_layer", "scaled")),
+    )
     _time_step(timings, "pca_covariance_eigh", _pca_hvg, adata, n_comps=n_pcs, random_state=random_state)
 
     batch_keys = [k for k in deep_get(cfg, "keys.batch_candidates", ["sample_id"]) if k in adata.obs]
-    try:
-        _time_step(
-            timings,
-            "harmony2",
-            run_harmony2,
-            adata,
-            basis="X_pca_identity_prebatch",
-            batch_keys=batch_keys,
-            output="X_pca_harmony_identity",
-            max_iter_harmony=deep_get(cfg, "core.batch_correction.max_iter_harmony", 20),
-            random_state=random_state,
-            ncores=deep_get(cfg, "core.batch_correction.ncores", 0),
-        )
-        harmony_used = True
-    except ImportError:
+    batch_method = str(deep_get(cfg, "core.batch_correction.method", "harmony2"))
+    if batch_method in {"none", "identity"}:
         adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
         harmony_used = False
+    elif batch_method not in {"harmony2", "harmonypy2", "harmonypy"}:
+        raise ValueError(f"Unsupported batch correction method: {batch_method}")
+    else:
+        try:
+            _time_step(
+                timings,
+                "harmony2",
+                run_harmony2,
+                adata,
+                basis="X_pca_identity_prebatch",
+                batch_keys=batch_keys,
+                output="X_pca_harmony_identity",
+                max_iter_harmony=deep_get(cfg, "core.batch_correction.max_iter_harmony", 20),
+                random_state=random_state,
+                ncores=deep_get(cfg, "core.batch_correction.ncores", 0),
+            )
+            harmony_used = True
+        except ImportError:
+            adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
+            harmony_used = False
 
     _time_step(
         timings,
@@ -237,14 +255,18 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
         adata,
         graph_prefix="identity",
         resolutions=resolutions,
-        seeds=deep_get(cfg, "core.fastcore.omicverse.leiden.seeds", deep_get(cfg, "core.leiden_seeds", [0, 1, 2, 3, 4])),
-        search_config=deep_get(cfg, "core.leiden_search", {}),
+        seeds=deep_get(
+            cfg, "core.fastcore.omicverse.leiden.seeds", deep_get(cfg, "core.leiden_seeds", [0, 1, 2, 3, 4])
+        ),
+        search_config=leiden_search_options(cfg, run_root),
     )
     sweep_path = write_table(sweep, run_root / "core" / "tables" / "leiden_sweep.parquet")
     st_path = write_table(stability, run_root / "core" / "tables" / "cluster_stability.parquet")
     register_file(adata, key="leiden_sweep", path=sweep_path, schema="leiden_sweep.v1")
     register_file(adata, key="cluster_stability", path=st_path, schema="cluster_stability.v1")
-    chosen_resolution = float(stability.loc[stability["chosen"], "resolution"].iloc[0]) if "chosen" in stability else resolution
+    chosen_resolution = (
+        float(stability.loc[stability["chosen"], "resolution"].iloc[0]) if "chosen" in stability else resolution
+    )
 
     adata.uns["fastcore_omicverse_gpl"] = {
         "source": "adapted from omicverse==2.2.3 pp CPU core",

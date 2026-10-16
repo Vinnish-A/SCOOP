@@ -47,6 +47,7 @@ def prepare_tumor_fastcnv_reference(
     normal_status_key: str | None = None,
     normal_status_labels: list[str] | tuple[str, ...] = ("normal", "non_tumor", "healthy"),
     reference_key: str = "fastcnv_reference_pool",
+    reference_eligible_key: str | None = None,
     min_reference_cells: int = 20,
 ) -> TumorFastCNVPlan:
     """Build the pooled-reference labels used by the tumor FastCNV step."""
@@ -59,13 +60,27 @@ def prepare_tumor_fastcnv_reference(
     obs = adata.obs
     major = obs[major_lineage_key].astype(str)
     parenchymal = set(map(str, parenchymal_lineages))
-    nonpar = set(nonparenchymal_lineages or DEFAULT_NONPARENCHYMAL_LINEAGES)
+    nonpar = set(DEFAULT_NONPARENCHYMAL_LINEAGES if nonparenchymal_lineages is None else nonparenchymal_lineages)
+    if reference_eligible_key:
+        if reference_eligible_key not in obs or obs[reference_eligible_key].dtype != bool:
+            raise ValueError("reference_eligible_key must identify an explicit non-missing boolean review mask")
+        eligible = obs[reference_eligible_key].copy()
+    else:
+        if "annotation_confidence" not in obs:
+            raise ValueError("CNV reference requires reviewed annotation_confidence or reference_eligible_key")
+        eligible = obs.annotation_confidence.astype(str).eq("high")
+    if "annotation_status" in obs:
+        eligible &= obs.annotation_status.astype(str).eq("labeled")
+    if "final_use" in obs:
+        eligible &= obs.final_use.eq(True)
 
     is_parenchymal = major.isin(parenchymal)
-    is_normal_nonpar = major.isin(nonpar) | (~is_parenchymal)
+    is_normal_nonpar = major.isin(nonpar) & ~is_parenchymal & eligible
     is_normal_par = pd.Series(False, index=obs.index)
-    if normal_status_key and normal_status_key in obs.columns:
-        is_normal_par = is_parenchymal & obs[normal_status_key].astype(str).isin({str(x) for x in normal_status_labels})
+    if normal_status_key:
+        if normal_status_key not in obs:
+            raise ValueError(f"normal_status_key {normal_status_key!r} is not present in obs")
+        is_normal_par = is_parenchymal & eligible & obs[normal_status_key].astype(str).isin({str(x) for x in normal_status_labels})
 
     ref = pd.Series("candidate_tumor_or_mixed", index=obs.index, dtype=object)
     ref.loc[is_normal_nonpar] = "normal_nonparenchymal"
@@ -108,7 +123,11 @@ def run_tumor_fastcnv_workflow(
     normal_status_key: str | None = None,
     normal_status_labels: list[str] | tuple[str, ...] = ("normal", "non_tumor", "healthy"),
     layer: str | None = None,
-    h5ad_mode: str = "dense",
+    h5ad_mode: str = "sparse",
+    reference_eligible_key: str | None = None,
+    nonparenchymal_lineages: set[str] | None = None,
+    compute_clusters: bool = False,
+    cell_block_size: int = 10000,
     n_jobs: int = 1,
     config: FastCNVConfig | None = None,
     sample_name: str = "tumor_fastcnv",
@@ -120,6 +139,8 @@ def run_tumor_fastcnv_workflow(
         parenchymal_lineages=parenchymal_lineages,
         normal_status_key=normal_status_key,
         normal_status_labels=normal_status_labels,
+        nonparenchymal_lineages=nonparenchymal_lineages,
+        reference_eligible_key=reference_eligible_key,
     )
     if not plan.should_run_fastcnv:
         return None, plan
@@ -135,6 +156,8 @@ def run_tumor_fastcnv_workflow(
         sample_name=sample_name,
         densify_all=h5ad_mode == "dense",
         n_jobs=n_jobs,
+        compute_clusters=compute_clusters,
+        cell_block_size=cell_block_size,
     )
     write_pooled_outputs(result=result, output_dir=output_dir, sample_name=sample_name, mode="compact")
     attach_tumor_fastcnv_evidence(adata, result, reference_key=plan.reference_key)

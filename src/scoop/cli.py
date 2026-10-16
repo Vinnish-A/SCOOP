@@ -37,6 +37,7 @@ COMMANDS: dict[tuple[str, ...], tuple[str, str]] = {
     ("ccc",): ("ccc", "scoop.commands.ccc"),
     ("de", "prepare"): ("de-prepare", "scoop.commands.de_prepare"),
     ("de", "run"): ("de-run", "scoop.commands.de_run"),
+    ("abundance", "compare"): ("abundance-compare", "scoop.commands.abundance_compare"),
     ("deliver",): ("deliver", "scoop.commands.deliver"),
 }
 

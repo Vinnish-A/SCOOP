@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable
 
 import numpy as np
@@ -12,7 +13,7 @@ from .matrix import get_matrix
 
 FASTCNMF_DEFAULT_MAX_ITER = 50
 FASTCNMF_DEFAULT_SEEDS = tuple(range(20))
-FASTCNMF_COMPATIBLE_METHODS = {"fastcnmf", "fast_consensus_nmf", "sklearn_nmf"}
+FASTCNMF_COMPATIBLE_METHODS = {"sklearn_multistart_nmf", "fastcnmf", "fast_consensus_nmf", "sklearn_nmf"}
 
 
 @dataclass
@@ -22,6 +23,8 @@ class NMFRunResult:
     error: float
     W: np.ndarray
     H: np.ndarray
+    n_iter: int
+    converged: bool
 
 
 def _as_nonnegative_matrix(X):
@@ -45,7 +48,7 @@ def run_nmf_once(X, k: int, seed: int, max_iter: int = FASTCNMF_DEFAULT_MAX_ITER
 
     model = NMF(
         n_components=k,
-        init="nndsvda",
+        init="random",
         solver="cd",
         beta_loss="frobenius",
         max_iter=max_iter,
@@ -54,7 +57,12 @@ def run_nmf_once(X, k: int, seed: int, max_iter: int = FASTCNMF_DEFAULT_MAX_ITER
     )
     W = model.fit_transform(X)
     H = model.components_
-    return NMFRunResult(k=k, seed=seed, error=float(model.reconstruction_err_), W=W, H=H)
+    # sklearn emits ConvergenceWarning exactly when the iteration budget is
+    # exhausted. No thread-global warnings context is used across concurrent fits.
+    converged = int(model.n_iter_) < max_iter
+    return NMFRunResult(
+        k=k, seed=seed, error=float(model.reconstruction_err_), W=W, H=H, n_iter=int(model.n_iter_), converged=converged
+    )
 
 
 def consensus_stability(results: list[NMFRunResult], k: int) -> tuple[float, np.ndarray]:
@@ -63,7 +71,7 @@ def consensus_stability(results: list[NMFRunResult], k: int) -> tuple[float, np.
 
     H_all = np.vstack([_normalize_components(r.H) for r in results if r.k == k])
     if H_all.shape[0] <= k:
-        return 1.0, H_all
+        return float("nan"), H_all
     sim = cosine_similarity(H_all)
     dist = 1 - np.clip(sim, 0, 1)
     clustering = AgglomerativeClustering(n_clusters=k, metric="precomputed", linkage="average")
@@ -84,7 +92,7 @@ def choose_k(summary: pd.DataFrame, stability_threshold: float = 0.70) -> int:
     stable = summary[summary["median_stability"] >= stability_threshold].copy()
     if stable.empty:
         return int(summary.sort_values(["median_stability", "median_error"], ascending=[False, True]).iloc[0]["k"])
-    # Prefer the smallest stable K after error has begun flattening.
+    # This rule chooses the smallest stable K; it does not estimate an error elbow.
     stable = stable.sort_values("k")
     return int(stable.iloc[0]["k"])
 
@@ -97,8 +105,13 @@ def run_fast_consensus_nmf(
     k_grid: Iterable[int] = (5, 8, 10, 12, 15),
     seeds: Iterable[int] = FASTCNMF_DEFAULT_SEEDS,
     max_iter: int = FASTCNMF_DEFAULT_MAX_ITER,
+    workers: int = 4,
     stability_threshold: float = 0.70,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    k_grid = list(dict.fromkeys(int(k) for k in k_grid))
+    seeds = list(dict.fromkeys(int(seed) for seed in seeds))
+    if not k_grid or not seeds or min(k_grid) < 1 or workers < 1 or max_iter < 1:
+        raise ValueError("NMF requires positive K/iteration/worker counts and at least one seed.")
     if hvg_key in adata.var:
         gene_mask = adata.var[hvg_key].to_numpy(bool)
     else:
@@ -109,32 +122,70 @@ def run_fast_consensus_nmf(
             gene_mask &= ~adata.var[col].to_numpy(bool)
     genes = np.asarray(adata.var_names)[gene_mask]
     X = _as_nonnegative_matrix(get_matrix(adata, layer)[:, gene_mask])
-    results: list[NMFRunResult] = []
-    for k in k_grid:
-        for seed in seeds:
-            results.append(run_nmf_once(X, int(k), int(seed), max_iter=max_iter))
+    if max(k_grid) > min(X.shape):
+        raise ValueError("NMF K exceeds the number of observations or selected features.")
+    from threadpoolctl import threadpool_limits
+
+    jobs = [(int(k), int(seed)) for k in k_grid for seed in seeds]
+    with threadpool_limits(limits=1, user_api="blas"):
+        with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as pool:
+            futures = [pool.submit(run_nmf_once, X, k, seed, max_iter) for k, seed in jobs]
+            results = [future.result() for future in futures]
     summary_rows = []
     for k in k_grid:
         kr = [r for r in results if r.k == int(k)]
         stability, _ = consensus_stability(results, int(k))
-        summary_rows.append({
-            "k": int(k),
-            "median_error": float(np.median([r.error for r in kr])),
-            "min_error": float(np.min([r.error for r in kr])),
-            "median_stability": stability,
-            "n_seeds": len(kr),
-        })
+        summary_rows.append(
+            {
+                "k": int(k),
+                "median_error": float(np.median([r.error for r in kr])),
+                "min_error": float(np.min([r.error for r in kr])),
+                "median_stability": stability,
+                "n_seeds": len(kr),
+                "converged_fraction": float(np.mean([r.converged for r in kr])),
+                "median_iterations": float(np.median([r.n_iter for r in kr])),
+                "method": "sklearn_multistart_nmf",
+                "init": "random",
+                "workers": min(workers, len(jobs)),
+            }
+        )
     summary = pd.DataFrame(summary_rows)
     selected_k = choose_k(summary, stability_threshold=stability_threshold)
-    best = min([r for r in results if r.k == selected_k], key=lambda r: r.error)
-    adata.obsm["X_nmf_usage"] = best.W
-    adata.obs["dominant_nmf_program"] = pd.Categorical([f"P{int(i)+1}" for i in np.argmax(best.W, axis=1)])
-    usage_sum = np.maximum(best.W.sum(axis=1), 1e-12)
-    probs = best.W / usage_sum[:, None]
+    # Use the consensus components for delivered programmes, rather than
+    # relabeling the single lowest-error replicate as a consensus solution.
+    from sklearn.decomposition import non_negative_factorization
+
+    _, consensus = consensus_stability(results, selected_k)
+    with threadpool_limits(limits=1, user_api="blas"):
+        W, H, refit_iterations = non_negative_factorization(
+            X,
+            H=consensus,
+            n_components=selected_k,
+            update_H=False,
+            init="random",
+            solver="cd",
+            beta_loss="frobenius",
+            max_iter=max_iter,
+            random_state=seeds[0],
+            tol=1e-4,
+        )
+    adata.uns["nmf_method"] = {
+        "method": "sklearn_multistart_nmf",
+        "init": "random",
+        "selection": "smallest_K_passing_component_stability_else_best_stability",
+        "output": "consensus_components_and_fixed_H_usage_refit",
+        "usage_refit_iterations": int(refit_iterations),
+        "max_iter": max_iter,
+        "n_seeds": len(seeds),
+    }
+    adata.obsm["X_nmf_usage"] = W
+    adata.obs["dominant_nmf_program"] = pd.Categorical([f"P{int(i) + 1}" for i in np.argmax(W, axis=1)])
+    usage_sum = np.maximum(W.sum(axis=1), 1e-12)
+    probs = W / usage_sum[:, None]
     adata.obs["nmf_program_entropy"] = -(probs * np.log(np.maximum(probs, 1e-12))).sum(axis=1)
-    weights = pd.DataFrame(best.H, columns=genes)
-    weights.insert(0, "program", [f"P{i+1}" for i in range(best.H.shape[0])])
-    usage = pd.DataFrame(best.W, index=adata.obs_names, columns=[f"P{i+1}" for i in range(best.W.shape[1])])
+    weights = pd.DataFrame(H, columns=genes)
+    weights.insert(0, "program", [f"P{i + 1}" for i in range(H.shape[0])])
+    usage = pd.DataFrame(W, index=adata.obs_names, columns=[f"P{i + 1}" for i in range(W.shape[1])])
     usage.insert(0, "obs_name", usage.index)
     summary["selected"] = summary["k"] == selected_k
     return summary, weights, usage

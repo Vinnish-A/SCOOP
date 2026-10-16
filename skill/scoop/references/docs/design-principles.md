@@ -1,43 +1,17 @@
-# 00. 设计原则
+# SCOOP 第一性原则
 
-## 目标
+SCOOP服务于生物学问题和可复用分析，不以框架完整、默认工具或技术通过代替研究完成。本页是分析取舍的统一原则；模块默认与接口见[模块说明](modules-and-outputs.md)，发布维护见[runtime](../runtime.md)。
 
-SCOOP（Single Cell Omics Operating Protocol）为 Agent 和分析人员执行 single cell omics 项目提供一套稳定路线，覆盖单细胞和空间组学中的常规交付任务。它不是完整的生信百科，而是把常规项目压缩成少数确定模块。每个模块要清楚说明：输入是什么、默认工具是什么、输出写到哪里、什么情况下调参、什么情况下需要人工 review。
+## 判断与测量
 
-## 真正的简洁
+- **生物学裁决，计算提供证据。** 身份、状态、恶性和置信度分开；组织匹配图谱、原始文献、正/排marker、同细胞共检与患者背景共同判断。自动标签不能定名，应激/IFN/增殖不是默认新类型。CNV是支持证据，低/中性不证明正常；正常参考用审定身份allowlist，排除混合、低质量和未定群，不以“非上皮”一网打尽。
+- **先确认临床单位，再解释趋势。** 连通cell→sample/timepoint→patient→endpoint，先查配对和可用患者数；组织/PBMC、pCR/cCR/TRG、治疗方案分别保存。细胞/bin/ROI不增加独立患者。比例、UCell、来源pseudobulk和scSurvival风险回答不同问题，保留分母、范围、效应单位与终点方向；不因希望显著而混换定义。
+- **技术正确与生物学支持分别判断。** 收敛、非负、CPU/GPU一致不证明反卷积身份正确；marker与图谱匹配不证明功能；CCC不证明机制；同一初始化多seed不等于独立鲁棒性；拟合风险不等于预测验证。先检查参考可辨识性、患者覆盖、取样及组成，再决定能说什么。
 
-文本简短不等于项目简洁。真正的简洁来自概念边界清楚：
+## 实用执行
 
-- QC 只决定哪些观测是可靠、可疑或失败；
-- core analysis 只产生稳定 embedding 和 cluster；
-- programs 只解释连续状态和干扰程序；
-- annotation 只融合证据，不创造未经证实的细胞类型；
-- spatial 只处理空间单位、图和反卷积；
-- CCC 只产生候选通信，不证明机制；
-- DE 只做统计检验，不用 integrated expression。
+- **不好用就绕开并记录。** CLI缺参数/后端、挂起或规模不适配时，直接使用真实API、项目适配或隔离依赖，优先复用managed环境；不为修框架停掉研究，也不试探性重装共享release。在已有日志/receipt记原因、实际算法与环境、输入/参数、产物与核验；区分调度变化、参数变化和算法更换，不冒充原生stage完成。生物学审阅、患者单位和源数据约束仍然保留。
+- **昂贵计算先做代表性小任务。** doctor仅供发现依赖；实际验证所需后端、输入语义与资源。检查batch/epochs/预热、稀疏读取和N²步骤；独立文库/谱系可并行，控制总线程与内存，逐单元保存进度和checkpoint。参数来自实际规模，不复制旧项目常数；未实际完成的加速不报告为全量收益。
+- **只重做受影响部分，交付能继续使用的对象。** 原counts只读，保存故障从有效结果恢复；缺失与not_assessed不当零。H5AD保留稳定状态及完整图描述，大表外置；检验ID/顺序、字段类型和保存往返，避免矩阵别名修改。报告实际结论、限制与唯一当前入口，保留源表、决策和复现路径；没有生物学内容的“运行通过”不是交付。
 
-## 默认方法唯一
-
-每类任务只设一个默认方法：
-
-- doublet：`scanpy.pp.scrublet`，逐样本运行；
-- batch correction：Harmony 2.0；
-- NMF：fast consensus NMF；
-- spatial deconvolution：RCTD-py；
-- low-resolution RCTD-py mode：`full`；
-- CCC：FastCCC；
-- complex-sensitive CCC validation：CellPhoneDB v5 或 LIANA；
-- DE：FastDE pseudobulk DESeq2-like NB Wald；R DESeq2/edgeR only as reference validation.
-
-Fallback 不是并列默认。只有默认失败或触发具体风险时才使用 fallback，并写入 decision log。
-
-## H5AD 不是数据库
-
-H5AD 只保存当前状态。长表和大对象写出到 run 目录。Agent 每次写结果时必须判断：
-
-1. 这个结果是否是每 cell / spot / bin 的核心状态？
-2. 它是否下游经常用于过滤、分组或展示？
-3. 它是否足够小且稳定？
-4. 它是否必须和 AnnData 一起传输？
-
-如果答案不是明确的“是”，就写外部表格，并把路径、hash 和 schema 登记到 `adata.uns['file_registry']`。
+默认方法是可解释的起点，不是排他限制。review针对受影响判断：明确保留未定身份可完成审阅，独立分支继续；不以绕过工具替代监督标签批准。项目经验更新上述判断或对应模块，不将每次故障累积成新禁令。

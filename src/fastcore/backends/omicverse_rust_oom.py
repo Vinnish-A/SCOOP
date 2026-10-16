@@ -3,11 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+from scsp_agent_sop.assays import apply_final_use
+from scsp_agent_sop.config import deep_get
+from scsp_agent_sop.omicverse_facilities import require_omicverse
+from scsp_agent_sop.storage import init_file_registry
+
 from .omicverse_common import (
     build_options,
     configure_omicverse,
     map_standard_core_keys,
-    require_omicverse,
     run_harmony_bridge,
     run_omicverse_graph_umap_leiden,
     run_omicverse_preprocess_scale_pca,
@@ -15,11 +19,11 @@ from .omicverse_common import (
     time_step,
     write_core_tables,
 )
-from scsp_agent_sop.config import deep_get
-from scsp_agent_sop.storage import init_file_registry
 
 
-def run_omicverse_rust_oom_core(input_h5ad: str | Path, output_h5ad: str | Path, cfg: Mapping[str, Any], run_root: str | Path) -> dict[str, Any]:
+def run_omicverse_rust_oom_core(
+    input_h5ad: str | Path, output_h5ad: str | Path, cfg: Mapping[str, Any], run_root: str | Path
+) -> dict[str, Any]:
     ov = require_omicverse()
     if not hasattr(ov, "read"):
         raise RuntimeError("OmicVerse rust/OOM backend requires ov.read(path, backend='rust').")
@@ -34,6 +38,7 @@ def run_omicverse_rust_oom_core(input_h5ad: str | Path, output_h5ad: str | Path,
     options = type(options)(**{**options.__dict__, "preprocess_mode": rust_mode, "use_implicit_centering": False})
     configure_omicverse(ov, options)
     try:
+        apply_final_use(adata_oom)
         run_omicverse_preprocess_scale_pca(ov, adata_oom, options, timings)
         materialize = getattr(adata_oom, "to_adata", None) or getattr(adata_oom, "to_memory", None)
         if materialize is None:
@@ -42,8 +47,10 @@ def run_omicverse_rust_oom_core(input_h5ad: str | Path, output_h5ad: str | Path,
         init_file_registry(adata, str(deep_get(cfg, "run.run_id", run_root.name)))
         map_standard_core_keys(adata)
         harmony_used = run_harmony_bridge(adata, options, timings)
-        run_omicverse_graph_umap_leiden(ov, adata, options, timings)
-        artifacts = write_core_tables(adata, run_root, method="fastcore_oom", options=options)
+        leiden_results = run_omicverse_graph_umap_leiden(ov, adata, options, timings, cfg=cfg, run_root=run_root)
+        artifacts = write_core_tables(
+            adata, run_root, method="fastcore_oom", options=options, leiden_results=leiden_results
+        )
         result = summarize_result(
             adata,
             options=options,

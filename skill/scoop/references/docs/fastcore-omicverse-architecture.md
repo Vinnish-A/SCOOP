@@ -8,8 +8,8 @@ scoop core
   -> scsp_agent_sop.core_runner.run_core_pipeline()
 ```
 
-The runner performs capability planning before execution, selects one backend,
-and runs that backend as a whole pipeline. The only non-FastCore fallback is
+The native runner performs capability planning before execution, selects one backend,
+and runs that backend as a whole pipeline. Its non-FastCore fallback is
 `scanpy_legacy`, which wraps the original SCOOP normalization, HVG, PCA,
 Harmony 2.0, kNN, UMAP, and Leiden sweep implementation.
 
@@ -27,7 +27,8 @@ Fallback backend:
 
 There is no per-step fallback chain. If a FastCore backend is not available or
 has not passed quality gates, the planner selects `scanpy_legacy` before the run
-starts.
+starts. This describes the native planner, not a ban on recorded project adapters
+when that interface is unusable; apply the [first principles](design-principles.md).
 
 ## Capability Planning
 
@@ -58,15 +59,16 @@ otherwise                                       -> scanpy_legacy
 
 The default implementation keeps `core.fastcore.enable_fastcore_cpu_backend`
 enabled. On ordinary CPU environments this selects the vendored `fastcore_cpu`
-backend first; `scanpy_legacy` remains the only fallback when the backend is
+backend first; `scanpy_legacy` is its built-in fallback when the backend is
 disabled or unavailable. Batch correction defaults to Harmony 2.0 through
 `harmonypy>=2.0,<3`; Harmony Py Touch is no longer part of the default core
 workflow.
 
 The unified SCOOP environment installs the locked OmicVerse release together
 with Harmony, torch/CUDA, CuPy and AnnDataOOM. OmicVerse is imported only from
-that managed environment; repository submodule and `sys.path` fallbacks are not
-allowed. The `fastcore_cpu` backend remains a vendored GPL-compatible subset of
+that managed environment in the native release. Project-isolated dependencies
+must be explicit and recorded rather than silently shadowing release imports.
+The `fastcore_cpu` backend remains a vendored GPL-compatible subset of
 OmicVerse-style CPU preprocessing under `src/fastcore/vendor/omicverse_gpl/`.
 
 ## Executable Backend Adapters

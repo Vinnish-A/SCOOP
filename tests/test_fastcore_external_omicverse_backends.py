@@ -61,6 +61,7 @@ class _FakeSettings:
         self.mode = "cpu-gpu-mixed"
         self.calls.append("mixed_init")
 
+
 class _FakePP:
     def __init__(self, calls: list[str]):
         self.calls = calls
@@ -160,3 +161,16 @@ def test_rust_oom_backend_is_path_based_and_writes_output(monkeypatch, tmp_path)
     assert calls[0].startswith("read:rust:")
     assert "to_adata" in calls
     assert calls[-1] == "close"
+
+
+def test_mixed_backend_honors_explicit_no_batch_correction(monkeypatch, tmp_path):
+    _install_fake_omicverse(monkeypatch)
+    cfg = _cfg()
+    cfg["core"]["batch_correction"]["method"] = "none"
+    monkeypatch.setattr(
+        "fastcore.backends.omicverse_common.run_harmony2",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("Harmony must not run")),
+    )
+    result = run_omicverse_mixed_core(_adata(), cfg, tmp_path)
+    assert result["batch_correction_method"] == "none"
+    assert result["harmony2_used"] is False

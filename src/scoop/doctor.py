@@ -17,6 +17,7 @@ MODULE_NAMES = {
     "cupy-cuda12x": "cupy",
     "pyyaml": "yaml",
     "scvi-tools": "scvi",
+    "rctd-py": "rctd",
 }
 
 
@@ -55,6 +56,9 @@ def health() -> dict[str, Any]:
             "cupy-cuda12x",
             "fastccc",
             "liana",
+            "networkit",
+            "rctd-py",
+            "cnmf",
             "omicverse",
             "scarches",
             "scvi-tools",
@@ -64,7 +68,7 @@ def health() -> dict[str, Any]:
     }
     core_ok = all(value["available"] for value in packages.values())
     atlas_ok = all(extensions[name]["available"] for name in ("scvi-tools", "scarches"))
-    spatial_ok = all(extensions[name]["available"] for name in ("squidpy", "spatialdata"))
+    spatial_ok = all(extensions[name]["available"] for name in ("squidpy", "spatialdata", "rctd-py"))
     ccc_ok = all(extensions[name]["available"] for name in ("fastccc", "liana", "cellphonedb"))
     omicverse_ok = extensions["omicverse"]["available"]
     oom_ok = omicverse_ok and extensions["anndataoom"]["available"]
@@ -84,9 +88,14 @@ def health() -> dict[str, Any]:
     torch_check["ok"] = bool(
         torch_check["available"] and torch_check.get("cuda_available") and extensions["cupy-cuda12x"]["available"]
     )
-    unified_ok = core_ok and atlas_ok and spatial_ok and ccc_ok and omicverse_ok and oom_ok
+    unified_ok = core_ok and atlas_ok and spatial_ok and ccc_ok and omicverse_ok and oom_ok and extensions["networkit"]["available"] and extensions["cnmf"]["available"]
 
+    from .cli import COMMANDS
     return {
+        "check_kind": "dependency_and_adapter_discovery",
+        "backend_execution_tested": False,
+        "stage_adapters": {" ".join(command): {"module": module, "available": util.find_spec(module) is not None}
+                           for command, (_, module) in COMMANDS.items()},
         "schema_version": "scoop.doctor.v1",
         "ok": unified_ok and home_error is None,
         "home": str(home),
@@ -99,9 +108,11 @@ def health() -> dict[str, Any]:
             "cwd": os.getcwd(),
         },
         "capabilities": {
+            "programmes": {"ok": extensions["cnmf"]["available"], "packages": {"cnmf": extensions["cnmf"]}},
+            "parallel_leiden": {"ok": extensions["networkit"]["available"], "packages": {"networkit": extensions["networkit"]}},
             "core": {"ok": core_ok, "packages": packages},
             "atlas": {"ok": atlas_ok, "packages": {k: extensions[k] for k in ("scvi-tools", "scarches")}},
-            "spatial": {"ok": spatial_ok, "packages": {k: extensions[k] for k in ("squidpy", "spatialdata")}},
+            "spatial": {"ok": spatial_ok, "packages": {k: extensions[k] for k in ("squidpy", "spatialdata", "rctd-py")}},
             "ccc": {
                 "ok": ccc_ok,
                 "packages": {k: extensions[k] for k in ("fastccc", "liana", "cellphonedb")},

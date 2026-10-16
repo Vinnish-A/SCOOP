@@ -12,9 +12,9 @@
 1. Broad brain/parenchymal annotation: astrocyte, OPC, oligodendrocyte, neuron, ependymal/ciliated, microglia, endothelial, mural, fibroblast/VLMC
 2. Candidate glioma cells: marker overlap with AC-like, OPC-like, NPC-like, MES-like programs
 3. FastCNVpy / SNV / tumor reference mapping to assign malignant_status
-4. CNV-neutral cells -> normal brain parenchymal labels
+4. CNV-low/neutral cells -> joint review of genomic, normal-atlas, tumour-programme and patient/tissue evidence; no automatic normal routing
 5. malignant cells -> GBM historical states: AC-like, OPC-like, NPC-like, MES-like
-6. Reference-mapping layer may add GBmap-like six states or updated labels if classifier supports them
+6. Reference-mapping may support GBmap-like states, but final identity requires model/analyst review rather than classifier naming
 7. cNMF programs -> overlays: cycling, hypoxia, stress, gliosis, ECM, connectivity, invasion, cilia-like, neuronal-like
 ```
 
@@ -28,14 +28,14 @@ GBM marker overlap is severe; malignant status must prioritize genomic evidence.
 |---|---|---|
 | CNV/CNA | `chr7 gain`, `chr10 loss`, `EGFR amplification`, `CDKN2A/B deletion`, `PDGFRA amplification`, `CDK4/MDM2 amplification`, `PTEN region loss` | strongest scRNA-level evidence |
 | SNV/fusion | tumor WES/WGS/panel, EGFRvIII, allele-specific CNA | strong evidence |
-| tumor reference mapping | GBM malignant-state reference such as AC/OPC/NPC/MES | supportive, not enough without CNV/SNV if normal cells overlap |
+| tumor reference mapping | GBM malignant-state reference such as AC/OPC/NPC/MES | supportive; resolve normal-cell overlap with joint genomic, patient/tissue and programme evidence, not a mandatory positive CNV gate |
 | marker alone | `GFAP`, `PDGFRA`, `SOX2`, `CD44`, etc. | insufficient |
 
 ---
 
 ## 3. Normal brain parenchymal and TME cells
 
-Only use these labels for CNV-neutral / tumor-SNV-negative / normal-reference matched cells.
+Normal origin requires coherent brain lineage plus normal-reference and tissue-context support. CNV neutrality or absent/unassayed tumour SNVs alone does not establish normality.
 
 | normal cell | markers | final label | confusion |
 |---|---|---|---|
@@ -63,7 +63,7 @@ Only use these labels for `malignant-high` or `malignant-probable` cells.
 | AC-homeostatic / differentiated | `AQP4, ALDOC, SLC1A2, SLC1A3, GLUL, GFAP`; low `MKI67/TOP2A` | `GBM_Malignant_AC-like_Homeostatic` | differentiated-like overlay |
 | AC-gliosis / injury-response | `VIM, SERPINA3, LCN2, C3, CD44, CHI3L1, GFAP` | `GBM_Malignant_AC-like_Gliosis` | injury/gliosis overlay |
 | AC-connectivity / tumor-microtube-like | `CHI3L1, GAP43, APOE, GJA1, TTYH1` | `GBM_Malignant_AC-like_Connectivity` | stronger with spatial/morphology evidence |
-| Cilia-like | `DNAH*, CFAP*, FOXJ1, TPPP3` | `GBM_Malignant_AC-like_CiliaLike` | only if CNA+; otherwise normal ependymal/ciliated |
+| Cilia-like | `DNAH*, CFAP*, FOXJ1, TPPP3` | `GBM_Malignant_AC-like_CiliaLike` | require joint tumor evidence; CNA-negative alone does not establish normal ependymal origin |
 
 ### 4.2 OPC-like
 
@@ -73,7 +73,7 @@ Only use these labels for `malignant-high` or `malignant-probable` cells.
 | OPC-progenitor / stem-like | `PDGFRA, CSPG4, PTPRZ1, OLIG2, SOX10, NES, PROM1` | `GBM_Malignant_OPC-like_Progenitor` | progenitor overlay |
 | OPC-cycling | `MKI67, TOP2A, PCNA, MCM2-7, CENPF, UBE2C, CDK1, CCNB1, CCNB2` | `GBM_Malignant_OPC-like_Cycling` | cycling is overlay, not fifth classic state |
 | OPC-invasive / motile | `TNC, ANXA1, ITGA6, ITGB1, MMP2, MMP14, SERPINE1` | `GBM_Malignant_OPC-like_Invasive` | invasion overlay |
-| Oligo-differentiating tumor | `PLP1, MBP, MAG, MOG, MOBP, OPALIN` | `GBM_Malignant_OPC-like_OligoDifferentiating` | only if CNA/SNV positive |
+| Oligo-differentiating tumor | `PLP1, MBP, MAG, MOG, MOBP, OPALIN` | `GBM_Malignant_OPC-like_OligoDifferentiating` | require joint tumor support beyond differentiation markers; CNA-low remains eligible |
 
 ### 4.3 NPC-like / neural progenitor-like
 

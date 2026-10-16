@@ -16,8 +16,9 @@ import argparse
 
 from scsp_agent_sop.config import deep_get, project_root_from_run_root, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
+from scsp_agent_sop.rctd_adapter import run_rctd_api
 from scsp_agent_sop.spatial import build_rctd_command, choose_rctd_mode, run_rctd_command
-from scsp_agent_sop.storage import write_json
+from scsp_agent_sop.storage import write_h5ad_atomic, write_json
 
 
 def main() -> None:
@@ -37,11 +38,36 @@ def main() -> None:
     reference_h5ad = project_root / deep_get(cfg, "spatial.reference_h5ad")
     expected = deep_get(cfg, "spatial.rctd.expected_cells_per_unit")
     mode = args.mode or choose_rctd_mode(
-        "spot",
+        deep_get(cfg, "spatial.unit_type", "spot"),
         expected_cells_per_unit=expected,
         default_low_res=deep_get(cfg, "spatial.rctd.mode_low_resolution", "full"),
     )
     output_h5ad = run_root / "spatial" / "deconvolution" / f"rctd_{mode}.h5ad"
+    adapter = deep_get(cfg, "spatial.rctd.adapter", "api")
+    if adapter not in {"api", "external"}:
+        raise ValueError("spatial.rctd.adapter must be api or external.")
+    record = {
+        "mode": mode,
+        "adapter": adapter,
+        "output_h5ad": str(output_h5ad),
+        "spatial_h5ad": str(spatial_h5ad),
+        "reference_h5ad": str(reference_h5ad),
+    }
+    if adapter == "api":
+        write_json(record, run_root / "spatial/deconvolution/rctd_command.json")
+        if args.dry_run:
+            print(record)
+            return
+        info = run_rctd_api(spatial_h5ad, reference_h5ad, output_h5ad, cfg, mode)
+        log_decision(
+            run_root,
+            module="spatial_rctd",
+            decision="rctd_api_complete",
+            reason="Pinned RCTD API executed; fitted and visualization weights kept separately.",
+            parameters=record,
+            evidence=info,
+        )
+        return
     cmd = build_rctd_command(
         deep_get(cfg, "spatial.rctd.command_template"),
         spatial_h5ad=spatial_h5ad,
@@ -50,12 +76,14 @@ def main() -> None:
         mode=mode,
         output_h5ad=output_h5ad,
     )
-    record = {"mode": mode, "command": cmd, "output_h5ad": str(output_h5ad)}
-    write_json(record, run_root / "spatial" / "deconvolution" / "rctd_command.json")
+    record["command"] = cmd
+    write_json(record, run_root / "spatial/deconvolution/rctd_command.json")
     if args.dry_run:
         print(" ".join(cmd))
         return
     completed = run_rctd_command(cmd, cwd=project_root)
+    if not output_h5ad.is_file():
+        raise RuntimeError("External RCTD exited successfully without its declared H5AD output.")
     log_decision(
         run_root,
         module="spatial_rctd",

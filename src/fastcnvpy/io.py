@@ -48,10 +48,11 @@ def read_obs(path: Path | None, *, h5ad_path: Path | None = None) -> pd.DataFram
             return pd.read_parquet(path)
         raise ValueError(f"unsupported obs format: {path}")
     if h5ad_path is not None and h5ad_path.suffix.lower() == ".h5ad":
-        obj = ad.read_h5ad(h5ad_path, backed="r")
+        from scsp_agent_sop.h5ad_io import H5ADReader
+        obj = H5ADReader(h5ad_path)
         obs = obj.obs.copy()
         obs.index = obs.index.astype(str)
-        obj.file.close()
+        obj.close()
         return obs
     return None
 

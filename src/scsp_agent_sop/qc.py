@@ -138,36 +138,37 @@ def run_scrublet_per_sample(
     stdev_doublet_rate: float = 0.02,
     sim_doublet_ratio: float = 2.0,
     random_state: int = 0,
+    *,
+    workers: int | str = "auto",
+    threads_per_worker: int = 1,
+    checkpoint_dir=None,
 ) -> pd.DataFrame:
-    import scanpy as sc
+    from .scrublet_jobs import scrublet_jobs
 
     adata.obs["doublet_score"] = np.nan
     adata.obs["doublet_call_scrublet"] = False
     adata.obs["doublet_call"] = "not_run"
     rows = []
-    for sample, names in adata.obs.groupby(sample_key).groups.items():
-        ad = adata[names].copy()
-        ad.X = ad.layers[counts_layer].copy()
-        sc.pp.scrublet(
-            ad,
-            expected_doublet_rate=expected_doublet_rate,
-            stdev_doublet_rate=stdev_doublet_rate,
-            sim_doublet_ratio=sim_doublet_ratio,
-            random_state=random_state,
-            threshold=None,
-        )
-        scores = ad.obs["doublet_score"].astype(float)
-        pred = ad.obs["predicted_doublet"].astype(bool)
-        adata.obs.loc[ad.obs_names, "doublet_score"] = scores.to_numpy()
-        adata.obs.loc[ad.obs_names, "doublet_call_scrublet"] = pred.to_numpy()
-        high_complexity = adata.obs.loc[ad.obs_names, "n_genes_by_counts"] > adata.obs.loc[ad.obs_names, "n_genes_by_counts"].quantile(0.95)
-        high_counts = adata.obs.loc[ad.obs_names, "total_counts"] > adata.obs.loc[ad.obs_names, "total_counts"].quantile(0.95)
+    parameters = dict(expected_doublet_rate=expected_doublet_rate, stdev_doublet_rate=stdev_doublet_rate,
+                      sim_doublet_ratio=sim_doublet_ratio, random_state=random_state)
+    for sample, positions, score_array, pred_array, execution in scrublet_jobs(
+        adata, sample_key, counts_layer, parameters, workers=workers,
+        threads=threads_per_worker, checkpoint_dir=checkpoint_dir,
+    ):
+        names = adata.obs_names[positions]
+        scores = pd.Series(score_array, index=names)
+        pred = pd.Series(pred_array, index=names)
+        adata.obs.loc[names, "doublet_score"] = score_array
+        adata.obs.loc[names, "doublet_call_scrublet"] = pred_array
+        high_complexity = adata.obs.loc[names, "n_genes_by_counts"] > adata.obs.loc[names, "n_genes_by_counts"].quantile(0.95)
+        high_counts = adata.obs.loc[names, "total_counts"] > adata.obs.loc[names, "total_counts"].quantile(0.95)
         confident = pred & (high_counts | high_complexity)
         call = np.where(confident, "doublet", np.where(pred, "ambiguous", "singlet"))
-        adata.obs.loc[ad.obs_names, "doublet_call"] = call
+        adata.obs.loc[names, "doublet_call"] = call
         rows.append({
             "sample_id": sample,
-            "n_obs": ad.n_obs,
+            "n_obs": len(names),
+            **execution,
             "scrublet_predicted_fraction": float(pred.mean()),
             "high_confidence_doublet_fraction": float(confident.mean()),
             "score_median": float(scores.median()),
@@ -176,3 +177,39 @@ def run_scrublet_per_sample(
     # Remove only high-confidence doublets from default downstream.
     adata.obs.loc[adata.obs["doublet_call"] == "doublet", "final_use"] = False
     return pd.DataFrame(rows)
+
+
+def inherit_qc(adata, parent_path, *, counts_layer="counts", sample_key="sample_id", chunk_size=2000):
+    """Inherit library-level decisions only for exact retained-cell count subsets."""
+    from scipy import sparse
+    from .h5ad_io import H5ADReader
+    from .storage import sha256_file
+
+    required = {"qc_pass", "qc_class", "final_use", "doublet_score", "doublet_call_scrublet", "doublet_call"}
+    with H5ADReader(parent_path) as parent:
+        if not parent.obs_names.is_unique or not adata.obs_names.is_unique:
+            raise ValueError("QC inheritance requires unique cell IDs")
+        positions = parent.obs_names.get_indexer(adata.obs_names)
+        if (positions < 0).any() or not parent.var_names.equals(adata.var_names):
+            raise ValueError("QC inheritance requires parent cell IDs and the unchanged gene axis")
+        obs = parent.obs.iloc[positions]
+        if not required.issubset(obs.columns):
+            raise ValueError(f"parent lacks QC decisions: {sorted(required - set(obs.columns))}")
+        if obs.final_use.dtype != bool or not obs.final_use.all():
+            raise ValueError("QC inheritance accepts only parent final_use=True cells")
+        if not obs[sample_key].astype(str).equals(adata.obs[sample_key].astype(str)):
+            raise ValueError("QC inheritance cannot change library membership")
+        for start in range(0, adata.n_obs, chunk_size):
+            rows = positions[start:start + chunk_size]
+            expected = sparse.csr_matrix(parent.read_rows(rows, layer=counts_layer))
+            actual = sparse.csr_matrix(adata.layers[counts_layer][start:start + chunk_size])
+            if (expected != actual).nnz:
+                raise ValueError("QC inheritance requires exact parent counts")
+        columns = [key for key in obs if key.startswith(("qc_", "doublet_", "pct_counts_", "log10_"))
+                   or key in {"total_counts", "n_genes_by_counts", "final_use"}]
+        for key in columns:
+            adata.obs[key] = obs[key].to_numpy()
+    provenance = {"mode": "inherited", "parent": str(parent_path), "parent_sha256": sha256_file(parent_path),
+                  "n_cells": int(adata.n_obs), "counts_layer": counts_layer}
+    adata.uns["qc_inheritance"] = provenance
+    return provenance

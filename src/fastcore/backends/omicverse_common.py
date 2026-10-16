@@ -5,12 +5,10 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, Mapping
 
-import numpy as np
 import pandas as pd
 
 from scsp_agent_sop.config import deep_get
-from scsp_agent_sop.core import run_harmony2
-from scsp_agent_sop.omicverse_facilities import require_omicverse
+from scsp_agent_sop.core import leiden_search_options, leiden_sweep, run_harmony2
 from scsp_agent_sop.storage import register_file, write_table
 
 
@@ -30,8 +28,11 @@ class OmicVerseCoreOptions:
     umap_min_dist: float
     umap_method: str | None
     leiden_resolution: float
+    leiden_resolutions: list[float]
+    leiden_seeds: list[int]
     random_state: int
     batch_keys: list[str]
+    batch_method: str
     max_iter_harmony: int
     harmony_ncores: int
     identify_robust: bool
@@ -43,7 +44,9 @@ def build_options(cfg: Mapping[str, Any], adata: Any | None, *, backend: str, mo
     sample_key = deep_get(cfg, "keys.sample", "sample_id")
     batch_candidates = deep_get(cfg, "keys.batch_candidates", [sample_key])
     batch_keys = [k for k in batch_candidates if adata is not None and k in adata.obs and adata.obs[k].nunique() > 1]
-    resolutions = list(deep_get(cfg, "core.fastcore.omicverse.leiden.resolutions", deep_get(cfg, "core.leiden_resolutions", [0.8])))
+    resolutions = list(
+        deep_get(cfg, "core.fastcore.omicverse.leiden.resolutions", deep_get(cfg, "core.leiden_resolutions", [0.8]))
+    )
     default_resolution = resolutions[min(len(resolutions) // 2, len(resolutions) - 1)] if resolutions else 0.8
     preprocess_mode = str(deep_get(cfg, "core.fastcore.omicverse.preprocess_mode", "shiftlog"))
     if "|" not in preprocess_mode:
@@ -56,19 +59,37 @@ def build_options(cfg: Mapping[str, Any], adata: Any | None, *, backend: str, mo
         n_hvgs=int(deep_get(cfg, "core.fastcore.omicverse.n_hvgs", deep_get(cfg, "core.n_top_hvg", 3000))),
         scaled_layer=str(deep_get(cfg, "core.fastcore.omicverse.scaled_layer", "scaled")),
         n_pcs=int(deep_get(cfg, "core.fastcore.omicverse.n_pcs", deep_get(cfg, "core.n_pcs", 50))),
-        n_neighbors=int(deep_get(cfg, "core.fastcore.omicverse.neighbors.n_neighbors", deep_get(cfg, "core.neighbors_n_neighbors", 15))),
-        neighbors_n_pcs=int(deep_get(cfg, "core.fastcore.omicverse.neighbors.n_pcs", deep_get(cfg, "core.neighbors_n_pcs", 30))),
+        n_neighbors=int(
+            deep_get(
+                cfg, "core.fastcore.omicverse.neighbors.n_neighbors", deep_get(cfg, "core.neighbors_n_neighbors", 15)
+            )
+        ),
+        neighbors_n_pcs=int(
+            deep_get(cfg, "core.fastcore.omicverse.neighbors.n_pcs", deep_get(cfg, "core.neighbors_n_pcs", 30))
+        ),
         neighbors_method=deep_get(cfg, "core.fastcore.omicverse.neighbors.method", None),
         neighbors_transformer=deep_get(cfg, "core.fastcore.omicverse.neighbors.mixed_transformer", None),
-        umap_min_dist=float(deep_get(cfg, "core.fastcore.omicverse.umap.min_dist", deep_get(cfg, "core.umap_min_dist", 0.3))),
+        umap_min_dist=float(
+            deep_get(cfg, "core.fastcore.omicverse.umap.min_dist", deep_get(cfg, "core.umap_min_dist", 0.3))
+        ),
         umap_method=deep_get(cfg, "core.fastcore.omicverse.umap.method", None),
         leiden_resolution=float(deep_get(cfg, "core.fastcore.omicverse.leiden.default_resolution", default_resolution)),
+        leiden_resolutions=[float(r) for r in resolutions],
+        leiden_seeds=[
+            int(seed)
+            for seed in deep_get(
+                cfg, "core.fastcore.omicverse.leiden.seeds", deep_get(cfg, "core.leiden_seeds", [0, 1, 2, 3, 4])
+            )
+        ],
         random_state=random_state,
         batch_keys=batch_keys,
+        batch_method=str(deep_get(cfg, "core.batch_correction.method", "harmony2")),
         max_iter_harmony=int(deep_get(cfg, "core.batch_correction.max_iter_harmony", 20)),
         harmony_ncores=int(deep_get(cfg, "core.batch_correction.ncores", 0)),
         identify_robust=bool(deep_get(cfg, "core.fastcore.omicverse.identify_robust", False)),
-        use_implicit_centering=bool(deep_get(cfg, "core.fastcore.omicverse.use_implicit_centering", mode == "cpu-gpu-mixed")),
+        use_implicit_centering=bool(
+            deep_get(cfg, "core.fastcore.omicverse.use_implicit_centering", mode == "cpu-gpu-mixed")
+        ),
     )
 
 
@@ -82,7 +103,7 @@ def time_step(timings: dict[str, float], name: str, fn: Callable, *args, **kwarg
 def unsupported_backend_result(backend: str, cfg: Mapping[str, Any], run_root: str | Path) -> dict[str, Any]:
     raise RuntimeError(
         f"{backend} was selected, but its executable OmicVerse adapter is unavailable. "
-        "Install the separate OmicVerse environment or use the scanpy_legacy fallback."
+        "Repair the unified managed runtime or use the explicit scanpy_legacy fallback."
     )
 
 
@@ -166,6 +187,11 @@ def run_omicverse_preprocess_scale_pca(ov, adata, options: OmicVerseCoreOptions,
 def run_harmony_bridge(adata, options: OmicVerseCoreOptions, timings: dict[str, float]) -> bool:
     if "X_pca_identity_prebatch" not in adata.obsm and "X_pca" in adata.obsm:
         adata.obsm["X_pca_identity_prebatch"] = adata.obsm["X_pca"].copy()
+    if options.batch_method in {"none", "identity"}:
+        adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
+        return False
+    if options.batch_method not in {"harmony2", "harmonypy2", "harmonypy"}:
+        raise ValueError(f"Unsupported batch correction method: {options.batch_method}")
     try:
         time_step(
             timings,
@@ -185,7 +211,9 @@ def run_harmony_bridge(adata, options: OmicVerseCoreOptions, timings: dict[str, 
         return False
 
 
-def run_omicverse_graph_umap_leiden(ov, adata, options: OmicVerseCoreOptions, timings: dict[str, float]) -> None:
+def run_omicverse_graph_umap_leiden(
+    ov, adata, options: OmicVerseCoreOptions, timings: dict[str, float], *, cfg: Mapping[str, Any], run_root: str | Path
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     neighbors_kwargs: dict[str, Any] = {
         "n_neighbors": options.n_neighbors,
         "n_pcs": options.neighbors_n_pcs,
@@ -204,24 +232,39 @@ def run_omicverse_graph_umap_leiden(ov, adata, options: OmicVerseCoreOptions, ti
         "min_dist": options.umap_min_dist,
         "random_state": options.random_state,
     }
-    if options.umap_method and options.umap_method != "auto" and (options.mode == "cpu" or options.umap_method == "pumap"):
+    if (
+        options.umap_method
+        and options.umap_method != "auto"
+        and (options.mode == "cpu" or options.umap_method == "pumap")
+    ):
         umap_kwargs["method"] = options.umap_method
     time_step(timings, "omicverse_umap", ov.pp.umap, adata, **umap_kwargs)
-    time_step(
-        timings,
-        "omicverse_leiden",
-        ov.pp.leiden,
-        adata,
-        resolution=options.leiden_resolution,
-        random_state=options.random_state,
-        key_added="cluster_identity",
-        neighbors_key="neighbors_identity",
-    )
     map_standard_core_keys(adata)
+    return time_step(
+        timings,
+        "leiden_search",
+        leiden_sweep,
+        adata,
+        resolutions=options.leiden_resolutions,
+        seeds=options.leiden_seeds,
+        search_config=leiden_search_options(cfg, run_root),
+    )
 
 
 def hvg_table_from_adata(adata, *, method: str) -> pd.DataFrame:
-    cols = [c for c in ["highly_variable", "highly_variable_features", "highly_variable_rank", "means", "variances", "variances_norm", "residual_variances"] if c in adata.var]
+    cols = [
+        c
+        for c in [
+            "highly_variable",
+            "highly_variable_features",
+            "highly_variable_rank",
+            "means",
+            "variances",
+            "variances_norm",
+            "residual_variances",
+        ]
+        if c in adata.var
+    ]
     if cols:
         out = adata.var[cols].copy()
     else:
@@ -237,31 +280,19 @@ def hvg_table_from_adata(adata, *, method: str) -> pd.DataFrame:
     return out
 
 
-def write_core_tables(adata, run_root: str | Path, *, method: str, options: OmicVerseCoreOptions) -> dict[str, str]:
+def write_core_tables(
+    adata,
+    run_root: str | Path,
+    *,
+    method: str,
+    options: OmicVerseCoreOptions,
+    leiden_results: tuple[pd.DataFrame, pd.DataFrame],
+) -> dict[str, str]:
     run_root = Path(run_root)
-    hvg_path = write_table(hvg_table_from_adata(adata, method=method), run_root / "core" / "tables" / "hvg_biology.parquet")
-    sweep = pd.DataFrame(
-        [
-            {
-                "resolution": options.leiden_resolution,
-                "seed": options.random_state,
-                "n_clusters": int(adata.obs["cluster_identity"].nunique()) if "cluster_identity" in adata.obs else 0,
-                "method": method,
-            }
-        ]
+    hvg_path = write_table(
+        hvg_table_from_adata(adata, method=method), run_root / "core" / "tables" / "hvg_biology.parquet"
     )
-    stability = pd.DataFrame(
-        [
-            {
-                "resolution": options.leiden_resolution,
-                "median_ari": 1.0,
-                "median_nmi": 1.0,
-                "n_clusters_seed0": int(adata.obs["cluster_identity"].nunique()) if "cluster_identity" in adata.obs else 0,
-                "chosen": True,
-                "method": method,
-            }
-        ]
-    )
+    sweep, stability = leiden_results
     sweep_path = write_table(sweep, run_root / "core" / "tables" / "leiden_sweep.parquet")
     st_path = write_table(stability, run_root / "core" / "tables" / "cluster_stability.parquet")
     register_file(adata, key="hvg_biology", path=hvg_path, schema="hvg_table.v1")
@@ -303,17 +334,19 @@ def summarize_result(
     adata.uns[f"fastcore_{options.backend}"] = {
         "backend": options.backend,
         "mode": options.mode,
-        "source": "OmicVerse 2.2.x preprocessing backend adapter",
+        "source": "OmicVerse preprocessing API adapter; version recorded by managed runtime",
         "preprocess_mode": options.preprocess_mode,
         "target_sum": options.target_sum,
         "n_hvgs": options.n_hvgs,
         "n_pcs": options.n_pcs,
-        "single_leiden_resolution": options.leiden_resolution,
+        "leiden_resolutions": options.leiden_resolutions,
+        "leiden_seeds": options.leiden_seeds,
+        "leiden_backend": "shared_sweep_see_checkpoint_metadata",
     }
     return {
         "backend": options.backend,
         "harmony2_used": harmony_used,
-        "batch_correction_method": "harmony2",
+        "batch_correction_method": options.batch_method,
         "batch_keys": options.batch_keys,
         "n_obs": int(adata.n_obs),
         "n_vars": int(adata.n_vars),

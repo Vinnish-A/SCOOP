@@ -29,7 +29,7 @@ def normalize_gene_metadata(frame: pd.DataFrame) -> pd.DataFrame:
         out = out.dropna(subset=["hgnc_symbol", "chromosome_num", "start_position", "end_position", "chr_arm"])
         out["chromosome_num"] = out["chromosome_num"].astype(int)
         out["hgnc_symbol"] = out["hgnc_symbol"].astype(str)
-        out["chr_arm"] = out["chr_arm"].astype(str)
+        out["chr_arm"] = _arm_suffix(out["chr_arm"], out["chromosome_num"])
         return out[["hgnc_symbol", "chromosome_num", "start_position", "end_position", "chr_arm"]].reset_index(drop=True)
 
     required = {
@@ -57,9 +57,19 @@ def normalize_gene_metadata(frame: pd.DataFrame) -> pd.DataFrame:
     out["end_position"] = pd.to_numeric(out["end_position"], errors="coerce")
     out = out.dropna(subset=["start_position", "end_position", "chr_arm"])
     out["hgnc_symbol"] = out["hgnc_symbol"].astype(str)
-    out["chr_arm"] = out["chr_arm"].astype(str)
+    out["chr_arm"] = _arm_suffix(out["chr_arm"], out["chromosome_num"])
     out = out.drop_duplicates(["hgnc_symbol", "chromosome_num", "start_position", "end_position", "chr_arm"])
     return out[["hgnc_symbol", "chromosome_num", "start_position", "end_position", "chr_arm"]].reset_index(drop=True)
+
+
+def _arm_suffix(arms: pd.Series, chromosomes: pd.Series) -> pd.Series:
+    values = arms.astype(str).str.strip()
+    suffix = values.str.extract(r"^(?:chr)?(?:(?:[0-9]+|X)\.?)?([pq])$", expand=False)
+    prefix = values.str.extract(r"^(?:chr)?([0-9]+|X)\.?[pq]$", expand=False).where(lambda x: x.ne("X"), "23")
+    mismatch = prefix.notna() & pd.to_numeric(prefix, errors="coerce").ne(chromosomes)
+    if suffix.isna().any() or mismatch.any():
+        raise ValueError("chr_arm must be p/q or a matching chromosome-qualified arm (e.g. 19.q)")
+    return suffix
 
 
 def chromosome_arm_order() -> list[str]:

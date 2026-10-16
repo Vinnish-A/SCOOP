@@ -18,7 +18,7 @@ import anndata as ad
 from scsp_agent_sop.config import deep_get, project_root_from_run_root, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
 from scsp_agent_sop.manifest import write_manifest
-from scsp_agent_sop.storage import ensure_dir, init_file_registry, prune_h5ad, register_file
+from scsp_agent_sop.storage import ensure_dir, init_file_registry, prune_h5ad, register_file, write_h5ad_atomic
 
 
 def main() -> None:
@@ -59,9 +59,11 @@ def main() -> None:
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
     prune_h5ad(adata, schema)
     ensure_dir(output.parent)
-    adata.write_h5ad(output)
-    register_file(adata, key="final_adata", path=output, category="artifacts", schema="h5ad.final_minimal_state.v1")
-    adata.write_h5ad(output)
+    # A file cannot contain its own SHA. The external manifest fingerprints the
+    # completed object; the embedded registry contains only its location/schema.
+    register_file(adata, key="final_adata", path=output, category="artifacts", schema="h5ad.final_minimal_state.v1",
+                  fingerprint=False, extra={"self_reference": True})
+    write_h5ad_atomic(adata, output)
     manifest_path = run_root / "artifacts" / "manifest.json"
     log_decision(
         run_root,

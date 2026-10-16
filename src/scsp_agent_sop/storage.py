@@ -5,6 +5,7 @@ from typing import Any, Iterable, Mapping
 import hashlib
 import json
 import os
+import tempfile
 
 import pandas as pd
 
@@ -45,6 +46,20 @@ def write_json(obj: Any, path: str | Path) -> Path:
     return path
 
 
+def write_h5ad_atomic(adata, path: str | Path) -> Path:
+    """A serialization failure must not overwrite a previously valid object."""
+    path = Path(path)
+    ensure_dir(path.parent)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".h5ad", dir=path.parent)
+    os.close(fd)
+    try:
+        adata.write_h5ad(temporary)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return path
+
+
 def append_jsonl(obj: Mapping[str, Any], path: str | Path) -> Path:
     path = Path(path)
     ensure_dir(path.parent)
@@ -71,6 +86,7 @@ def register_file(
     category: str = "tables",
     schema: str | None = None,
     extra: Mapping[str, Any] | None = None,
+    fingerprint: bool = True,
 ) -> None:
     path = Path(path)
     init_file_registry(adata)
@@ -78,7 +94,7 @@ def register_file(
         "path": os.fspath(path),
         "format": path.suffix.lstrip("."),
     }
-    if path.exists() and path.is_file():
+    if fingerprint and path.exists() and path.is_file():
         rec["sha256"] = sha256_file(path)
         rec["bytes"] = path.stat().st_size
     if schema:
@@ -123,6 +139,24 @@ def prune_h5ad(adata, schema: Mapping[str, Any]) -> None:
     prune_mapping(adata.obsm, schema.get("obsm_keep", []))
     prune_mapping(adata.obsp, schema.get("obsp_keep", []))
     uns_keep = set(schema.get("uns_keep", []))
+    # Graph descriptors are executable metadata. Keep descriptors whose matrices
+    # survive; old Scanpy-prefixed graphs may have canonical SCOOP copies.
+    for name, descriptor in adata.uns.items():
+        if not isinstance(descriptor, Mapping) or "connectivities_key" not in descriptor:
+            continue
+        graph_fields = [field for field in ("connectivities_key", "distances_key") if field in descriptor]
+        for field in graph_fields:
+            if descriptor[field] not in adata.obsp:
+                canonical = f"{field.removesuffix('_key')}_{name.removeprefix('neighbors_')}"
+                if canonical in adata.obsp:
+                    descriptor[field] = canonical
+        if all(descriptor[field] in adata.obsp for field in graph_fields):
+            uns_keep.add(name)
+    for descriptor, prefix in (("umap", "X_umap"), ("pca", "X_pca")):
+        if any(key.startswith(prefix) for key in adata.obsm):
+            uns_keep.add(descriptor)
+    if "log1p_norm" in adata.layers:
+        uns_keep.add("log1p")
     for key in list(adata.uns.keys()):
         if key not in uns_keep:
             del adata.uns[key]

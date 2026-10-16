@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 from fastcore.backend_plan import canonical_backend, plan_fastcore_backend
 from fastcore.backends.scanpy_legacy import run_scanpy_legacy_core
+from scsp_agent_sop.assays import apply_final_use, assay_profile
 from scsp_agent_sop.config import deep_get
 from scsp_agent_sop.decision_log import log_decision
 from scsp_agent_sop.storage import ensure_dir, register_file, write_json
@@ -23,7 +24,16 @@ def run_core_pipeline(
     run_root = Path(run_root)
     engine = str(deep_get(cfg, "core.engine", "fastcore"))
     start = perf_counter()
-    if engine == "scanpy_legacy":
+    n_input = apply_final_use(adata) if adata is not None else None
+    if assay_profile(cfg) != "scrna":
+        if adata is None:
+            raise ValueError("Spatial core requires an in-memory AnnData object.")
+        plan = None
+        engine = "spatial"
+        backend = "spatial_scanpy"
+        fallback_used = False
+        fallback_reason = None
+    elif engine == "scanpy_legacy":
         if adata is None:
             raise ValueError("scanpy_legacy requires an in-memory AnnData object.")
         plan = None
@@ -38,7 +48,11 @@ def run_core_pipeline(
     else:
         raise ValueError(f"unsupported core.engine: {engine}")
 
-    if backend == "scanpy_legacy":
+    if backend == "spatial_scanpy":
+        from fastcore.backends.spatial_panel import run_spatial_core
+
+        result = run_spatial_core(adata, cfg, run_root)
+    elif backend == "scanpy_legacy":
         if adata is None:
             raise ValueError("scanpy_legacy requires an in-memory AnnData object.")
         result = run_scanpy_legacy_core(adata, cfg, run_root)
@@ -70,6 +84,7 @@ def run_core_pipeline(
 
     manifest = {
         "schema_version": "fastcore_manifest.v1",
+        "qc_input_observations": n_input,
         "engine": engine,
         "backend": result["backend"],
         "gpu": result["backend"] == "fastcore_mixed",
@@ -86,10 +101,20 @@ def run_core_pipeline(
     }
     fastcore_dir = ensure_dir(run_root / "core" / "fastcore")
     manifest_path = write_json(manifest, fastcore_dir / "fastcore_manifest.json")
-    quality_path = write_json(result.get("quality", {"accepted": True, "backend": result["backend"]}), fastcore_dir / "core_quality.json")
+    quality_path = write_json(
+        result.get("quality", {"accepted": True, "backend": result["backend"]}), fastcore_dir / "core_quality.json"
+    )
     if manifest_adata is not None:
-        register_file(manifest_adata, key="fastcore_manifest", path=manifest_path, category="artifacts", schema="fastcore_manifest.v1")
-        register_file(manifest_adata, key="core_quality", path=quality_path, category="artifacts", schema="core_quality.v1")
+        register_file(
+            manifest_adata,
+            key="fastcore_manifest",
+            path=manifest_path,
+            category="artifacts",
+            schema="fastcore_manifest.v1",
+        )
+        register_file(
+            manifest_adata, key="core_quality", path=quality_path, category="artifacts", schema="core_quality.v1"
+        )
     if result_adata is not None and output_path is not None:
         ensure_dir(Path(output_path).parent)
         result_adata.write_h5ad(output_path)
@@ -98,13 +123,17 @@ def run_core_pipeline(
     log_decision(
         run_root,
         module="core_analysis",
-        decision="fastcore_complete" if engine == "fastcore" else "scanpy_legacy_complete",
-        reason="core executed through FastCore planner; Scanpy legacy is the only non-FastCore fallback.",
+        decision=f"{engine}_complete",
+        reason="Explicit assay routing; RNA retains the FastCore/Scanpy policy and spatial uses its declared preprocessing baseline.",
         parameters={
             "selected_backend": result["backend"],
-            "fallback_backend": deep_get(cfg, "core.fastcore.fallback_backend", deep_get(cfg, "core.fallback_engine", "scanpy_legacy")),
+            "fallback_backend": deep_get(
+                cfg, "core.fastcore.fallback_backend", deep_get(cfg, "core.fallback_engine", "scanpy_legacy")
+            ),
             "fallback_used": fallback_used,
-            "batch_correction_method": result.get("batch_correction_method", deep_get(cfg, "core.batch_correction.method", "harmony2")),
+            "batch_correction_method": result.get(
+                "batch_correction_method", deep_get(cfg, "core.batch_correction.method", "harmony2")
+            ),
             "harmony2_used": result.get("harmony2_used"),
             "batch_keys": result.get("batch_keys", []),
         },

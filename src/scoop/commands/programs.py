@@ -4,15 +4,16 @@
 Usage:
   scoop programs --config runs/<run_id>/config/run.yaml
 
-The default method is the SCOOP FastCNMF profile: exact coordinate-descent NMF,
-20 replicate seeds and max_iter=50. Legacy sklearn consensus NMF method names
-remain accepted for existing configs. OmicVerse cNMF is an explicit validation
-fallback for unstable or claim-critical programmes.
+The native stage reports its actual sklearn multistart/consensus implementation.
+Legacy method names remain accepted as compatibility aliases. The standalone
+FastCNMF executable is a separate implementation, not silently claimed here.
+
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 
 import anndata as ad
@@ -26,7 +27,7 @@ from scsp_agent_sop.programs import (
     run_fast_consensus_nmf,
     run_omicverse_cnmf_validation,
 )
-from scsp_agent_sop.storage import ensure_dir, init_file_registry, register_file, write_table
+from scsp_agent_sop.storage import write_h5ad_atomic, ensure_dir, init_file_registry, register_file, write_table
 
 
 def main() -> None:
@@ -43,7 +44,7 @@ def main() -> None:
     adata = ad.read_h5ad(input_path)
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
 
-    method = str(deep_get(cfg, "programs.method", "fastcnmf")).lower()
+    method = str(deep_get(cfg, "programs.method", "sklearn_multistart_nmf")).lower()
     if method not in FASTCNMF_COMPATIBLE_METHODS:
         supported = ", ".join(sorted(FASTCNMF_COMPATIBLE_METHODS))
         raise ValueError(f"unsupported programs.method={method!r}; supported methods: {supported}")
@@ -56,6 +57,7 @@ def main() -> None:
         k_grid=deep_get(cfg, "programs.k_grid", [5, 8, 10, 12, 15]),
         seeds=seeds,
         max_iter=max_iter,
+        workers=int(deep_get(cfg, "programs.workers", 4)),
         stability_threshold=deep_get(cfg, "programs.stability_threshold", 0.70),
     )
     summary_path = write_table(summary, run_root / "programs" / "tables" / "nmf_k_sweep.tsv")
@@ -67,9 +69,11 @@ def main() -> None:
 
     selected_k = int(summary.loc[summary["selected"], "k"].iloc[0])
     min_stability = float(summary["median_stability"].min())
+    convergence_fraction = float(summary.loc[summary.selected, "converged_fraction"].iloc[0])
+    review_required = not math.isfinite(min_stability) or min_stability < 0.70 or convergence_fraction < 1.0
     fallback_used = False
     fallback_reason = None
-    if args.validate_with_omicverse_cnmf or min_stability < deep_get(cfg, "programs.stability_threshold", 0.70):
+    if args.validate_with_omicverse_cnmf or deep_get(cfg, "programs.validate_with_omicverse_cnmf", False):
         try:
             run_omicverse_cnmf_validation(
                 adata,
@@ -79,33 +83,34 @@ def main() -> None:
                 use_gpu=True,
             )
             fallback_used = True
-            fallback_reason = "OmicVerse cNMF validation requested or fast NMF stability was below threshold"
+            fallback_reason = "OmicVerse cNMF validation explicitly requested"
         except Exception as exc:
             fallback_used = True
             fallback_reason = f"OmicVerse cNMF validation attempted but failed: {type(exc).__name__}: {exc}"
 
     ensure_dir(output.parent)
-    adata.write_h5ad(output)
+    write_h5ad_atomic(adata, output)
     log_decision(
         run_root,
         module="programs",
-        decision=f"{method}_complete",
-        reason="FastCNMF-preferred programme discovery executed and gene weights externalized.",
+        decision="sklearn_multistart_nmf_complete",
+        reason="Random-start sklearn NMF, component consensus and fixed-component usage refit; convergence reported.",
         parameters={
-            "method": method,
+            "requested_method": method,
+            "actual_method": "sklearn_multistart_nmf",
             "selected_k": selected_k,
             "k_grid": deep_get(cfg, "programs.k_grid", []),
             "n_seeds": len(seeds),
             "max_iter": max_iter,
         },
-        evidence={"min_stability": min_stability},
+        evidence={"min_stability": min_stability, "selected_converged_fraction": convergence_fraction},
         fallback_used=fallback_used,
         fallback_reason=fallback_reason,
-        human_review_required=min_stability < 0.70,
+        human_review_required=review_required,
         review_reason=(
-            "At least one K has low consensus stability; inspect programme tables and consider lineage-specific NMF."
+            "NMF stability is low/unassessed or some selected-K replicates did not converge; inspect programme tables."
         )
-        if min_stability < 0.70
+        if review_required
         else None,
     )
 

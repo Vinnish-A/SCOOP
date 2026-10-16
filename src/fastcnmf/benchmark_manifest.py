@@ -99,9 +99,9 @@ def _sample_stats(obs, sample_key: str) -> dict[str, int | float]:
 
 
 def inspect_h5ad_dataset(path: Path, *, dataset_id: str, tier: str, modality: str) -> DatasetSpec:
-    import anndata as ad
+    from scsp_agent_sop.h5ad_io import H5ADReader
 
-    adata = ad.read_h5ad(path, backed="r")
+    adata = H5ADReader(path)
     try:
         sample_key = "sample_id" if "sample_id" in adata.obs.columns else "sample"
         stats = _sample_stats(adata.obs, sample_key) if sample_key in adata.obs.columns else {}
@@ -117,7 +117,7 @@ def inspect_h5ad_dataset(path: Path, *, dataset_id: str, tier: str, modality: st
             **stats,
         )
     finally:
-        adata.file.close()
+        adata.close()
 
 
 def inspect_visium_root(path: Path, *, dataset_id: str, tier: str) -> DatasetSpec:

@@ -1,113 +1,61 @@
 ---
 name: scoop
-description: Execute and review auditable single-cell and spatial omics workflows with SCOOP. Use for H5AD validation, per-sample QC and doublet detection, embedding and clustering, FastCNMF programmes, evidence-based annotation, tumor CNV review, large-atlas scVI annotation and scPoli gating, spatial deconvolution, cell-cell communication, pseudobulk differential expression, abundance analysis, delivery, or maintenance of the SCOOP runtime and references.
+description: Run and review single-cell and spatial omics with SCOOP, including QC, clustering, programmes, evidence-based annotation, tumor CNV, atlas integration, spatial deconvolution and patient-level associations. Also use for SCOOP runtime maintenance.
 ---
 
 # SCOOP
 
-Use SCOOP as one skill with one managed CLI. Keep biological decisions in the
-Skill and references; keep deterministic computation in the installed runtime.
+Computation supplies evidence; the analyst/reasoning model adjudicates biology.
+Read [measurement and evidence principles](references/docs/design-principles.md)
+for analytical decisions, and only the relevant stage reference below.
 
-## Runtime boundary
+## Execution
 
-Resolve `SCOOP_HOME` from a non-empty absolute environment value. Otherwise use
-`~/.scoop`. Require the directory to exist before analysis. Invoke only:
+Use `${SCOOP_HOME:-$HOME/.scoop}/bin/scoop` or `bin/python`. The CLI and API share
+one locked dependency environment; application/Skill updates reuse it. Read
+[runtime](references/runtime.md) for installation, capabilities and rollback.
 
-```bash
-"${SCOOP_HOME:-$HOME/.scoop}/bin/scoop" ...
-```
+`doctor --json` discovers dependencies/adapters, not successful analysis. Test the
+actual backend on representative data before costly work. Check assay, library
+scope, batch/epochs/KL warmup, memory and task-level concurrency. For large H5AD,
+use [selective reads and inherited QC](references/docs/data-boundaries.md).
 
-Do not use a repository script, host Python, Conda executable, or a bare
-`fast*` command when the managed CLI is available. Run the relevant capability
-check before computation:
+If an interface is missing, hangs or scales poorly, use the real API or a project
+adapter and record method/environment, reason, inputs/parameters, outputs and
+checks. Isolate genuinely conflicting dependencies; do not modify a shared release
+or silently switch algorithms. A bypass does not grant biological approval.
 
-```bash
-"${SCOOP_HOME:-$HOME/.scoop}/bin/scoop" doctor --json
-```
+Preserve raw counts, cell/gene order, clinical joins and source files. Resume
+validated checkpoints; a save failure does not require refitting valid models.
+Keep large tables external and preserve executable graph/embedding metadata.
+[Workflow receipts](references/workflow-contract.md) describe actual execution
+and review state; use the narrowest route that answers the question.
 
-Read [runtime](references/runtime.md) when installing, diagnosing dependencies,
-checking runtime capabilities, or resolving paths.
+## Routes
 
-## Operating contract
+| Task | Read |
+| --- | --- |
+| QC / inherited lineage QC | [QC](references/stages/qc.md); [assay ranges](references/docs/assay-preprocessing.md) for imaging/spot assays |
+| Embedding / parallel clustering | [core](references/stages/core.md) |
+| Programme discovery | [programmes](references/stages/programs.md) |
+| Cell identity / subtype review | [annotation workflow](references/markers/annotation-workflow.md), [naming](references/markers/naming-strategy.md), then tissue/lineage references |
+| Malignant/normal evidence | [tumor rules](references/markers/tumor-general.md) |
+| Multi-study scVI / approved scPoli | [atlas](references/docs/large-atlas-integration.md) |
+| Spatial deconvolution | [spatial](references/stages/spatial.md) |
+| Communication candidates | [CCC](references/stages/ccc.md) |
+| Condition DE | [DE](references/stages/differential-expression.md) |
+| Proportions / scores / survival / response | [patient outcomes](references/stages/outcome-association.md) |
 
-- Keep raw data read-only and retain raw counts in `layers["counts"]`.
-- Keep project data and run outputs in the caller's project, not in SCOOP Home.
-- Use semantic stage names. Do not create order-prefixed files or directories.
-- Write large tables externally; keep only stable per-cell state and registry
-  references in H5AD.
-- Require every stage to emit a receipt with inputs, outputs, hashes, quality,
-  software versions, warnings, and review state.
-- Consume only committed upstream artifacts. Invalidate descendants when an
-  input, configuration, label table, or approval-bound hash changes.
-- Never silently switch algorithms. Record fallbacks in the decision log.
-- Do not let an Agent directly mutate H5AD annotation fields. Export evidence,
-  validate structured decisions, then use the deterministic committer.
+## Biological decisions
 
-Read [workflow contract](references/workflow-contract.md) for stage dependencies,
-resume rules, artifacts, and hard gates. Read [design principles](references/docs/design-principles.md)
-and [storage structure](references/docs/project-structure.md) when creating a run.
+Review DEG, positive/exclusion markers, cluster structure, sample/QC distribution
+and relevant literature; propose broad identities before subtypes. SingleR,
+CellTypist, scANVI or label transfer must not assign final identities. Scores and
+programmes provide evidence. Keep identity, state, malignancy and confidence
+separate; retain unresolved labels. Validate structured decisions and commit
+through the deterministic annotation interface.
 
-## Route the workflow
-
-Choose the narrowest workflow that satisfies the request:
-
-| Request | Route | Read before execution |
-| --- | --- | --- |
-| Validate input, QC, embedding, programmes, annotation, delivery | `standard` | [modules](references/docs/modules-and-outputs.md), [QC](references/stages/qc.md), [core](references/stages/core.md), [programmes](references/stages/programs.md), [annotation](references/stages/annotation.md) |
-| Tumor annotation or malignant/normal separation | `tumor` | Standard references plus [tumor rules](references/markers/tumor-general.md) and the matching tissue reference |
-| Multi-study or population atlas with scVI/scPoli | `atlas` | [large atlas](references/docs/large-atlas-integration.md), [annotation workflow](references/markers/annotation-workflow.md) |
-| Spatial deconvolution or spatial graph | `spatial` | [spatial stage](references/stages/spatial.md), [parameter rules](references/docs/parameter-tuning.md) |
-| Candidate cell-cell communication | `ccc` | [CCC stage](references/stages/ccc.md), [modules](references/docs/modules-and-outputs.md) |
-| Marker, condition DE, abundance, or survival | `differential-expression` | [DE stage](references/stages/differential-expression.md), [modules](references/docs/modules-and-outputs.md) |
-
-Create a plan before expensive computation:
-
-```bash
-"${SCOOP_HOME:-$HOME/.scoop}/bin/scoop" plan \
-  --workflow <workflow> \
-  --config <project>/runs/<run-id>/config/run.yaml
-```
-
-Execute only ready stages. Stop at any receipt with `review_required=true`.
-
-## Annotation
-
-Read [annotation workflow](references/markers/annotation-workflow.md) and
-[naming strategy](references/markers/naming-strategy.md). Load only the relevant
-marker references:
-
-- [major cell types](references/markers/major-cell-types.md)
-- [T cells](references/markers/t-cells.md)
-- [myeloid](references/markers/myeloid.md)
-- [fibroblast](references/markers/fibroblast.md)
-- [tumor general](references/markers/tumor-general.md)
-- [BRCA](references/markers/tumor-brca.md)
-- [CRC](references/markers/tumor-crc.md)
-- [GBM](references/markers/tumor-gbm.md)
-
-Treat marker, negative-marker, programme, reference, CNV, neighbourhood, sample
-distribution, and QC evidence as separate evidence classes. Never accept a
-label from one method alone. Keep state programmes separate from cell identity.
-
-## Atlas gate
-
-Treat the scVI stage as representation learning followed by graph construction,
-clustering, full annotation, confidence assignment, and a user-facing report.
-scVI itself does not predict biological labels.
-
-The report must show subtype distributions, graph-neighbouring groups,
-positive/negative markers, reference conflicts, cluster-specific cNMF identity
-and functional programmes, QC risks, confidence, and the exact cells proposed
-for scPoli supervision.
-
-Do not run scPoli until the managed CLI verifies an approved annotation gate.
-The approval must bind the annotation report, label table, input H5AD fingerprint,
-and labeled indices by SHA-256. Reject missing, rejected, incomplete, or stale
-approval. Exclude legacy, scANVI, medium-confidence, low-confidence, ambiguous,
-and suspicious cells from supervised indices.
-
-## Delivery
-
-Return the requested biological or analytical result in the final response;
-do not return only internal paths. Also report the run ID, committed artifact,
-review state, important warnings, and reproducibility manifest path.
+CNV-low does not establish normality; normal references require reviewed eligible
+identities. scVI learns representations. scPoli requires explicit current approval
+bound by SHA-256 to the report, reviewed labels, input and labeled indices; only
+high-confidence reviewed cells supervise it. Patient outcomes never decide identity.

@@ -31,7 +31,7 @@ class ClusterEvidence:
     program_usage_summary: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return _json_safe(asdict(self))
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ClusterEvidence":
@@ -73,7 +73,7 @@ class AnnotationEvidenceBundle:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["clusters"] = [cluster.to_dict() for cluster in self.clusters]
-        return data
+        return _json_safe(data)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "AnnotationEvidenceBundle":
@@ -158,7 +158,7 @@ def _n_unique(obs: pd.DataFrame, key: str) -> int | None:
 
 def _extract_top_markers(adata, cluster_id: str) -> tuple[str, ...]:
     key = f"top_markers_{cluster_id}"
-    if key in adata.uns and isinstance(adata.uns[key], (list, tuple)):
+    if key in adata.uns and isinstance(adata.uns[key], (list, tuple, np.ndarray)):
         return tuple(map(str, adata.uns[key]))
     return ()
 
@@ -197,7 +197,7 @@ def _program_usage_summary(adata, indices: list[int]) -> dict[str, Any]:
     if usage.ndim != 2 or usage.shape[1] == 0:
         return {}
     names = adata.uns.get("nmf_program_names")
-    if not isinstance(names, (list, tuple)) or len(names) != usage.shape[1]:
+    if not isinstance(names, (list, tuple, np.ndarray)) or len(names) != usage.shape[1]:
         names = [f"P{index + 1}" for index in range(usage.shape[1])]
     medians = np.nanmedian(usage, axis=0)
     order = np.argsort(medians)[::-1][: min(5, usage.shape[1])]
@@ -285,6 +285,8 @@ def _qc_warnings(obs: pd.DataFrame) -> tuple[str, ...]:
 
 
 def _json_safe(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
     if isinstance(value, dict):
         return {str(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):

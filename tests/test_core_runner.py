@@ -77,3 +77,20 @@ def test_leiden_sweep_uses_coarse_to_fine_search() -> None:
     assert {"coarse", "refine"}.issubset(set(sweep["phase"]))
     assert stability["chosen"].sum() == 1
     assert set(stability["search_strategy"]) == {"coarse_to_fine"}
+
+
+def test_core_runner_filters_qc_failures_before_backend(tmp_path, monkeypatch):
+    adata = AnnData(np.ones((5, 4)))
+    adata.obs["final_use"] = [True, False, True, True, False]
+    init_file_registry(adata, "test")
+
+    def backend(adata, cfg, run_root):
+        assert adata.n_obs == 3
+        assert adata.obs.final_use.all()
+        return {"backend": "scanpy_legacy", "n_obs": 3, "timings": {}, "artifacts": {}}
+
+    monkeypatch.setattr("scsp_agent_sop.core_runner.run_scanpy_legacy_core", backend)
+    run_core_pipeline(adata, {"core": {"engine": "scanpy_legacy"}}, tmp_path)
+    manifest = json.loads((tmp_path / "core/fastcore/fastcore_manifest.json").read_text())
+    assert manifest["qc_input_observations"] == 5
+    assert manifest["n_obs"] == 3

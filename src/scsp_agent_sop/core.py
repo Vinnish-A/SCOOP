@@ -21,34 +21,126 @@ def select_hvg(
     flavor: str = "seurat_v3",
     n_top_genes: int = 3000,
     output_key: str = "highly_variable_biology",
+    *,
+    span: float = 0.3,
+    retry_spans: Sequence[float] = (),
+    fallback: str = "seurat",
+    min_cells: int = 1,
 ) -> pd.DataFrame:
+    """Select features without inheriting source-specific ``var`` columns.
+
+    Keep Seurat v3/counts as the RNA default. Only known LOESS numerical
+    failures (or its missing optional dependency) permit the declared fallback.
+    Seurat/Cell Ranger dispersion methods consume log expression, never counts.
+    """
+    import json
+    import warnings
+
     import scanpy as sc
-    try:
-        sc.pp.highly_variable_genes(
-            adata,
-            layer=counts_layer,
-            batch_key=batch_key if batch_key in adata.obs else None,
-            flavor=flavor,
-            n_top_genes=n_top_genes,
-            inplace=True,
+    from anndata import AnnData
+
+    if flavor not in {"seurat_v3", "seurat_v3_paper", "seurat", "cell_ranger"}:
+        raise ValueError(f"Unsupported HVG flavor: {flavor}")
+    if fallback not in {"seurat", "error"}:
+        raise ValueError("HVG fallback must be 'seurat' or 'error'.")
+    if n_top_genes < 1 or min_cells < 1 or any(not 0 < v <= 1 for v in (span, *retry_spans)):
+        raise ValueError("HVG gene counts must be positive and LOESS spans must lie in (0, 1].")
+    counts = adata.layers[counts_layer]
+    values = counts.data if hasattr(counts, "tocsr") else np.asarray(counts)
+    if not np.isfinite(values).all() or (values < 0).any():
+        raise ValueError("HVG counts must be finite and nonnegative.")
+    if flavor.startswith("seurat_v3") and not np.allclose(values, np.rint(values), rtol=0, atol=1e-6):
+        raise ValueError("Seurat v3 HVG requires integer counts; inspect the declared counts layer.")
+    detected = np.asarray((counts > 0).sum(axis=0)).ravel()
+    eligible = detected >= min_cells
+    if eligible.sum() < 2 or adata.n_obs < 2:
+        raise ValueError("HVG selection needs at least two cells and two expressed genes.")
+    actual_batch = batch_key if batch_key is not None and batch_key in adata.obs else None
+    obs = adata.obs[[actual_batch]].copy() if actual_batch else pd.DataFrame(index=adata.obs_names)
+    # Avoid Scanpy's batch concatenation of unrelated mixed/dtype source var
+    # annotations. Matrix storage is shared; full source counts remain untouched.
+    work = AnnData(X=counts[:, eligible], obs=obs, var=pd.DataFrame(index=adata.var_names[eligible]))
+    failures = []
+    selected_span = span
+    method = flavor
+    log_matrix = None
+
+    def dispersion(method_name: str) -> pd.DataFrame:
+        nonlocal log_matrix
+        if "log1p_norm" in adata.layers:
+            log_matrix = adata.layers["log1p_norm"][:, eligible]
+        else:
+            # Direct callers need not have mutated X; compute an explicit log
+            # representation while preserving the counts and input X.
+            normalized = AnnData(X=counts.copy())
+            sc.pp.normalize_total(normalized, target_sum=1e4)
+            sc.pp.log1p(normalized)
+            log_matrix = normalized.X[:, eligible]
+        work.X = log_matrix
+        if "log1p" in adata.uns:
+            work.uns["log1p"] = dict(adata.uns["log1p"])
+        return sc.pp.highly_variable_genes(
+            work, flavor=method_name, batch_key=actual_batch,
+            n_top_genes=min(n_top_genes, work.n_vars), inplace=False,
         )
-    except Exception:
-        # seurat_v3 requires scikit-misc in some environments. Fallback is still deterministic.
-        sc.pp.highly_variable_genes(
-            adata,
-            layer=None,
-            batch_key=batch_key if batch_key in adata.obs else None,
-            flavor="cell_ranger",
-            n_top_genes=n_top_genes,
-            inplace=True,
-        )
-        flavor = "cell_ranger_fallback"
-    adata.var[output_key] = adata.var["highly_variable"].astype(bool)
-    rank_cols = [c for c in ["highly_variable", "highly_variable_rank", "means", "variances", "variances_norm"] if c in adata.var]
-    out = adata.var[rank_cols].copy()
+
+    if flavor.startswith("seurat_v3"):
+        for selected_span in (span, *retry_spans):
+            try:
+                result = sc.pp.highly_variable_genes(
+                    work, flavor=flavor, batch_key=actual_batch, span=selected_span,
+                    n_top_genes=min(n_top_genes, work.n_vars), inplace=False,
+                )
+                break
+            except (ValueError, ImportError) as exc:
+                message = str(exc).lower()
+                known = (isinstance(exc, ValueError) and any(token in message for token in (
+                    "singular", "extrapolation", "svddc", "reciprocal condition", "loess",
+                ))) or (isinstance(exc, ImportError) and any(token in message for token in ("skmisc", "scikit-misc")))
+                if not known:
+                    raise
+                failures.append(f"{flavor}(span={selected_span}): {type(exc).__name__}: {exc}")
+        else:
+            if fallback == "error":
+                raise ValueError("HVG LOESS failed; no fallback authorized: " + "; ".join(failures))
+            result = dispersion("seurat")
+            method = "seurat_dispersion_fallback"
+    else:
+        result = dispersion(flavor)
+
+    if not result["highly_variable"].any():
+        raise ValueError("HVG selection returned no genes; inspect counts and batch sizes.")
+    if failures:
+        warnings.warn("HVG recovery used " + method + ": " + "; ".join(failures), RuntimeWarning, stacklevel=2)
+    # Replace only standard HVG outputs after a successful calculation.
+    technical = {"highly_variable", "highly_variable_rank", "highly_variable_nbatches",
+                 "highly_variable_intersection", "means", "variances", "variances_norm",
+                 "dispersions", "dispersions_norm"}
+    for col in technical.intersection(adata.var.columns):
+        del adata.var[col]
+    aligned = result.reindex(adata.var_names)
+    for col in ("highly_variable", "highly_variable_intersection"):
+        if col in aligned:
+            aligned[col] = aligned[col].fillna(False).astype(bool)
+    for col in aligned:
+        adata.var[col] = aligned[col].to_numpy()
+    adata.var[output_key] = aligned["highly_variable"].to_numpy()
+    metadata = {
+        "requested_method": flavor, "method": method,
+        "batch_key": actual_batch or "", "n_top_genes": n_top_genes,
+        "min_cells": min_cells, "n_eligible_genes": int(eligible.sum()),
+        "span": selected_span if flavor.startswith("seurat_v3") else 0.0,
+        "fallback_used": method == "seurat_dispersion_fallback",
+        "recovery_used": bool(failures), "failures_json": json.dumps(failures),
+        "input_representation": "log1p" if log_matrix is not None else "counts",
+        "batch_sizes_json": json.dumps(obs[actual_batch].value_counts().to_dict(), default=int) if actual_batch else "{}",
+    }
+    adata.uns.setdefault("hvg_selection", {})[output_key] = metadata
+    out = aligned.copy()
     out.insert(0, "gene", adata.var_names)
     out["hvg_key"] = output_key
-    out["method"] = flavor
+    out["method"] = method
+    out["fallback_reason"] = "; ".join(failures)
     return out
 
 
@@ -189,17 +281,35 @@ def _choose_resolution(stability: pd.DataFrame, *, min_ari: float, min_clusters:
     return float(ranked.iloc[0]["resolution"])
 
 
+def leiden_search_options(cfg: Mapping[str, Any], run_root) -> dict[str, Any]:
+    """Managed stages share the same real parallel sweep and restart policy."""
+    from pathlib import Path
+    from .config import deep_get
+
+    options = dict(deep_get(cfg, "core.leiden_search", {}))
+    options.setdefault("backend", "networkit_parallel_leiden")
+    options.setdefault("workers", "auto")
+    options.setdefault("threads_per_worker", 1)
+    options.setdefault("iterations", 2)
+    options.setdefault("checkpoint_dir", str(Path(run_root) / "core/leiden_checkpoints"))
+    return options
+
+
 def leiden_sweep(
     adata,
     graph_prefix: str = "identity",
     resolutions: Iterable[float] = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5),
     seeds: Iterable[int] = (0, 1, 2, 3, 4),
     search_config: Mapping[str, Any] | None = None,
+    *,
+    connectivities_key: str | None = None,
+    cluster_key: str = "cluster_identity",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     import scanpy as sc
     from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
     cfg = dict(search_config or {})
+    graph_key = connectivities_key or f"connectivities_{graph_prefix}"
     strategy = str(cfg.get("strategy", "coarse_to_fine"))
     all_resolutions = _unique_sorted(resolutions)
     all_seeds = [int(seed) for seed in seeds]
@@ -212,6 +322,25 @@ def leiden_sweep(
     seed_by_res: dict[float, list[int]] = {}
 
     def run_jobs(job_resolutions: Iterable[float], job_seeds: Iterable[int], phase: str) -> None:
+        if cfg.get("backend") == "networkit_parallel_leiden":
+            from .parallel_leiden import run_jobs as run_parallel_jobs
+
+            jobs = [(res, int(seed)) for res in _unique_sorted(job_resolutions) for seed in job_seeds
+                    if int(seed) not in seed_by_res.get(float(res), [])]
+            for res, seed, numeric_labels in run_parallel_jobs(adata.obsp[graph_key], jobs, cfg):
+                labels = numeric_labels.astype(str)
+                adata.obs[f"_tmp_leiden_r{res}_s{seed}"] = pd.Categorical(labels)
+                labels_by_res.setdefault(float(res), []).append(labels)
+                seed_by_res.setdefault(float(res), []).append(seed)
+                sweep_rows.append({"resolution": float(res), "seed": seed,
+                                   "n_clusters": int(np.unique(labels).size), "phase": phase,
+                                   "backend": "networkit_parallel_leiden"})
+            # Keep seed ordering stable despite process completion order.
+            for res in labels_by_res:
+                ordered = sorted(zip(seed_by_res[res], labels_by_res[res]), key=lambda item: item[0])
+                seed_by_res[res] = [item[0] for item in ordered]
+                labels_by_res[res] = [item[1] for item in ordered]
+            return
         for res in _unique_sorted(job_resolutions):
             labels_by_res.setdefault(float(res), [])
             seed_by_res.setdefault(float(res), [])
@@ -225,7 +354,7 @@ def leiden_sweep(
                     resolution=float(res),
                     random_state=int(seed),
                     key_added=key,
-                    adjacency=adata.obsp[f"connectivities_{graph_prefix}"],
+                    adjacency=adata.obsp[graph_key],
                 )
                 labels = adata.obs[key].astype(str).to_numpy()
                 labels_by_res[float(res)].append(labels)
@@ -248,8 +377,8 @@ def leiden_sweep(
                     nmi.append(normalized_mutual_info_score(labels_list[i], labels_list[j]))
             stability_rows.append({
                 "resolution": res,
-                "median_ari": float(np.median(ari)) if ari else 1.0,
-                "median_nmi": float(np.median(nmi)) if nmi else 1.0,
+                "median_ari": float(np.median(ari)) if ari else float("nan"),
+                "median_nmi": float(np.median(nmi)) if nmi else float("nan"),
                 "n_clusters_seed0": int(pd.Series(labels_by_res[res][0]).nunique()),
                 "n_seeds": int(len(labels_list)),
                 "search_strategy": strategy,
@@ -284,7 +413,7 @@ def leiden_sweep(
     if chosen_key not in adata.obs:
         fallback_seed = seed_by_res[chosen][0]
         chosen_key = f"_tmp_leiden_r{chosen}_s{fallback_seed}"
-    adata.obs["cluster_identity"] = adata.obs[chosen_key].astype("category")
+    adata.obs[cluster_key] = adata.obs[chosen_key].astype("category")
     # Clean tmp columns from obs; keep full sweep externally.
     for c in list(adata.obs.columns):
         if c.startswith("_tmp_leiden_"):

@@ -313,6 +313,7 @@ def run_fastcnv_pooled_anndata(
     densify_all: bool = False,
     n_jobs: int = 1,
     min_reference_cells_per_sample: int = 5,
+    cell_block_size: int = 10000,
 ) -> PooledFastCNVResult:
     """Run fastCNV's list-style pooled-reference workflow on a merged AnnData.
 
@@ -321,6 +322,8 @@ def run_fastcnv_pooled_anndata(
     computed and stored per sample.
     """
 
+    if cell_block_size < 1:
+        raise ValueError("cell_block_size must be positive")
     cfg = config or FastCNVConfig()
     cfg.validate()
     timings: dict[str, float] = {}
@@ -401,12 +404,15 @@ def run_fastcnv_pooled_anndata(
 
     def compute_one(item: tuple[str, np.ndarray]) -> tuple[str, np.ndarray, pd.Index]:
         sample, cell_pos = item
-        values = _extract_gene_by_cell_array_for_cells(matrix, cell_pos, final_gene_pos)
-        norm = np.log2(1.0 + values)
-        norm = norm - np.nanmean(norm, axis=0, keepdims=True)
-        norm = norm - scale_factor[:, None]
-        norm = np.clip(norm, -3.0, 3.0)
-        raw_scores = _compute_genomic_scores_from_array(norm, gene_index, windows)
+        blocks = []
+        for start in range(0, len(cell_pos), cell_block_size):
+            values = _extract_gene_by_cell_array_for_cells(matrix, cell_pos[start:start + cell_block_size], final_gene_pos)
+            norm = np.log2(1.0 + values)
+            norm -= np.nanmean(norm, axis=0, keepdims=True)
+            norm -= scale_factor[:, None]
+            np.clip(norm, -3.0, 3.0, out=norm)
+            blocks.append(_compute_genomic_scores_from_array(norm, gene_index, windows))
+        raw_scores = np.vstack(blocks)
         return sample, raw_scores, cell_names.take(cell_pos)
 
     start = perf_counter()
@@ -563,8 +569,10 @@ def _reference_cells_by_sample(
     scale_on_reference: bool,
     min_cells: int,
 ) -> tuple[dict[str, np.ndarray], dict[str, dict[str, np.ndarray]], bool]:
-    if obs is None or reference_var is None or reference_label is None or reference_var not in obs.columns:
+    if reference_var is None and reference_label is None:
         return {}, {}, False
+    if obs is None or reference_var not in obs.columns or reference_label is None:
+        raise ValueError("Explicit CNV reference requires its obs column and labels")
     labels = [reference_label] if isinstance(reference_label, str) else list(reference_label)
     pos = {cell: i for i, cell in enumerate(cell_names)}
     out: dict[str, np.ndarray] = {}
@@ -583,7 +591,7 @@ def _reference_cells_by_sample(
         if sample_refs:
             out[sample] = np.unique(np.concatenate(sample_refs)).astype(np.intp, copy=False)
     if not out:
-        return {}, {}, False
+        raise ValueError("No sample has enough cells for the explicitly requested CNV reference")
     return out, by_label, scale_on_reference
 
 
@@ -640,14 +648,17 @@ def _pooled_scale_factor(
 
     sample_factors = []
     label_positions = reference_by_sample if scale_on_reference and reference_by_sample else sample_groups
-    for sample, sample_pos in sample_groups.items():
-        values = _extract_gene_by_cell_array_for_cells(matrix, sample_pos, final_gene_pos)
-        norm = np.log2(1.0 + values)
-        norm = norm - np.nanmean(norm, axis=0, keepdims=True)
-        use_pos = label_positions.get(sample, sample_pos)
-        local = _positions_within_sample(sample_pos, use_pos)
-        if len(local) > 0:
-            sample_factors.append(np.nanmean(norm[:, local], axis=1))
+    for sample, use_pos in label_positions.items():
+        total = np.zeros(len(final_gene_pos), dtype=float)
+        n_cells = 0
+        for start in range(0, len(use_pos), 10000):
+            values = _extract_gene_by_cell_array_for_cells(matrix, use_pos[start:start + 10000], final_gene_pos)
+            norm = np.log2(1.0 + values)
+            norm -= np.nanmean(norm, axis=0, keepdims=True)
+            total += np.sum(norm, axis=1)
+            n_cells += norm.shape[1]
+        if n_cells:
+            sample_factors.append(total / n_cells)
     if not sample_factors:
         return np.zeros(len(final_gene_pos), dtype=np.float64)
     return np.nanmean(np.vstack(sample_factors), axis=0)

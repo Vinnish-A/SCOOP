@@ -14,9 +14,11 @@ import numpy as np
 import pandas as pd
 
 from scsp_agent_sop.annotation import run_markers_scanpy
+from scsp_agent_sop.assays import apply_final_use
+from scsp_agent_sop.core import leiden_sweep, leiden_search_options
 from scsp_agent_sop.annotation_decision.evidence_bundle import build_evidence_bundle
 from scsp_agent_sop.config import deep_get, read_yaml, resolve_run_root
-from scsp_agent_sop.storage import init_file_registry, register_file, write_table
+from scsp_agent_sop.storage import write_h5ad_atomic, init_file_registry, register_file, write_table
 
 from .approval import verify as verify_approval
 from .io import atomic_json, atomic_text
@@ -50,12 +52,41 @@ def _require_obs(adata: ad.AnnData, keys: Iterable[str]) -> None:
         raise KeyError(f"required atlas obs fields are missing: {', '.join(missing)}")
 
 
+def scvi_training_options(config, *, max_epochs=None, batch_size=None, accelerator=None, devices=None, kl_warmup_epochs=None):
+    """Expose native train/plan options; short schedules must finish KL warmup."""
+    options = dict(deep_get(config, "atlas.scvi.train_kwargs", {}))
+    options.setdefault("max_epochs", int(deep_get(config, "atlas.scvi.max_epochs", 400)))
+    options.setdefault("batch_size", int(deep_get(config, "atlas.scvi.batch_size", 128)))
+    options.setdefault("early_stopping", True)
+    options.setdefault("accelerator", deep_get(config, "atlas.scvi.accelerator", "auto"))
+    options.setdefault("devices", deep_get(config, "atlas.scvi.devices", "auto"))
+    for key, value in (("max_epochs", max_epochs), ("batch_size", batch_size), ("accelerator", accelerator), ("devices", devices)):
+        if value is not None:
+            options[key] = value
+    if int(options["max_epochs"]) < 1 or int(options["batch_size"]) < 1:
+        raise ValueError("scVI max_epochs and batch_size must be positive")
+    plan = dict(deep_get(config, "atlas.scvi.plan_kwargs", {}))
+    plan.update(options.pop("plan_kwargs", {}))
+    if kl_warmup_epochs is not None:
+        plan["n_epochs_kl_warmup"] = kl_warmup_epochs
+    if plan.get("n_steps_kl_warmup") is None:
+        plan.setdefault("n_epochs_kl_warmup", min(400, max(1, int(options["max_epochs"]) // 3)))
+        if not 0 <= plan["n_epochs_kl_warmup"] <= options["max_epochs"]:
+            raise ValueError("scVI KL warmup must fit within max_epochs; set plan_kwargs.n_epochs_kl_warmup")
+    options["plan_kwargs"] = plan
+    return options
+
+
 def integrate(
     *,
     config_path: str | Path,
     input_path: str | Path | None = None,
     output_path: str | Path | None = None,
     max_epochs: int | None = None,
+    batch_size: int | None = None,
+    accelerator: str | None = None,
+    devices: int | str | None = None,
+    kl_warmup_epochs: int | None = None,
 ) -> Path:
     try:
         import scanpy as sc
@@ -68,7 +99,13 @@ def integrate(
     run_root = resolve_run_root(config_path, config).resolve()
     source = Path(input_path) if input_path else run_root / "artifacts" / "adata_qc.h5ad"
     target = Path(output_path) if output_path else run_root / "artifacts" / "adata_scvi.h5ad"
+    model_path = run_root / "atlas" / "models" / "scvi"
+    if model_path.exists() and any(model_path.iterdir()):
+        raise FileExistsError(f"refusing to overwrite existing scVI model: {model_path}")
+    train_options = scvi_training_options(config, max_epochs=max_epochs, batch_size=batch_size,
+                                          accelerator=accelerator, devices=devices, kl_warmup_epochs=kl_warmup_epochs)
     adata = ad.read_h5ad(source)
+    apply_final_use(adata)
     init_file_registry(adata, deep_get(config, "run.run_id", run_root.name))
 
     counts_layer = str(deep_get(config, "atlas.scvi.counts_layer", "counts"))
@@ -91,27 +128,32 @@ def integrate(
         n_latent=int(deep_get(config, "atlas.scvi.n_latent", 30)),
         gene_likelihood=str(deep_get(config, "atlas.scvi.gene_likelihood", "nb")),
     )
-    epochs = int(max_epochs or deep_get(config, "atlas.scvi.max_epochs", 400))
-    model.train(max_epochs=epochs, early_stopping=True)
+    model.train(**train_options)
     adata.obsm["X_scVI"] = model.get_latent_representation()
     neighbours = int(deep_get(config, "atlas.graph.n_neighbors", 30))
     sc.pp.neighbors(adata, use_rep="X_scVI", n_neighbors=neighbours, key_added="scvi")
     cluster_key = str(deep_get(config, "atlas.graph.cluster_key", "leiden_scvi"))
-    sc.tl.leiden(
-        adata,
-        neighbors_key="scvi",
-        key_added=cluster_key,
-        resolution=float(deep_get(config, "atlas.graph.leiden_resolution", 1.0)),
-        random_state=int(deep_get(config, "run.random_seed", 0)),
+    search = leiden_search_options(config, run_root)
+    search.update(deep_get(config, "atlas.graph.leiden_search", {}))
+    search["checkpoint_dir"] = str(run_root / "atlas/leiden_checkpoints")
+    sweep, stability = leiden_sweep(
+        adata, resolutions=deep_get(config, "atlas.graph.leiden_resolutions", [deep_get(config, "atlas.graph.leiden_resolution", 1.0)]),
+        seeds=deep_get(config, "atlas.graph.leiden_seeds", [0, 1, 2]), search_config=search,
+        connectivities_key="scvi_connectivities", cluster_key=cluster_key,
     )
+    for name, frame in (("leiden_sweep", sweep), ("leiden_stability", stability)):
+        path = write_table(frame, run_root / "atlas/tables" / f"{name}.tsv")
+        register_file(adata, key=f"atlas_{name}", path=path)
     sc.tl.umap(adata, neighbors_key="scvi", random_state=int(deep_get(config, "run.random_seed", 0)))
 
-    model_path = run_root / "atlas" / "models" / "scvi"
-    if model_path.exists() and any(model_path.iterdir()):
-        raise FileExistsError(f"refusing to overwrite existing scVI model: {model_path}")
     model_path.parent.mkdir(parents=True, exist_ok=True)
     model.save(model_path, overwrite=False, save_anndata=False)
+    history_paths = {}
+    for name, history in model.history.items():
+        if isinstance(history, (pd.DataFrame, pd.Series)):
+            history_paths[name] = str(write_table(history.reset_index(), run_root / "atlas/tables" / f"training_{name}.tsv"))
     provenance = {
+        "training_history": history_paths,
         "schema_version": "scoop.scvi-run.v1",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "input": str(source.resolve()),
@@ -124,7 +166,11 @@ def integrate(
             "categorical_covariate_keys": categorical,
             "skipped_categorical_covariate_keys": sorted(set(requested_categorical) - set(categorical)),
             "n_latent": int(deep_get(config, "atlas.scvi.n_latent", 30)),
-            "max_epochs": epochs,
+            "train": train_options,
+            "max_epochs": train_options["max_epochs"],
+            "leiden_search": search,
+            "leiden_resolutions": sweep.resolution.unique().tolist(),
+            "leiden_seeds": sorted(sweep.seed.unique().tolist()),
             "n_neighbors": neighbours,
             "cluster_key": cluster_key,
             "leiden_resolution": float(deep_get(config, "atlas.graph.leiden_resolution", 1.0)),
@@ -137,7 +183,7 @@ def integrate(
     register_file(adata, key="scvi_model", path=model_path, category="artifacts", schema="scvi.model")
     register_file(adata, key="scvi_run", path=provenance_path, category="reports", schema="scoop.scvi-run.v1")
     target.parent.mkdir(parents=True, exist_ok=True)
-    adata.write_h5ad(target)
+    write_h5ad_atomic(adata, target)
     return target
 
 
@@ -243,7 +289,7 @@ def annotate(
         adata, key="scvi_annotation_evidence", path=evidence_path, schema="scoop.annotation_evidence_bundle.v1"
     )
     target.parent.mkdir(parents=True, exist_ok=True)
-    adata.write_h5ad(target)
+    write_h5ad_atomic(adata, target)
     return target, label_path, evidence_path
 
 
@@ -632,7 +678,7 @@ def train_scpoli(*, gate_path: str | Path, output_path: str | Path | None = None
     model.save(str(model_path), overwrite=False)
     target = Path(output_path) if output_path else run_root / "artifacts" / "adata_scpoli.h5ad"
     target.parent.mkdir(parents=True, exist_ok=True)
-    adata.write_h5ad(target)
+    write_h5ad_atomic(adata, target)
     atomic_json(
         run_root / "atlas" / "scpoli-run.json",
         {

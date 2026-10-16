@@ -132,3 +132,20 @@ def test_pooled_anndata_splits_samples_with_pooled_reference() -> None:
     assert "cnv_fraction" in result.cell_metadata.columns
     assert result.arm_cnv.shape[0] == 46
     assert result.window_metadata.shape[0] > 0
+
+
+def test_qualified_arms_and_blocked_pooled_scores_match():
+    counts, metadata, obs = _inputs()
+    obs['sample_id'] = ['ref'] * 15 + ['candidate'] * 15
+    obj = ad.AnnData(sp.csr_matrix(counts.T.to_numpy()), obs=obs, var=pd.DataFrame(index=counts.index))
+    cfg = FastCNVConfig(window_size=20, window_step=5, top_n_genes=120)
+    kwargs = dict(reference_var='annot', reference_label='normal', config=cfg, compute_clusters=False)
+    baseline = run_fastcnv_pooled_anndata(obj, metadata, cell_block_size=100, **kwargs)
+    qualified = metadata.copy()
+    qualified['chr_arm'] = qualified.chromosome_name + '.' + qualified.chr_arm
+    blocked = run_fastcnv_pooled_anndata(obj, qualified, cell_block_size=3, **kwargs)
+    np.testing.assert_allclose(baseline.arm_cnv, blocked.arm_cnv)
+    obj.X[15:, :80] *= 5
+    changed = run_fastcnv_pooled_anndata(obj, metadata, cell_block_size=3, **kwargs)
+    np.testing.assert_allclose(baseline.per_sample['ref'].raw_genomic_scores, changed.per_sample['ref'].raw_genomic_scores)
+    assert 'cnv_clusters' not in blocked.cell_metadata

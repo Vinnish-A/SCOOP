@@ -27,8 +27,8 @@ def _stream_matrix_stats(reference, candidate, *, chunk_size: int, ref_var_idx=s
     # First pass for means.
     for start in range(0, n_obs, chunk_size):
         end = min(start + chunk_size, n_obs)
-        ref = _as_dense(reference.X[start:end, ref_var_idx])
-        cand = _as_dense(candidate.X[start:end, cand_var_idx])
+        ref = _as_dense(reference.read_rows(slice(start, end), ref_var_idx))
+        cand = _as_dense(candidate.read_rows(slice(start, end), cand_var_idx))
         ref_sum += float(ref.sum())
         cand_sum += float(cand.sum())
         total += int(ref.size)
@@ -37,8 +37,8 @@ def _stream_matrix_stats(reference, candidate, *, chunk_size: int, ref_var_idx=s
 
     for start in range(0, n_obs, chunk_size):
         end = min(start + chunk_size, n_obs)
-        ref = _as_dense(reference.X[start:end, ref_var_idx])
-        cand = _as_dense(candidate.X[start:end, cand_var_idx])
+        ref = _as_dense(reference.read_rows(slice(start, end), ref_var_idx))
+        cand = _as_dense(candidate.read_rows(slice(start, end), cand_var_idx))
         diff = ref - cand
         dot += float(np.sum(ref * cand))
         ref_sq += float(np.sum(ref * ref))
@@ -69,10 +69,10 @@ def compare_preprocess_outputs(
     output_json: Path,
     chunk_size: int = 2000,
 ) -> dict:
-    import anndata as ad
+    from scsp_agent_sop.h5ad_io import H5ADReader
 
-    ref = ad.read_h5ad(reference_h5ad, backed="r")
-    cand = ad.read_h5ad(candidate_h5ad, backed="r")
+    ref = H5ADReader(reference_h5ad)
+    cand = H5ADReader(candidate_h5ad)
     try:
         common_obs = ref.obs_names.intersection(cand.obs_names)
         common_vars = ref.var_names.intersection(cand.var_names)
@@ -102,8 +102,8 @@ def compare_preprocess_outputs(
             "passes_95pct_input_gate": bool(matrix["cosine"] >= 0.95 and matrix["pearson"] >= 0.95),
         }
     finally:
-        ref.file.close()
-        cand.file.close()
+        ref.close()
+        cand.close()
 
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(result, indent=2), encoding="utf-8")

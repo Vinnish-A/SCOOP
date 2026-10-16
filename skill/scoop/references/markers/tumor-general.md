@@ -27,7 +27,7 @@
 ### 2.1 大群阶段
 
 ```text
-broad cell types -> candidate malignant compartment -> FastCNVpy -> malignant_status
+broad cell types -> candidate compartment -> CNV/SNV/reference/context review -> malignant_status
 ```
 
 候选 malignant compartments 通常包括：
@@ -41,17 +41,19 @@ epithelial/parenchymal/glial/neural crest-derived tumor cells
 ### 2.2 当正常与肿瘤分得开
 
 ```text
-marker tumor-like + CNV abnormal -> malignant-high
-marker normal-like + CNV neutral -> normal-high
+tumor-like programme + concordant CNV/context evidence -> reviewed malignant support
+coherent normal lineage + normal-atlas and tissue-context support -> normal-supported
+CNV neutral alone -> no automatic normal label
 ```
 
 ### 2.3 当正常与肿瘤分不开
 
 ```text
 same broad epithelial/parenchymal cluster
-  -> CNV abnormal arm-level pattern: malignant/probable malignant
-  -> CNV neutral and normal-reference matched: normal parenchymal
-  -> CNV weak/conflicting: ambiguous, keep low confidence
+  -> CNV abnormal arm-level pattern: supporting evidence, adjudicate with identity/reference/context
+  -> coherent normal lineage plus normal-reference and tissue-context support: normal parenchymal (CNV neutrality alone is insufficient)
+  -> CNV low/diploid + concordant tumor programme, patient-specific structure and tumor context: malignant-probable remains eligible
+  -> genuinely conflicting or insufficient multi-source evidence: ambiguous
 ```
 
 ---
@@ -60,7 +62,7 @@ same broad epithelial/parenchymal cluster
 
 | evidence level | evidence type | interpretation |
 |---|---|---|
-| A | patient-specific CNV / CNA from FastCNVpy, inferCNV, CopyKAT, Numbat or equivalent | strongest scRNA-level evidence |
+| B | expression-inferred CNV / CNA from FastCNVpy, inferCNV, CopyKAT, Numbat or equivalent | supporting RNA evidence; sensitive to reference, depth and state, not independent DNA confirmation |
 | A | matched WES/WGS/panel/scDNA/FISH/IHC mutation or amplification evidence | strongest external evidence |
 | B | patient-specific tumor cluster plus poor normal-reference mapping | supportive |
 | B | cancer-specific malignant program plus tumor-region enrichment | supportive |
@@ -73,13 +75,13 @@ same broad epithelial/parenchymal cluster
 
 ```yaml
 malignant-high:
-  required: CNV abnormal or tumor SNV positive
+  required: convergent tumor evidence and high-confidence review; RNA-CNV alone is insufficient and high confidence is not DNA confirmation
 malignant-probable:
-  required: weak/partial CNV or tumor-specific cluster plus poor normal-reference mapping
+  required: convergent tumor-context, patient-specific structure and tumor-program/normal-reference evidence; weak or absent CNV does not exclude this label
 normal:
-  required: CNV neutral and normal-reference matched
+  required: coherent normal lineage plus matched-normal-reference and tissue/context support; CNV neutrality alone is insufficient
 ambiguous:
-  triggered_by: low quality, doublet risk, weak CNV, normal and tumor programs mixed
+  triggered_by: insufficient/conflicting joint evidence, including unresolved QC or mixed-origin risks; weak CNV alone is insufficient
 not_applicable:
   used_for: immune, stromal, endothelial, mural cells unless tumor lineage is expected
 ```
@@ -101,8 +103,8 @@ not_applicable:
 ```text
 Do not call malignant from EPCAM/KRT/GFAP/PDGFRA alone.
 Do not call normal from CNV-negative alone if tumor type can be CNV-low or MSI-like; use SNV/reference/tumor program.
-Do not call functional states before malignant_status is assigned.
-Do not interpret CNV state as functional state; CNV separates malignant/normal and clones, not cNMF programs.
+Keep differentiation and functional states available while malignant_status is assessed separately; unresolved malignancy must not erase a supported epithelial identity.
+Do not turn RNA CNV thresholds into final malignant/normal labels. Retain continuous CNV/arm evidence separately; inspect reference, low-RNA, cycling and stress effects, and resolve malignancy using the complete biological evidence.
 Do not let cycling/ribosomal/stress clusters become tumor subtypes.
 ```
 

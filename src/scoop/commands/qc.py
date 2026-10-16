@@ -23,6 +23,7 @@ from pathlib import Path
 
 import anndata as ad
 
+from scsp_agent_sop.assays import assay_profile, spatial_qc
 from scsp_agent_sop.config import deep_get, project_root_from_run_root, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
 from scsp_agent_sop.qc import (
@@ -30,9 +31,10 @@ from scsp_agent_sop.qc import (
     annotate_gene_flags,
     assign_qc_flags_per_sample,
     compute_basic_qc,
+    inherit_qc,
     run_scrublet_per_sample,
 )
-from scsp_agent_sop.storage import ensure_dir, init_file_registry, register_file, write_table
+from scsp_agent_sop.storage import write_h5ad_atomic, ensure_dir, init_file_registry, register_file, write_table
 
 
 def main() -> None:
@@ -40,6 +42,7 @@ def main() -> None:
     ap.add_argument("--config", required=True)
     ap.add_argument("--input", default=None)
     ap.add_argument("--output", default=None)
+    ap.add_argument("--inherit-from", help="Parent QC H5AD; verify exact retained-cell counts and inherit decisions")
     args = ap.parse_args()
     cfg = read_yaml(args.config)
     run_root = resolve_run_root(args.config, cfg)
@@ -54,7 +57,49 @@ def main() -> None:
     organism = deep_get(cfg, "run.organism", "human")
     sample_key = deep_get(cfg, "keys.sample", "sample_id")
     counts_layer = deep_get(cfg, "qc.counts_layer", "counts")
+    if args.inherit_from:
+        provenance = inherit_qc(adata, Path(args.inherit_from), counts_layer=counts_layer, sample_key=sample_key)
+        ensure_dir(output.parent)
+        write_h5ad_atomic(adata, output)
+        log_decision(run_root, module="qc", decision="qc_inherited", reason="Exact retained subset; no QC or doublet refit.",
+                     parameters=provenance, evidence={"output_h5ad": str(output)})
+        return
     annotate_gene_flags(adata, organism=organism)
+    assay = assay_profile(cfg)
+    if assay != "scrna":
+        thresholds = spatial_qc(adata, cfg)
+        qc_path = write_table(thresholds, run_root / "qc" / "tables" / "qc_thresholds_by_sample.tsv")
+        register_file(adata, key="qc_thresholds_by_sample", path=qc_path, schema="spatial_qc_thresholds.v1")
+        fov_key = deep_get(cfg, "qc.spatial.fov_key", "fov")
+        if fov_key in adata.obs:
+            by_fov = (
+                adata.obs.groupby([sample_key, fov_key], observed=True)
+                .agg(
+                    n_obs=("final_use", "size"),
+                    retained=("final_use", "sum"),
+                    median_counts=("total_counts", "median"),
+                    median_genes=("n_genes_by_counts", "median"),
+                    median_non_gene_fraction=("non_gene_feature_fraction", "median"),
+                )
+                .reset_index()
+            )
+            fov_path = write_table(by_fov, run_root / "qc/tables/spatial_qc_by_fov.tsv")
+            register_file(adata, key="spatial_qc_by_fov", path=fov_path, schema="spatial_fov_qc.v1")
+        ensure_dir(output.parent)
+        write_h5ad_atomic(adata, output)
+        log_decision(
+            run_root,
+            module="qc",
+            decision="spatial_qc_complete",
+            reason="Explicit spatial thresholds; no droplet Scrublet or mitochondrial exclusion.",
+            parameters={"assay": assay, "counts_layer": counts_layer, "sample_key": sample_key},
+            evidence={"n_obs": int(adata.n_obs), "retained": int(adata.obs.final_use.sum())},
+            human_review_required=bool((thresholds.excluded_fraction > 0.30).any()),
+            review_reason="Spatial exclusion exceeds 30%; inspect tissue/FOV and cell-type bias."
+            if (thresholds.excluded_fraction > 0.30).any()
+            else None,
+        )
+        return
     compute_basic_qc(adata, counts_layer=counts_layer)
 
     tc = ThresholdConfig(
@@ -76,6 +121,9 @@ def main() -> None:
         stdev_doublet_rate=deep_get(cfg, "qc.scrublet.stdev_doublet_rate", 0.02),
         sim_doublet_ratio=deep_get(cfg, "qc.scrublet.sim_doublet_ratio", 2.0),
         random_state=deep_get(cfg, "qc.scrublet.random_state", 0),
+        workers=deep_get(cfg, "qc.scrublet.workers", "auto"),
+        threads_per_worker=int(deep_get(cfg, "qc.scrublet.threads_per_worker", 1)),
+        checkpoint_dir=run_root / "qc" / "scrublet_checkpoints",
     )
     s_path = write_table(scrublet_summary, run_root / "qc" / "tables" / "scrublet_summary_by_sample.tsv")
     register_file(adata, key="scrublet_summary_by_sample", path=s_path, schema="scrublet_summary.v1")
@@ -86,7 +134,7 @@ def main() -> None:
     register_file(adata, key="scrublet_scores", path=score_path, schema="scrublet_scores.v1")
 
     ensure_dir(output.parent)
-    adata.write_h5ad(output)
+    write_h5ad_atomic(adata, output)
     log_decision(
         run_root,
         module="qc",

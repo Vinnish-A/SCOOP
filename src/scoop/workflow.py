@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -29,6 +30,7 @@ STAGE_DIRECTORIES = {
     "atlas-validate": "atlas",
     "de-prepare": "differential-expression",
     "de-run": "differential-expression",
+    "abundance-compare": "differential-expression",
     "deliver": "delivery",
 }
 
@@ -42,6 +44,7 @@ class StageSpec:
 
 
 WORKFLOWS: dict[str, tuple[StageSpec, ...]] = {
+    "abundance": (StageSpec("abundance-compare"),),
     "standard": (
         StageSpec("validate"),
         StageSpec("qc", ("validate",)),
@@ -144,11 +147,15 @@ def run_command_module(stage: str, module_name: str, arguments: list[str]) -> in
     started = time.monotonic()
     started_at = datetime.now(timezone.utc).isoformat()
     config_hash: str | None = None
+    decision_offset = 0
+    config: dict[str, Any] = {}
     if config_path and config_path.is_file():
         config = read_yaml(config_path)
         run_root = resolve_run_root(config_path, config).resolve()
         receipt_path = run_root / "state" / "stages" / f"{stage}.json"
         config_hash = sha256_file(config_path)
+        decision_log = run_root / "logs/decision_log.jsonl"
+        decision_offset = decision_log.stat().st_size if decision_log.is_file() else 0
         atomic_json(
             receipt_path,
             {
@@ -192,20 +199,51 @@ def run_command_module(stage: str, module_name: str, arguments: list[str]) -> in
     if receipt_path is not None and run_root is not None:
         stage_root = run_root / STAGE_DIRECTORIES.get(stage, stage.split("-", 1)[0])
         review_required = stage in {"annotation-review", "atlas-report", "atlas-approval"}
+        review_reasons = []
+        decision_log = run_root / "logs/decision_log.jsonl"
+        if decision_log.is_file():
+            with decision_log.open("rb") as handle:
+                handle.seek(decision_offset)
+                for line in handle:
+                    entry = json.loads(line)
+                    if entry.get("human_review_required"):
+                        review_required = True
+                        review_reasons.append(entry.get("review_reason") or entry["reason"])
+        status = "awaiting_review" if review_required else "committed"
+        if stage in {"spatial", "ccc"} and not config.get(stage, {}).get("enabled", False):
+            status = "skipped"
+        elif "--dry-run" in arguments:
+            status = "prepared"
+        outputs = _artifact_records(stage_root)
+        artifact_names = {"qc": "adata_qc.h5ad", "core": "adata_core.h5ad", "programs": "adata_programs.h5ad"}
+        if stage in artifact_names and status in {"committed", "awaiting_review"}:
+            target = run_root / "artifacts" / artifact_names[stage]
+            for index, value in enumerate(arguments):
+                if value == "--output" and index + 1 < len(arguments):
+                    target = Path(arguments[index + 1]).resolve()
+                elif value.startswith("--output="):
+                    target = Path(value.split("=", 1)[1]).resolve()
+            if not target.is_file():
+                status = "failed"
+                review_reasons.append(f"Declared stage output is missing: {target}")
+            else:
+                size = target.stat().st_size
+                outputs.append({"path": str(target), "bytes": size,
+                                "sha256": sha256_file(target) if size <= 64 * 1024**2 else None})
         atomic_json(
             receipt_path,
             {
                 "schema_version": RECEIPT_SCHEMA,
                 "stage": stage,
-                "status": "awaiting_review" if review_required else "committed",
+                "status": status,
                 "config": str(config_path),
                 "config_hash": config_hash,
-                "outputs": _artifact_records(stage_root),
+                "outputs": outputs,
                 "review_required": review_required,
-                "review_reason": "human decision required" if review_required else None,
+                "review_reason": "; ".join(review_reasons) if review_reasons else ("decision required" if review_required else None),
                 "started_at": started_at,
                 "finished_at": datetime.now(timezone.utc).isoformat(),
                 "elapsed_seconds": round(time.monotonic() - started, 6),
             },
         )
-    return 0
+    return 1 if receipt_path is not None and run_root is not None and status == "failed" else 0
