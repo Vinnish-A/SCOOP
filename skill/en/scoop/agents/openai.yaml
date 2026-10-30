@@ -1,0 +1,4 @@
+interface:
+  display_name: "SCOOP"
+  short_description: "Auditable single-cell and spatial omics workflows"
+  default_prompt: "Use $scoop to plan and execute an auditable single-cell omics workflow."

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a separate English Skill edition and a Skill-only language selector; default both installation routes to English while retaining explicit original-edition selection and existing runtime releases.
+
 - Restore the AnnData/SciPy sparse-index compatibility bound and test real backed slicing during installation.
 - Share selective read-only H5AD access across metadata/benchmark readers and add exact-count QC inheritance for retained lineage subsets.
 - Parallelize capture-library Scrublet with resource-bounded processes, count/version-bound checkpoints and per-job progress; preserve existing RNA QC and doublet decisions.

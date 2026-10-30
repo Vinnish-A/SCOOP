@@ -10,7 +10,7 @@ SCOOP follows three principles:
 2. **Measurements first** — preserve patient units, denominators and endpoints; computational success does not establish biology.
 3. **Practical execution** — bypass unusable interfaces with a recorded real API or project adapter; resume valid work instead of rebuilding the framework.
 
-Read the [first principles](skill/scoop/references/docs/design-principles.md) for the working contract.
+Read the [first principles](skill/en/scoop/references/docs/design-principles.md) for the working contract.
 
 ## Workflow
 
@@ -75,6 +75,11 @@ Subagent or human edits are allowed, but they must go through the same schema
 and validation rules.
 
 ## Quick start
+
+Installation defaults to the English Skill. Use `--skill-language zh` with the
+full installer to select the original edition. To switch only the Skill language
+without rebuilding the runtime, use `python scripts/install_skill.py --language en`
+or `--language zh`; see [Skill editions](skill/README.md).
 
 ```bash
 python scripts/install_scoop.py

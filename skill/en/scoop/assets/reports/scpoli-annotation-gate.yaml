@@ -1,0 +1,20 @@
+schema_version: scoop.atlas-approval.v1
+run_id: null
+annotation_version: null
+status: pending
+approved_by: null
+approved_at: null
+artifacts:
+  input_h5ad:
+    path: null
+    sha256: null
+  annotation_report:
+    path: null
+    sha256: null
+  label_table:
+    path: null
+    sha256: null
+  labeled_indices:
+    path: null
+    sha256: null
+notes: null

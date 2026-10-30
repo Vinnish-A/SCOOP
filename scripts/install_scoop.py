@@ -253,15 +253,17 @@ if not hasattr(ov, "pp") or not hasattr(ov, "single"):
         raise RuntimeError(f"candidate unified runtime import smoke failed:\n{detail}")
 
 
-def install(home: Path, *, register_skill: bool = True) -> Path:
+def install(home: Path, *, register_skill: bool = True, skill_language: str = "en") -> Path:
     if not home.is_absolute():
         raise ValueError("installation home must be absolute")
     home.mkdir(parents=True, exist_ok=True)
     (home / "releases").mkdir(exist_ok=True)
     (home / "envs").mkdir(exist_ok=True)
-    skill_source = ROOT / "skill" / "scoop"
+    if skill_language not in ("en", "zh"):
+        raise ValueError("skill_language must be en or zh")
+    skill_source = ROOT / "skill" / "en" / "scoop" if skill_language == "en" else ROOT / "skill" / "scoop"
     if not (skill_source / "SKILL.md").is_file():
-        raise FileNotFoundError("skill/scoop/SKILL.md")
+        raise FileNotFoundError(skill_source / "SKILL.md")
     lock = ROOT / "uv.lock"
     if not lock.is_file():
         raise FileNotFoundError("uv.lock; run uv lock before installation")
@@ -410,8 +412,11 @@ def main() -> int:
         action="store_true",
         help="Install an isolated runtime without changing the global Skill link",
     )
+    parser.add_argument("--skill-language", choices=("en", "zh"), default="en",
+                        help="Skill language: en (default) or zh (original edition)")
     args = parser.parse_args()
-    print(install(Path(args.home).expanduser().resolve(), register_skill=not args.no_skill_link))
+    print(install(Path(args.home).expanduser().resolve(), register_skill=not args.no_skill_link,
+                  skill_language=args.skill_language))
     return 0
 
 
