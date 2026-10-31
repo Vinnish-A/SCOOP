@@ -26,12 +26,15 @@ def select_hvg(
     retry_spans: Sequence[float] = (),
     fallback: str = "seurat",
     min_cells: int = 1,
+    measurement=None,
 ) -> pd.DataFrame:
     """Select features without inheriting source-specific ``var`` columns.
 
     Keep Seurat v3/counts as the RNA default. Only known LOESS numerical
     failures (or its missing optional dependency) permit the declared fallback.
     Seurat/Cell Ranger dispersion methods consume log expression, never counts.
+    ``measurement`` (a checked ``FeatureMeasurement``) ranks each batch only on
+    the genes every sample of that batch measured; see ``_masked_hvg``.
     """
     import json
     import warnings
@@ -60,6 +63,15 @@ def select_hvg(
     # Avoid Scanpy's batch concatenation of unrelated mixed/dtype source var
     # annotations. Matrix storage is shared; full source counts remain untouched.
     work = AnnData(X=counts[:, eligible], obs=obs, var=pd.DataFrame(index=adata.var_names[eligible]))
+    batch_measured = None
+    if measurement is not None:
+        batches = obs[actual_batch].to_numpy() if actual_batch else np.zeros(adata.n_obs, dtype=int)
+        levels = pd.unique(batches)
+        samples = adata.obs[measurement.sample_key].to_numpy()
+        measured = np.stack([measurement.measured_in_all(samples[batches == level]) for level in levels])[:, eligible]
+        # Fully measured input keeps scanpy's own batched computation.
+        if not measured.all():
+            batch_measured = (batches, levels, measured)
     failures = []
     selected_span = span
     method = flavor
@@ -79,6 +91,8 @@ def select_hvg(
         work.X = log_matrix
         if "log1p" in adata.uns:
             work.uns["log1p"] = dict(adata.uns["log1p"])
+        if batch_measured is not None:
+            return _masked_hvg(work, *batch_measured, flavor=method_name, n_top_genes=n_top_genes)
         return sc.pp.highly_variable_genes(
             work, flavor=method_name, batch_key=actual_batch,
             n_top_genes=min(n_top_genes, work.n_vars), inplace=False,
@@ -87,10 +101,13 @@ def select_hvg(
     if flavor.startswith("seurat_v3"):
         for selected_span in (span, *retry_spans):
             try:
-                result = sc.pp.highly_variable_genes(
-                    work, flavor=flavor, batch_key=actual_batch, span=selected_span,
-                    n_top_genes=min(n_top_genes, work.n_vars), inplace=False,
-                )
+                if batch_measured is not None:
+                    result = _masked_hvg(work, *batch_measured, flavor=flavor, n_top_genes=n_top_genes, span=selected_span)
+                else:
+                    result = sc.pp.highly_variable_genes(
+                        work, flavor=flavor, batch_key=actual_batch, span=selected_span,
+                        n_top_genes=min(n_top_genes, work.n_vars), inplace=False,
+                    )
                 break
             except (ValueError, ImportError) as exc:
                 message = str(exc).lower()
@@ -115,7 +132,7 @@ def select_hvg(
     # Replace only standard HVG outputs after a successful calculation.
     technical = {"highly_variable", "highly_variable_rank", "highly_variable_nbatches",
                  "highly_variable_intersection", "means", "variances", "variances_norm",
-                 "dispersions", "dispersions_norm"}
+                 "dispersions", "dispersions_norm", "n_batches_measured"}
     for col in technical.intersection(adata.var.columns):
         del adata.var[col]
     aligned = result.reindex(adata.var_names)
@@ -135,12 +152,71 @@ def select_hvg(
         "input_representation": "log1p" if log_matrix is not None else "counts",
         "batch_sizes_json": json.dumps(obs[actual_batch].value_counts().to_dict(), default=int) if actual_batch else "{}",
     }
+    if measurement is not None:
+        metadata["measurement_sample_key"] = measurement.sample_key
+        metadata["n_genes_partially_measured"] = int((~batch_measured[2].all(axis=0)).sum()) if batch_measured else 0
     adata.uns.setdefault("hvg_selection", {})[output_key] = metadata
     out = aligned.copy()
     out.insert(0, "gene", adata.var_names)
     out["hvg_key"] = output_key
     out["method"] = method
     out["fallback_reason"] = "; ".join(failures)
+    return out
+
+
+def _masked_hvg(work, batches, levels, measured, *, flavor: str, n_top_genes: int, **kwargs) -> pd.DataFrame:
+    """Per-batch HVG over the genes each batch measured, merged as scanpy merges batches.
+
+    ``measured`` is batches x genes. An unmeasured gene has no statistics in
+    that batch instead of structural zeros: it is not ranked there, and its
+    means/variances pool only measuring batches. With every gene measured
+    this is scanpy's batched computation, which ``select_hvg`` then uses.
+    """
+    import scanpy as sc
+    from anndata import AnnData
+
+    v3 = flavor.startswith("seurat_v3")
+    columns = ("means", "variances", "variances_norm", "highly_variable_rank") if v3 else (
+        "means", "dispersions", "dispersions_norm", "highly_variable")
+    per = {col: np.full(measured.shape, np.nan) for col in columns}
+    n_cells = np.zeros(len(levels))
+    for i, (level, keep) in enumerate(zip(levels, measured)):
+        cells = batches == level
+        n_cells[i] = cells.sum()
+        sub = AnnData(X=work.X[cells][:, keep], obs=pd.DataFrame(index=work.obs_names[cells]),
+                      var=pd.DataFrame(index=work.var_names[keep]))
+        if "log1p" in work.uns:
+            sub.uns["log1p"] = dict(work.uns["log1p"])
+        df = sc.pp.highly_variable_genes(sub, flavor=flavor, n_top_genes=min(n_top_genes, int(keep.sum())),
+                                         inplace=False, **kwargs).reindex(sub.var_names)
+        for col in columns:
+            per[col][i, keep] = df[col].to_numpy(float)
+    out = pd.DataFrame(index=work.var_names)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        if v3:
+            # Pool batch means/variances (ddof=1) over measuring cells only.
+            weight = np.where(measured, n_cells[:, None], 0.0)
+            total = weight.sum(axis=0)
+            mean = np.nansum(weight * per["means"], axis=0) / total
+            squares = np.nansum((weight - 1) * per["variances"] + weight * per["means"] ** 2, axis=0)
+            out["means"], out["variances"] = mean, (squares - total * mean ** 2) / (total - 1)
+            ranks = np.ma.masked_invalid(per["highly_variable_rank"])
+            out["highly_variable_nbatches"] = (~ranks.mask).sum(axis=0)
+            out["highly_variable_rank"] = np.ma.median(ranks, axis=0).filled(np.nan)
+            out["variances_norm"] = np.ma.masked_invalid(per["variances_norm"]).mean(axis=0).filled(np.nan)
+            sort_cols = ["highly_variable_rank", "highly_variable_nbatches"]
+            ascending = [True, False]
+            if flavor == "seurat_v3_paper":
+                sort_cols, ascending = sort_cols[::-1], ascending[::-1]
+        else:
+            for col in ("means", "dispersions", "dispersions_norm"):
+                out[col] = np.ma.masked_invalid(per[col]).mean(axis=0).filled(np.nan)
+            out["highly_variable_nbatches"] = np.nansum(per["highly_variable"], axis=0).astype(int)
+            out["highly_variable_intersection"] = out["highly_variable_nbatches"].to_numpy() == measured.sum(axis=0)
+            sort_cols, ascending = ["highly_variable_nbatches", "dispersions_norm"], [False, False]
+    order = out.sort_values(sort_cols, ascending=ascending, na_position="last").index
+    out["highly_variable"] = out.index.isin(order[: int(n_top_genes)])
+    out["n_batches_measured"] = measured.sum(axis=0)
     return out
 
 
@@ -154,7 +230,14 @@ def run_pca(adata, hvg_key: str, obsm_key: str, n_comps: int = 50, layer: str = 
     # Keep loadings only as small matrix if needed by users; default is external diagnostics.
 
 
-def score_programs(adata, organism: str = "human", layer: str = "log1p_norm") -> None:
+def score_programs(adata, organism: str = "human", layer: str = "log1p_norm", measurement=None) -> None:
+    """Stress, ribosomal and cell-cycle scores.
+
+    With ``measurement`` (a checked ``FeatureMeasurement``), set and control
+    genes come only from genes measured in every sample, so every cell is
+    scored on one gene set and none on structural zeros. Set genes dropped
+    this way are counted in ``uns["program_score_genes"]``.
+    """
     import scanpy as sc
     old = adata.X
     if layer in adata.layers:
@@ -166,17 +249,31 @@ def score_programs(adata, organism: str = "human", layer: str = "log1p_norm") ->
         def mm(genes): return [g.capitalize() for g in genes]
         stress, cycle_s, cycle_g2m = map(mm, [stress, cycle_s, cycle_g2m])
     genes = set(map(str, adata.var_names))
-    sc.tl.score_genes(adata, [g for g in stress if g in genes], score_name="stress_score")
     ribo_genes = list(adata.var_names[adata.var.get("ribo_gene", False).to_numpy(bool)]) if "ribo_gene" in adata.var else []
+    pool = {}
+    if measurement is not None:
+        universe = adata.var_names[measurement.measured_in_all(adata.obs[measurement.sample_key])]
+        pool = {"gene_pool": list(universe)}
+        on_axis, genes = genes, set(map(str, universe))
+        adata.uns["program_score_genes"] = {
+            name: {"n_on_axis": sum(g in on_axis for g in gene_set), "n_used": sum(g in genes for g in gene_set)}
+            for name, gene_set in (("stress_score", stress), ("ribo_score", ribo_genes),
+                                   ("cell_cycle_s_score", cycle_s), ("cell_cycle_g2m_score", cycle_g2m))
+        }
+        ribo_genes = [g for g in ribo_genes if g in genes]
+    sc.tl.score_genes(adata, [g for g in stress if g in genes], score_name="stress_score", **pool)
     if ribo_genes:
-        sc.tl.score_genes(adata, ribo_genes, score_name="ribo_score")
+        sc.tl.score_genes(adata, ribo_genes, score_name="ribo_score", **pool)
     else:
         adata.obs["ribo_score"] = 0.0
     sc.tl.score_genes_cell_cycle(
         adata,
         s_genes=[g for g in cycle_s if g in genes],
         g2m_genes=[g for g in cycle_g2m if g in genes],
+        **pool,
     )
+    # Rescoring must replace, not duplicate, the previous cell-cycle columns.
+    adata.obs.drop(columns=["cell_cycle_s_score", "cell_cycle_g2m_score"], errors="ignore", inplace=True)
     adata.obs.rename(columns={"S_score": "cell_cycle_s_score", "G2M_score": "cell_cycle_g2m_score"}, inplace=True)
     adata.obs["proliferation_score"] = adata.obs[["cell_cycle_s_score", "cell_cycle_g2m_score"]].max(axis=1)
     adata.X = old

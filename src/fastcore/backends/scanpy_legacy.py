@@ -17,6 +17,7 @@ from scsp_agent_sop.core import (
     score_programs,
     select_hvg,
 )
+from scsp_agent_sop.measurement import FeatureMeasurement, feature_measurement_path
 from scsp_agent_sop.storage import register_file, write_table
 
 
@@ -33,6 +34,10 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
     timings: dict[str, float] = {}
     counts_layer = deep_get(cfg, "qc.counts_layer", "counts")
     sample_key = deep_get(cfg, "keys.sample", "sample_id")
+    measurement_path = feature_measurement_path(adata)
+    measurement = FeatureMeasurement.load(measurement_path) if measurement_path else None
+    if measurement is not None:
+        measurement.check(adata)
 
     _time_step(
         timings,
@@ -49,6 +54,7 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
         adata,
         organism=deep_get(cfg, "run.organism", "human"),
         layer="log1p_norm",
+        measurement=measurement,
     )
     _time_step(
         timings,
@@ -73,6 +79,7 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
         retry_spans=deep_get(cfg, "core.hvg_retry_spans", []),
         fallback=deep_get(cfg, "core.hvg_fallback", "seurat"),
         min_cells=int(deep_get(cfg, "core.hvg_min_cells", 1)),
+        measurement=measurement,
     )
     hvg_path = write_table(hvg, run_root / "core" / "tables" / "hvg_biology.parquet")
     register_file(adata, key="hvg_biology", path=hvg_path, schema="hvg_table.v1")
@@ -179,5 +186,6 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
             "hvg_identity": str(id_path),
             "leiden_sweep": str(sweep_path),
             "cluster_stability": str(st_path),
+            **({"feature_measurement": str(measurement_path)} if measurement_path else {}),
         },
     }

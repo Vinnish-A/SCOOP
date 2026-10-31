@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- HVG selection and programme scores honour a declared feature measurement on the scanpy_legacy and vendored CPU backends: each batch ranks only genes it measured, and scores use genes measured in every sample. Output without a measurement is unchanged. OmicVerse preprocess backends, which cannot take a mask, record `measurement: not_honoured` and request review. Rescoring replaces cell-cycle columns instead of duplicating them.
+- `atlas integrate` requires an explicit `atlas.scvi.batch_key` (default `null`) and honours `atlas.split.held_out_query_units`: held-out cells are embedded by the trained encoder and marked in `obs.is_projected`.
+
 - Record what was measured: add a hash-bound per-sample feature-measurement mask (`scoop.feature-measurement.v1`). QC reports MT/ribo/HB fractions as unassessed (NaN with `*_unassessed` flags) instead of 0 when a sample measured none of the genes, passes `qc.symbol_key`, and reads gene feature types from `qc.gene_feature_types`.
 - Write `log1p_norm` at `core.normalize_total_target_sum` on the vendored OmicVerse CPU backend, keeping its shiftlog matrix internal to HVG scaling and PCA. Size unloaded H5AD inputs from metadata instead of treating every path as backed, and honour `gpu_min_cells`. Coalesce scattered `read_rows` reads into bounded hyperslabs. Accept `accepted` in the scPoli atlas gate, resolve run roots beside configs outside `config/`, and write outputs with the process umask while keeping approval gates private.
 

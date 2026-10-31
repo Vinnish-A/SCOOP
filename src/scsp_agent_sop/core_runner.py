@@ -9,7 +9,11 @@ from fastcore.backends.scanpy_legacy import run_scanpy_legacy_core
 from scsp_agent_sop.assays import apply_final_use, assay_profile
 from scsp_agent_sop.config import deep_get
 from scsp_agent_sop.decision_log import log_decision
+from scsp_agent_sop.measurement import feature_measurement_path
 from scsp_agent_sop.storage import ensure_dir, register_file, write_json
+
+
+MASK_AWARE_BACKENDS = {"scanpy_legacy", "fastcore_cpu"}
 
 
 def run_core_pipeline(
@@ -81,6 +85,15 @@ def run_core_pipeline(
     result["fallback_used"] = fallback_used
     result["fallback_reason"] = fallback_reason
     result["wall_time_s"] = perf_counter() - start
+    # Only these backends select HVGs through the mask-aware select_hvg; the
+    # OmicVerse preprocess backends cannot take a mask, so say so instead of
+    # letting structural zeros pass as measured.
+    measurement_path = feature_measurement_path(manifest_adata) if manifest_adata is not None else None
+    result["measurement"] = (
+        {"status": "not_declared"}
+        if measurement_path is None
+        else {"status": "applied" if backend in MASK_AWARE_BACKENDS else "not_honoured", "path": str(measurement_path)}
+    )
 
     manifest = {
         "schema_version": "fastcore_manifest.v1",
@@ -98,6 +111,7 @@ def run_core_pipeline(
         "fallback_reason": fallback_reason,
         "plan": plan.to_dict() if plan is not None else None,
         "artifacts": result.get("artifacts", {}),
+        "measurement": result["measurement"],
     }
     fastcore_dir = ensure_dir(run_root / "core" / "fastcore")
     manifest_path = write_json(manifest, fastcore_dir / "fastcore_manifest.json")
@@ -141,8 +155,13 @@ def run_core_pipeline(
             "n_clusters": result.get("n_clusters"),
             "fastcore_manifest": str(manifest_path),
             "core_quality": str(quality_path),
+            "measurement": result["measurement"],
         },
         fallback_used=fallback_used,
         fallback_reason=fallback_reason,
+        human_review_required=result["measurement"]["status"] == "not_honoured",
+        review_reason=f"{backend} cannot apply the declared feature measurement; HVGs may count unmeasured genes as zeros"
+        if result["measurement"]["status"] == "not_honoured"
+        else None,
     )
     return result

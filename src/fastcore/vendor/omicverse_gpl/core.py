@@ -10,6 +10,7 @@ from scipy import sparse
 
 from scsp_agent_sop.config import deep_get
 from scsp_agent_sop.core import leiden_sweep, leiden_search_options, run_harmony2, select_hvg
+from scsp_agent_sop.measurement import FeatureMeasurement, feature_measurement_path
 from scsp_agent_sop.storage import register_file, write_table
 
 
@@ -193,6 +194,11 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
         )
     )
 
+    measurement_path = feature_measurement_path(adata)
+    measurement = FeatureMeasurement.load(measurement_path) if measurement_path else None
+    if measurement is not None:
+        measurement.check(adata)
+
     _time_step(timings, "copy_counts", _copy_counts_to_x, adata, counts_layer)
     _time_step(timings, "shiftlog_normalize", _normalize_shiftlog, adata, target_sum=target_sum)
     hvg = _time_step(
@@ -208,6 +214,7 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
             "retry_spans": deep_get(cfg, "core.hvg_retry_spans", []),
             "fallback": deep_get(cfg, "core.hvg_fallback", "seurat"),
             "min_cells": int(deep_get(cfg, "core.hvg_min_cells", 1)),
+            "measurement": measurement,
         },
     )
     hvg_path = write_table(hvg, run_root / "core" / "tables" / "hvg_biology.parquet")
@@ -318,5 +325,6 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
             "hvg_biology": str(hvg_path),
             "leiden_sweep": str(sweep_path),
             "cluster_stability": str(st_path),
+            **({"feature_measurement": str(measurement_path)} if measurement_path else {}),
         },
     }

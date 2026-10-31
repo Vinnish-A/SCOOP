@@ -122,10 +122,10 @@ atlas:
   split:
     unit: donor_id
     validation_units: []
-    held_out_query_units: []
+    held_out_query_units: []  # split.unit values embedded by the trained encoder, not trained on (obs.is_projected)
   scvi:
     counts_layer: counts
-    batch_key: sample_id
+    batch_key: null  # required: the technical batch column; a sample is biology, not batch
     categorical_covariate_keys: [study_id, chemistry]
     n_latent: 30
     gene_likelihood: nb

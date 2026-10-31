@@ -58,3 +58,45 @@ def test_vendored_omicverse_cpu_backend_writes_stable_core_fields(tmp_path):
     assert "cluster_identity" in adata.obs
     assert adata.uns["fastcore_omicverse_gpl"]["license"] == "GPL-3.0-or-later"
     assert (tmp_path / "core" / "fastcore" / "fastcore_manifest.json").exists()
+
+
+def test_vendored_cpu_backend_applies_a_declared_feature_measurement(tmp_path):
+    from scsp_agent_sop.measurement import FORMAT, FeatureMeasurement
+    from scsp_agent_sop.storage import register_file
+
+    rng = np.random.default_rng(0)
+    counts = rng.poisson(1.2, size=(40, 80)).astype(np.float32)
+    counts[20:, 0] = 0  # Gene0 was not quantified in sample B
+    adata = AnnData(sparse.csr_matrix(counts))
+    adata.var_names = [f"Gene{i}" for i in range(adata.n_vars)]
+    adata.obs_names = [f"Cell{i}" for i in range(adata.n_obs)]
+    adata.obs["sample_id"] = ["A"] * 20 + ["B"] * 20
+    adata.layers["counts"] = adata.X.copy()
+    init_file_registry(adata, "test")
+    measured = np.ones((2, adata.n_vars), bool)
+    measured[1, 0] = False
+    fm = FeatureMeasurement.from_var("sample_id", ["A", "B"], adata.var_names, measured)
+    register_file(adata, key="feature_measurement", path=fm.save(tmp_path / "fm.npz"), category="artifacts", schema=FORMAT)
+    cfg = {
+        "run": {"run_id": "test", "random_seed": 0},
+        "keys": {"sample": "sample_id", "batch_candidates": []},
+        "qc": {"counts_layer": "counts"},
+        "core": {
+            "engine": "fastcore",
+            "fallback_engine": "scanpy_legacy",
+            "batch_correction": {"method": "harmony2", "max_iter_harmony": 20},
+            "fastcore": {
+                "fallback_backend": "scanpy_legacy",
+                "allowed_backends": ["fastcore_cpu"],
+                "enable_fastcore_cpu_backend": True,
+                "omicverse": {"n_hvgs": 25, "n_pcs": 8, "neighbors": {"n_neighbors": 5},
+                              "leiden": {"resolutions": [0.6], "default_resolution": 0.6}},
+            },
+        },
+    }
+
+    result = run_core_pipeline(adata, cfg, tmp_path)
+
+    assert result["backend"] == "fastcore_cpu"
+    assert result["measurement"]["status"] == "applied"
+    assert adata.uns["hvg_selection"]["highly_variable_biology"]["n_genes_partially_measured"] == 1

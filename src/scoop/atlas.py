@@ -111,27 +111,61 @@ def integrate(
     init_file_registry(adata, deep_get(config, "run.run_id", run_root.name))
 
     counts_layer = str(deep_get(config, "atlas.scvi.counts_layer", "counts"))
-    batch_key = str(deep_get(config, "atlas.scvi.batch_key", deep_get(config, "keys.sample", "sample_id")))
+    batch_key = deep_get(config, "atlas.scvi.batch_key")
+    if batch_key is None:
+        # A sample is a biological unit; defaulting the batch to it would
+        # regress biology out silently (B03).
+        raise ValueError("Set atlas.scvi.batch_key to the technical batch column (for example a dataset or "
+                         "chemistry sub-batch); scVI has no default batch")
+    batch_key = str(batch_key)
     requested_categorical = list(deep_get(config, "atlas.scvi.categorical_covariate_keys", []))
     categorical = [key for key in requested_categorical if key in adata.obs]
     _require_obs(adata, [batch_key])
     if counts_layer not in adata.layers:
         raise KeyError(f"scVI requires raw counts in adata.layers[{counts_layer!r}]")
+    held_out = [str(unit) for unit in deep_get(config, "atlas.split.held_out_query_units", None) or []]
+    split_unit = str(deep_get(config, "atlas.split.unit", "donor_id"))
+    projected = np.zeros(adata.n_obs, dtype=bool)
+    if held_out:
+        _require_obs(adata, [split_unit])
+        units = adata.obs[split_unit].astype(str)
+        missing = sorted(set(held_out) - set(units))
+        if missing:
+            raise ValueError(f"atlas.split.held_out_query_units not found in obs[{split_unit!r}]: {missing}")
+        projected = units.isin(held_out).to_numpy()
+        if projected.all():
+            raise ValueError("atlas.split.held_out_query_units leave no cells to train scVI on")
+        # The encoder conditions on batch and covariates; a query category
+        # never seen in training has no trained embedding.
+        unseen = {key: sorted(set(adata.obs[key][projected].astype(str)) - set(adata.obs[key][~projected].astype(str)))
+                  for key in (batch_key, *categorical)}
+        unseen = {key: values for key, values in unseen.items() if values}
+        if unseen:
+            raise ValueError(f"held-out query cells carry categories absent from the training cells: {unseen}")
+    train = adata[~projected].copy() if projected.any() else adata
 
     scvi.settings.seed = int(deep_get(config, "run.random_seed", 0))
     scvi.model.SCVI.setup_anndata(
-        adata,
+        train,
         layer=counts_layer,
         batch_key=batch_key,
         categorical_covariate_keys=categorical or None,
     )
     model = scvi.model.SCVI(
-        adata,
+        train,
         n_latent=int(deep_get(config, "atlas.scvi.n_latent", 30)),
         gene_likelihood=str(deep_get(config, "atlas.scvi.gene_likelihood", "nb")),
     )
     model.train(**train_options)
-    adata.obsm["X_scVI"] = model.get_latent_representation()
+    latent = model.get_latent_representation()
+    if projected.any():
+        # Held-out units are embedded by the trained encoder only (no fine-tuning).
+        embedded = np.empty((adata.n_obs, latent.shape[1]), dtype=latent.dtype)
+        embedded[~projected] = latent
+        embedded[projected] = model.get_latent_representation(adata=adata[projected].copy())
+        latent = embedded
+    adata.obsm["X_scVI"] = latent
+    adata.obs["is_projected"] = projected
     neighbours = int(deep_get(config, "atlas.graph.n_neighbors", 30))
     sc.pp.neighbors(adata, use_rep="X_scVI", n_neighbors=neighbours, key_added="scvi")
     cluster_key = str(deep_get(config, "atlas.graph.cluster_key", "leiden_scvi"))
@@ -167,6 +201,10 @@ def integrate(
             "batch_key": batch_key,
             "categorical_covariate_keys": categorical,
             "skipped_categorical_covariate_keys": sorted(set(requested_categorical) - set(categorical)),
+            "split_unit": split_unit,
+            "held_out_query_units": held_out,
+            "n_training_cells": int((~projected).sum()),
+            "n_projected_cells": int(projected.sum()),
             "n_latent": int(deep_get(config, "atlas.scvi.n_latent", 30)),
             "train": train_options,
             "max_epochs": train_options["max_epochs"],
