@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `run.obs_keys {sample, donor, batch, study}`, resolved once with fallback to the legacy `keys.*` names and recorded with each key's source. Declared keys must exist in obs. `de prepare` aggregates accepted cells only and carries donor, batch, study and batch-candidate design columns. scVI takes its batch from `atlas.scvi.batch_key` or `run.obs_keys.batch`, never a guessed candidate.
+
 - HVG selection and programme scores honour a declared feature measurement on the scanpy_legacy and vendored CPU backends: each batch ranks only genes it measured, and scores use genes measured in every sample. Output without a measurement is unchanged. OmicVerse preprocess backends, which cannot take a mask, record `measurement: not_honoured` and request review. Rescoring replaces cell-cycle columns instead of duplicating them.
 - `atlas integrate` requires an explicit `atlas.scvi.batch_key` (default `null`) and honours `atlas.split.held_out_query_units`: held-out cells are embedded by the trained encoder and marked in `obs.is_projected`.
 

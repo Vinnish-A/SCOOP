@@ -5,6 +5,13 @@ run:
   random_seed: 0
   organism: human
   tissue: unknown
+  # Typed obs columns (R10), validated once against obs. null falls back to
+  # keys.sample / keys.donor / the first present keys.batch_candidates / study_id.
+  obs_keys:
+    sample: null
+    donor: null
+    batch: null  # technical batch; a sample is biology, not batch
+    study: null
 
 keys:
   sample: sample_id

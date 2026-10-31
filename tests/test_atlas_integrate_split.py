@@ -10,7 +10,7 @@ from scipy import sparse
 from scoop.atlas import integrate
 
 
-def _run(tmp_path, scvi=None, split=None):
+def _run(tmp_path, scvi=None, split=None, extra=None):
     rng = np.random.default_rng(0)
     counts = sparse.csr_matrix(rng.poisson(2.0, (60, 20)).astype(np.float32))
     obs = pd.DataFrame({"donor_id": np.repeat(["d1", "d2", "d3"], 20), "batch": np.tile(["b1", "b2"], 30)},
@@ -24,7 +24,7 @@ def _run(tmp_path, scvi=None, split=None):
         "split": {"unit": "donor_id", **(split or {})},
         "scvi": {"n_latent": 2, "max_epochs": 1, "batch_size": 32, "accelerator": "cpu", "devices": 1, **(scvi or {})},
         "graph": {"n_neighbors": 5, "leiden_resolutions": [1.0], "leiden_seeds": [0],
-                  "leiden_search": {"backend": "scanpy"}}}}))
+                  "leiden_search": {"backend": "scanpy"}}}, **(extra or {})}))
     return integrate(config_path=config, input_path=source), root
 
 
@@ -48,3 +48,12 @@ def test_held_out_units_must_exist_and_share_training_batches(tmp_path):
         _run(tmp_path, scvi={"batch_key": "batch"}, split={"held_out_query_units": ["d9"]})
     with pytest.raises(ValueError, match="absent from the training cells"):
         _run(tmp_path, scvi={"batch_key": "donor_id"}, split={"held_out_query_units": ["d3"]})
+
+
+def test_typed_batch_key_is_accepted_but_a_guessed_candidate_is_not(tmp_path):
+    (tmp_path / "typed").mkdir()
+    (tmp_path / "guessed").mkdir()
+    result, root = _run(tmp_path / "typed", scvi={"batch_key": None}, extra={"run": {"obs_keys": {"batch": "batch"}}})
+    assert '"batch_key_source": "run.obs_keys.batch"' in (root / "atlas/scvi-run.json").read_text()
+    with pytest.raises(ValueError, match="run.obs_keys.batch"):
+        _run(tmp_path / "guessed", scvi={"batch_key": None}, extra={"keys": {"batch_candidates": ["batch"]}})

@@ -17,7 +17,7 @@ from scsp_agent_sop.annotation import run_markers_scanpy
 from scsp_agent_sop.assays import apply_final_use
 from scsp_agent_sop.core import leiden_sweep, leiden_search_options
 from scsp_agent_sop.annotation_decision.evidence_bundle import build_evidence_bundle
-from scsp_agent_sop.config import deep_get, read_yaml, resolve_run_root
+from scsp_agent_sop.config import deep_get, read_yaml, resolve_obs_keys, resolve_run_root
 from scsp_agent_sop.storage import write_h5ad_atomic, init_file_registry, register_file, write_table
 
 from .approval import verify as verify_approval
@@ -111,13 +111,13 @@ def integrate(
     init_file_registry(adata, deep_get(config, "run.run_id", run_root.name))
 
     counts_layer = str(deep_get(config, "atlas.scvi.counts_layer", "counts"))
-    batch_key = deep_get(config, "atlas.scvi.batch_key")
-    if batch_key is None:
-        # A sample is a biological unit; defaulting the batch to it would
-        # regress biology out silently (B03).
-        raise ValueError("Set atlas.scvi.batch_key to the technical batch column (for example a dataset or "
-                         "chemistry sub-batch); scVI has no default batch")
-    batch_key = str(batch_key)
+    obs_keys = resolve_obs_keys(config, adata.obs, overrides={"batch": "atlas.scvi.batch_key"})
+    if obs_keys.sources["batch"] not in {"atlas.scvi.batch_key", "run.obs_keys.batch"}:
+        # A sample is a biological unit; defaulting the batch to it, or to a
+        # guessed candidate column, would regress biology out silently (B03).
+        raise ValueError("Set atlas.scvi.batch_key or run.obs_keys.batch to the technical batch column (for example "
+                         "a dataset or chemistry sub-batch); scVI has no default batch")
+    batch_key = obs_keys.batch
     requested_categorical = list(deep_get(config, "atlas.scvi.categorical_covariate_keys", []))
     categorical = [key for key in requested_categorical if key in adata.obs]
     _require_obs(adata, [batch_key])
@@ -199,6 +199,7 @@ def integrate(
         "parameters": {
             "counts_layer": counts_layer,
             "batch_key": batch_key,
+            "batch_key_source": obs_keys.sources["batch"],
             "categorical_covariate_keys": categorical,
             "skipped_categorical_covariate_keys": sorted(set(requested_categorical) - set(categorical)),
             "split_unit": split_unit,
