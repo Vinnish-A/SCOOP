@@ -48,12 +48,15 @@ def write_json(obj: Any, path: str | Path) -> Path:
 
 def write_h5ad_atomic(adata, path: str | Path) -> Path:
     """A serialization failure must not overwrite a previously valid object."""
+    from scoop.io import default_file_mode
+
     path = Path(path)
     ensure_dir(path.parent)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".h5ad", dir=path.parent)
     os.close(fd)
     try:
         adata.write_h5ad(temporary)
+        os.chmod(temporary, default_file_mode())
         os.replace(temporary, path)
     finally:
         Path(temporary).unlink(missing_ok=True)

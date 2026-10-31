@@ -26,6 +26,7 @@ import anndata as ad
 from scsp_agent_sop.assays import assay_profile, spatial_qc
 from scsp_agent_sop.config import deep_get, project_root_from_run_root, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
+from scsp_agent_sop.measurement import FeatureMeasurement, feature_measurement_path
 from scsp_agent_sop.qc import (
     ThresholdConfig,
     annotate_gene_flags,
@@ -64,7 +65,7 @@ def main() -> None:
         log_decision(run_root, module="qc", decision="qc_inherited", reason="Exact retained subset; no QC or doublet refit.",
                      parameters=provenance, evidence={"output_h5ad": str(output)})
         return
-    annotate_gene_flags(adata, organism=organism)
+    annotate_gene_flags(adata, organism=organism, symbol_key=deep_get(cfg, "qc.symbol_key"))
     assay = assay_profile(cfg)
     if assay != "scrna":
         thresholds = spatial_qc(adata, cfg)
@@ -100,7 +101,11 @@ def main() -> None:
             else None,
         )
         return
-    compute_basic_qc(adata, counts_layer=counts_layer)
+    measurement_path = feature_measurement_path(adata)
+    measurement = FeatureMeasurement.load(measurement_path) if measurement_path else None
+    if measurement is not None:
+        measurement.check(adata)
+    compute_basic_qc(adata, counts_layer=counts_layer, measurement=measurement)
 
     tc = ThresholdConfig(
         low_counts_mad=deep_get(cfg, "qc.mad.low_counts", 3.0),
@@ -140,8 +145,17 @@ def main() -> None:
         module="qc",
         decision="qc_and_scrublet_complete",
         reason="QC thresholds are sample-specific; Scrublet was run per sample on raw counts.",
-        parameters={"counts_layer": counts_layer, "sample_key": sample_key},
-        evidence={"n_obs": int(adata.n_obs), "qc_fail_fraction": float((adata.obs["qc_class"] == "fail").mean())},
+        parameters={
+            "counts_layer": counts_layer,
+            "sample_key": sample_key,
+            "symbol_key": deep_get(cfg, "qc.symbol_key"),
+            "measurement": str(measurement_path) if measurement_path else "not_declared",
+        },
+        evidence={
+            "n_obs": int(adata.n_obs),
+            "qc_fail_fraction": float((adata.obs["qc_class"] == "fail").mean()),
+            "unassessed_cells": {m: int(adata.obs[f"{m}_unassessed"].sum()) for m in ("mt", "ribo", "hb")},
+        },
         human_review_required=bool((thresholds["fail_fraction"] > 0.30).any()),
         review_reason="At least one sample has QC fail fraction > 30%"
         if (thresholds["fail_fraction"] > 0.30).any()

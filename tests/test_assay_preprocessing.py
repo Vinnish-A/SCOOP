@@ -157,3 +157,14 @@ def test_spatial_core_routes_before_fastcore_and_preserves_full_counts(tmp_path,
     assert "stress_score" not in a.obs
     assert seen["search_config"]["backend"] == "networkit_parallel_leiden"
     a.write_h5ad(tmp_path / "panel_core.h5ad")
+
+
+def test_gene_feature_types_accept_gene_and_follow_config():
+    from scsp_agent_sop.assays import gene_expression_mask
+
+    a = panel()
+    a.var["feature_types"] = ["gene", "Gene Expression", "Negative Control Probe"]
+    cfg = {"run": {"assay": "xenium"}}
+    np.testing.assert_array_equal(gene_expression_mask(a, cfg), [True, True, False])
+    cfg["qc"] = {"gene_feature_types": ["Gene Expression"]}
+    np.testing.assert_array_equal(gene_expression_mask(a, cfg), [False, True, False])

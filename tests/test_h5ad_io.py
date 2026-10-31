@@ -57,3 +57,27 @@ def test_managed_dependency_contract_supports_native_backed_indexing(tmp_path):
         np.testing.assert_array_equal(backed[[2, 0, 2], :].X.toarray(), [[1, 4], [0, 2], [1, 4]])
     finally:
         backed.file.close()
+
+
+@pytest.mark.parametrize('encoding', ['csr', 'csc'])
+def test_coalesced_reads_match_per_row_values(tmp_path, encoding):
+    import h5py
+    rng = np.random.default_rng(0)
+    matrix = sparse.random(60, 9, density=.3, format=encoding, random_state=1, dtype=np.float32)
+    matrix.data[:] = rng.integers(1, 9, matrix.nnz)
+    path = tmp_path / 'chunked.h5ad'
+    ad.AnnData(matrix).write_h5ad(path)
+    # Rewrite with tiny chunks so both read-through gaps and new reads occur.
+    with h5py.File(path, 'r+') as handle:
+        for key in ('data', 'indices'):
+            values = handle['X'][key][:]
+            del handle['X'][key]
+            handle['X'].create_dataset(key, data=values, chunks=(5,))
+    dense = matrix.toarray()
+    rows = [0, 1, 2, 7, 9, 30, 31, 59, 9, 0]
+    with H5ADReader(path) as reader:
+        for max_span in (1 << 26, 1):
+            reader.max_span = max_span
+            for selected, cols in ((rows, slice(None)), (rows, [8, 0, 3]), (np.arange(60), slice(None))):
+                actual = reader.read_rows(selected, cols)
+                np.testing.assert_array_equal(actual.toarray(), dense[selected][:, cols])

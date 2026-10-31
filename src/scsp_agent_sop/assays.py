@@ -33,7 +33,9 @@ def gene_expression_mask(adata, cfg: Mapping[str, Any]) -> np.ndarray:
         if key in adata.var:
             if adata.var[key].isna().any():
                 raise ValueError(f"Missing feature types in var[{key!r}].")
-            return adata.var[key].astype(str).str.lower().eq("gene expression").to_numpy()
+            # The default stays in this function so the RCTD fit identity hashes it.
+            gene_types = {str(value).lower() for value in deep_get(cfg, "qc.gene_feature_types", ["gene expression", "gene"])}
+            return adata.var[key].astype(str).str.lower().isin(gene_types).to_numpy()
     if assay_profile(cfg) in TARGETED_ASSAYS and not deep_get(cfg, "qc.features_are_genes", False):
         raise ValueError(
             "Targeted panels need feature types/is_gene_expression, "
@@ -84,8 +86,13 @@ def spatial_qc(adata, cfg: Mapping[str, Any]) -> pd.DataFrame:
     control = np.asarray(x[:, ~genes].sum(axis=1)).ravel() if (~genes).any() else np.full(adata.n_obs, np.nan)
     adata.obs["non_gene_feature_counts"] = control
     adata.obs["non_gene_feature_fraction"] = control / np.maximum(total + control, 1)
-    for flag, column in (("mt_gene", "pct_counts_mt"), ("ribo_gene", "pct_counts_ribo"), ("hb_gene", "pct_counts_hb")):
+    for flag, column, unassessed in (
+        ("mt_gene", "pct_counts_mt", "mt_unassessed"),
+        ("ribo_gene", "pct_counts_ribo", "ribo_unassessed"),
+        ("hb_gene", "pct_counts_hb", "hb_unassessed"),
+    ):
         mask = adata.var[flag].to_numpy(bool) & genes if flag in adata.var else np.zeros(adata.n_vars, bool)
+        adata.obs[unassessed] = not mask.any()
         adata.obs[column] = (
             (100 * np.asarray(x[:, mask].sum(axis=1)).ravel() / np.maximum(total, 1)) if mask.any() else np.nan
         )

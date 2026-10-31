@@ -33,8 +33,7 @@ def resolve_run_root(config_path: str | Path, config: Mapping[str, Any]) -> Path
     config_path = Path(config_path).resolve()
     if config_path.parent.name == "config":
         return config_path.parent.parent
-    run_id = deep_get(config, "run.run_id", "run")
-    return Path("runs") / str(run_id)
+    return config_path.parent
 
 
 def project_root_from_run_root(run_root: Path) -> Path:

@@ -47,7 +47,9 @@ def test_vendored_omicverse_cpu_backend_writes_stable_core_fields(tmp_path):
     assert result["fallback_used"] is False
     assert result["batch_correction_method"] == "harmony2"
     assert "pca_covariance_eigh" in result["timings"]
-    assert "log1p_norm" in adata.layers
+    expected = np.log1p(counts.toarray() / counts.toarray().sum(1, keepdims=True) * 1e4)
+    np.testing.assert_allclose(np.asarray(adata.layers["log1p_norm"].todense()), expected, rtol=1e-5)
+    assert adata.uns["fastcore_omicverse_gpl"]["log1p_norm_target_sum"] == 10000
     assert "X_pca_biology" in adata.obsm
     assert "X_pca_identity_prebatch" in adata.obsm
     assert "X_pca_harmony_identity" in adata.obsm

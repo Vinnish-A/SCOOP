@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Record what was measured: add a hash-bound per-sample feature-measurement mask (`scoop.feature-measurement.v1`). QC reports MT/ribo/HB fractions as unassessed (NaN with `*_unassessed` flags) instead of 0 when a sample measured none of the genes, passes `qc.symbol_key`, and reads gene feature types from `qc.gene_feature_types`.
+- Write `log1p_norm` at `core.normalize_total_target_sum` on the vendored OmicVerse CPU backend, keeping its shiftlog matrix internal to HVG scaling and PCA. Size unloaded H5AD inputs from metadata instead of treating every path as backed, and honour `gpu_min_cells`. Coalesce scattered `read_rows` reads into bounded hyperslabs. Accept `accepted` in the scPoli atlas gate, resolve run roots beside configs outside `config/`, and write outputs with the process umask while keeping approval gates private.
+
 - Add a separate English Skill edition and a Skill-only language selector; default both installation routes to English while retaining explicit original-edition selection and existing runtime releases.
 
 - Restore the AnnData/SciPy sparse-index compatibility bound and test real backed slicing during installation.

@@ -33,6 +33,9 @@ def _positions(index, size):
 
 
 class H5ADReader:
+    # Upper bound, in stored entries, on one coalesced read.
+    max_span = 1 << 26
+
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.file = h5py.File(self.path, "r")
@@ -71,18 +74,35 @@ class H5ADReader:
         major = row if encoding == "csr_matrix" else col
         minor = col if encoding == "csr_matrix" else row
         unique, inverse = np.unique(major, return_inverse=True)
-        pieces, indices, indptr = [], [], [0]
-        # Read contiguous requests together, without reading unrelated layers.
-        for run in np.split(unique, np.flatnonzero(np.diff(unique) != 1) + 1):
-            if not len(run):
-                continue
-            ptr = node["indptr"][int(run[0]):int(run[-1]) + 2]
-            start, end = int(ptr[0]), int(ptr[-1])
-            pieces.append(node["data"][start:end])
-            indices.append(node["indices"][start:end])
-            indptr.extend((ptr[1:] - start + indptr[-1]).tolist())
+        pieces, indices = [], []
+        indptr = np.zeros(len(unique) + 1, dtype=np.int64)
+        if len(unique):
+            ptr = node["indptr"][int(unique[0]):int(unique[-1]) + 2].astype(np.int64)
+            starts, ends = ptr[unique - unique[0]], ptr[unique - unique[0] + 1]
+            indptr[1:] = np.cumsum(ends - starts)
+            # Every hyperslab re-reads its boundary chunks, so isolated rows cost
+            # a chunk each. Read through gaps shorter than a chunk instead, and
+            # cap the span so a dense selection never loads the whole matrix.
+            chunks = node["data"].chunks
+            max_gap = chunks[0] if chunks else 1 << 16
+            max_span = max(max_gap, self.max_span)
+            breaks = np.r_[np.flatnonzero(starts[1:] - ends[:-1] > max_gap) + 1, len(unique)]
+            head = 0
+            while head < len(unique):
+                stop = int(breaks[np.searchsorted(breaks, head, "right")])
+                stop = max(head + 1, min(stop, int(np.searchsorted(ends, starts[head] + max_span, "right"))))
+                a, b = int(starts[head]), int(ends[stop - 1])
+                data, idx = node["data"][a:b], node["indices"][a:b]
+                if indptr[stop] - indptr[head] != b - a:
+                    lengths = ends[head:stop] - starts[head:stop]
+                    take = np.repeat(starts[head:stop] - a - (indptr[head:stop] - indptr[head]), lengths)
+                    take += np.arange(indptr[stop] - indptr[head])
+                    data, idx = data[take], idx[take]
+                pieces.append(data)
+                indices.append(idx)
+                head = stop
         data = np.concatenate(pieces) if pieces else np.empty(0, dtype=node["data"].dtype)
-        idx = np.concatenate(indices) if indices else np.empty(0, dtype=np.int32)
+        idx = np.concatenate(indices) if indices else np.empty(0, dtype=node["indices"].dtype)
         minor_size = self.n_vars if encoding == "csr_matrix" else self.n_obs
         matrix = sparse.csr_matrix((data, idx, indptr), shape=(len(unique), minor_size))
         matrix = matrix[inverse][:, minor]

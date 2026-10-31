@@ -47,7 +47,7 @@ def approve(
         },
         "notes": notes,
     }
-    return atomic_text(Path(gate_path), yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
+    return atomic_text(Path(gate_path), yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), mode=0o600)
 
 
 def verify(gate_path: str | Path) -> dict[str, Any]:

@@ -37,23 +37,33 @@ def annotate_gene_flags(adata, organism: str = "human", symbol_key: str | None =
     adata.var["hb_gene"] = np.asarray(hb, dtype=bool)
 
 
-def compute_basic_qc(adata, counts_layer: str = "counts") -> None:
+def compute_basic_qc(adata, counts_layer: str = "counts", measurement=None) -> None:
+    """Library size and MT/ribo/HB fractions.
+
+    ``measurement`` (a checked ``FeatureMeasurement``) marks cells whose sample
+    measured none of a flagged gene set as unassessed.
+    """
     X = get_matrix(adata, counts_layer)
     total = sum_axis(X, axis=1).astype(float)
     genes = nnz_axis(X, axis=1).astype(int)
     adata.obs["total_counts"] = total
     adata.obs["n_genes_by_counts"] = genes
     denom = np.maximum(total, 1.0)
-    for flag, col in [
-        ("mt_gene", "pct_counts_mt"),
-        ("ribo_gene", "pct_counts_ribo"),
-        ("hb_gene", "pct_counts_hb"),
+    for flag, col, unassessed in [
+        ("mt_gene", "pct_counts_mt", "mt_unassessed"),
+        ("ribo_gene", "pct_counts_ribo", "ribo_unassessed"),
+        ("hb_gene", "pct_counts_hb", "hb_unassessed"),
     ]:
-        if flag not in adata.var:
-            adata.obs[col] = 0.0
-        else:
-            s = subset_gene_sum(adata, np.asarray(adata.var[flag], dtype=bool), counts_layer)
-            adata.obs[col] = 100.0 * s / denom
+        mask = np.asarray(adata.var[flag], dtype=bool) if flag in adata.var else np.zeros(adata.n_vars, dtype=bool)
+        # No flagged gene measured means the fraction was not assessed, not 0%;
+        # NaN never crosses a QC threshold.
+        assessed = np.full(adata.n_obs, mask.any())
+        if measurement is not None and mask.any():
+            codes = measurement.sample_codes(adata.obs[measurement.sample_key])
+            assessed = measurement.measured[:, mask].any(axis=1)[codes]
+        adata.obs[unassessed] = ~assessed
+        pct = 100.0 * subset_gene_sum(adata, mask, counts_layer) / denom if mask.any() else np.zeros(adata.n_obs)
+        adata.obs[col] = np.where(assessed, pct, np.nan)
     adata.obs["log10_total_counts"] = np.log10(total + 1)
     adata.obs["log10_n_genes_by_counts"] = np.log10(genes + 1)
 
@@ -64,6 +74,9 @@ def _mad(x: np.ndarray) -> float:
 
 
 def _thresholds(x: np.ndarray) -> dict[str, float]:
+    if np.isnan(x).all():
+        # Unassessed metric: report no threshold rather than warn per sample.
+        return dict.fromkeys(("median", "mad", "q05", "q10", "q90", "q95"), float("nan"))
     med = float(np.nanmedian(x))
     mad = max(_mad(x), 1e-9)
     return {

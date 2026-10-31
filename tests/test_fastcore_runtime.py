@@ -77,3 +77,23 @@ def test_planner_selects_cpu_when_enabled_and_available():
     plan = plan_fastcore_backend(cfg, adata=adata, capabilities=caps)
     assert plan.selected_backend == "fastcore_cpu"
     assert plan.fallback_required is False
+
+
+def test_planner_reads_h5ad_size_and_does_not_treat_a_path_as_backed(tmp_path):
+    path = tmp_path / "input.h5ad"
+    AnnData(np.ones((4, 3))).write_h5ad(path)
+    caps = FastCoreCapabilities(
+        omicverse_available=True,
+        torch_available=False,
+        cuda_available=False,
+        anndataoom_available=True,
+        rust_backend_available=True,
+        vendored_omicverse_available=True,
+        reasons=[],
+    )
+    cfg = {"core": {"fastcore": {}}}
+    assert plan_fastcore_backend(cfg, input_path=path, capabilities=caps).selected_backend == "fastcore_cpu"
+    declared = {"core": {"fastcore": {"auto": {"input_backed": True}}}}
+    assert plan_fastcore_backend(declared, input_path=path, capabilities=caps).selected_backend == "fastcore_oom"
+    large = {"core": {"fastcore": {"auto": {"rust_oom_min_cells": 4}}}}
+    assert plan_fastcore_backend(large, input_path=path, capabilities=caps).selected_backend == "fastcore_oom"

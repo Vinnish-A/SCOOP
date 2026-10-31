@@ -37,6 +37,8 @@ LABEL_COLUMNS = (
     "annotation_version",
     "annotation_rationale",
 )
+# Structured annotation commits emit "accepted"; "labeled" is the legacy status.
+SUPERVISED_STATUSES = ("accepted", "labeled")
 
 
 def _version(distribution: str) -> str:
@@ -472,7 +474,7 @@ def report(
         label_path = write_table(labels, label_path)
 
     high = adata.obs["annotation_confidence"].astype(str).str.lower().eq("high")
-    labeled = high & adata.obs["annotation_status"].astype(str).str.lower().eq("labeled")
+    labeled = high & adata.obs["annotation_status"].astype(str).str.lower().isin(SUPERVISED_STATUSES)
     labeled_indices = pd.DataFrame(
         {
             "cell_id": adata.obs_names[labeled].astype(str),
@@ -602,7 +604,7 @@ def train_scpoli(*, gate_path: str | Path, output_path: str | Path | None = None
         raise PermissionError("labeled cell IDs do not match their approved H5AD positions")
     confidence = adata.obs.iloc[labeled_indices]["annotation_confidence"].astype(str).str.lower()
     status = adata.obs.iloc[labeled_indices]["annotation_status"].astype(str).str.lower()
-    if not confidence.eq("high").all() or not status.eq("labeled").all():
+    if not confidence.eq("high").all() or not status.isin(SUPERVISED_STATUSES).all():
         raise PermissionError("scPoli supervision is restricted to high-confidence labeled cells")
     label_key = "scvi_curated_cell_type"
     approved_labels = adata.obs.iloc[labeled_indices][label_key].astype(str).to_numpy()
@@ -713,7 +715,7 @@ def validate_atlas(*, input_path: str | Path, output_path: str | Path) -> Path:
     ):
         mask = adata.obs["annotation_confidence"].astype(str).str.lower().eq("high") & adata.obs[
             "annotation_status"
-        ].astype(str).str.lower().eq("labeled")
+        ].astype(str).str.lower().isin(SUPERVISED_STATUSES)
         if mask.any():
             metrics["prediction_concordance_on_labeled"] = float(
                 (

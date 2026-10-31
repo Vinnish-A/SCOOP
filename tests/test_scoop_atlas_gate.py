@@ -136,3 +136,12 @@ def test_scpoli_rejects_content_inconsistency_even_when_hashes_are_valid(tmp_pat
         assert "label table disagrees with H5AD" in str(exc)
     else:
         raise AssertionError("scPoli should reject an internally inconsistent approval")
+
+
+def test_structured_commit_status_accepted_supervises_like_labeled(tmp_path: Path) -> None:
+    config, source = _atlas_run(tmp_path)
+    adata = ad.read_h5ad(source)
+    adata.obs["annotation_status"] = ["accepted", "labeled", "unlabeled", "unlabeled"]
+    adata.write_h5ad(source)
+    _, _, indices = report(config_path=config, input_path=source)
+    assert pd.read_csv(indices, sep="\t")["cell_id"].tolist() == ["c1", "c2"]

@@ -58,3 +58,22 @@ def test_atomic_export_preserves_previous_object_on_serialization_failure(tmp_pa
     register_file(obj, key='self', path=path, category='artifacts', fingerprint=False)
     write_h5ad_atomic(obj, path)
     assert 'sha256' not in ad.read_h5ad(path).uns['file_registry']['artifacts']['self']
+
+
+def test_atomic_writers_apply_the_process_umask(tmp_path):
+    import os
+    from scoop.io import atomic_json, atomic_text
+    from scsp_agent_sop.config import resolve_run_root
+    from scsp_agent_sop.storage import write_h5ad_atomic
+    previous = os.umask(0o022)
+    try:
+        h5ad = write_h5ad_atomic(ad.AnnData(np.ones((2, 2))), tmp_path / 'out.h5ad')
+        receipt = atomic_json(tmp_path / 'receipt.json', {'ok': True})
+        gate = atomic_text(tmp_path / 'gate.yaml', 'x', mode=0o600)
+    finally:
+        os.umask(previous)
+    assert h5ad.stat().st_mode & 0o777 == 0o644
+    assert receipt.stat().st_mode & 0o777 == 0o644
+    assert gate.stat().st_mode & 0o777 == 0o600
+    # A config outside runs/<id>/config/ roots the run beside it, not under the cwd.
+    assert resolve_run_root(tmp_path / 'elsewhere' / 'run.yaml', {'run': {'run_id': 'x'}}) == (tmp_path / 'elsewhere').resolve()

@@ -27,12 +27,13 @@ def _copy_counts_to_x(adata, counts_layer: str) -> None:
         adata.layers[counts_layer] = adata.X.copy()
 
 
-def _normalize_shiftlog(adata, *, target_sum: float, layer_out: str = "log1p_norm") -> None:
-    """Vendored OmicVerse-style shiftlog normalization.
+def _normalize_shiftlog(adata, *, target_sum: float) -> None:
+    """Vendored OmicVerse-style shiftlog normalization into `X`.
 
     Adapted from OmicVerse `pp.preprocess(mode='shiftlog|...')`, which calls
     `normalize_total(..., exclude_highly_expressed=True, max_fraction=0.2)` and
-    then `log1p`.
+    then `log1p`. The result feeds HVG scaling and PCA only; it is not written
+    as `log1p_norm`, whose scale is fixed by `_write_log1p_norm`.
     """
     import scanpy as sc
 
@@ -43,7 +44,19 @@ def _normalize_shiftlog(adata, *, target_sum: float, layer_out: str = "log1p_nor
         max_fraction=0.2,
     )
     sc.pp.log1p(adata)
-    adata.layers[layer_out] = adata.X.copy()
+
+
+def _write_log1p_norm(adata, *, counts_layer: str, target_sum: float) -> None:
+    """Write the shared `log1p_norm` layer: plain normalize_total at `target_sum`, then log1p.
+
+    Every backend writes `log1p_norm` on the same scale (`core.normalize_total_target_sum`),
+    so marker DEG, scoring and programmes read one definition regardless of backend.
+    """
+    import scanpy as sc
+
+    norm = sc.pp.normalize_total(adata, target_sum=target_sum, layer=counts_layer, inplace=False)["X"]
+    adata.layers["log1p_norm"] = sc.pp.log1p(norm)
+    adata.X = adata.layers["log1p_norm"]
 
 
 def _select_hvg_seurat(
@@ -63,13 +76,13 @@ def _select_hvg_seurat(
     return out
 
 
-def _scale_hvg_layer(adata, *, layer: str, hvg_key: str, max_value: float, layer_out: str) -> None:
+def _scale_hvg_layer(adata, *, layer: str | None, hvg_key: str, max_value: float, layer_out: str) -> None:
     """Scale HVG expression following OmicVerse's scaled-layer convention."""
     import scanpy as sc
 
     mask = adata.var[hvg_key].to_numpy(bool)
     view = adata[:, mask].copy()
-    view.X = view.layers[layer].copy() if layer in view.layers else view.X.copy()
+    view.X = view.layers[layer].copy() if layer is not None else view.X.copy()
     sc.pp.scale(view, max_value=max_value, zero_center=True)
     scaled = view.X
     if sparse.issparse(scaled):
@@ -205,12 +218,20 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
         "scale_hvg",
         _scale_hvg_layer,
         adata,
-        layer="log1p_norm",
+        layer=None,
         hvg_key="highly_variable_biology",
         max_value=10.0,
         layer_out=str(deep_get(cfg, "core.fastcore.omicverse.scaled_layer", "scaled")),
     )
     _time_step(timings, "pca_covariance_eigh", _pca_hvg, adata, n_comps=n_pcs, random_state=random_state)
+    _time_step(
+        timings,
+        "log1p_norm",
+        _write_log1p_norm,
+        adata,
+        counts_layer=counts_layer,
+        target_sum=float(deep_get(cfg, "core.normalize_total_target_sum", 10000)),
+    )
 
     batch_keys = [k for k in deep_get(cfg, "keys.batch_candidates", ["sample_id"]) if k in adata.obs]
     batch_method = str(deep_get(cfg, "core.batch_correction.method", "harmony2"))
@@ -273,6 +294,7 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
         "license": "GPL-3.0-or-later",
         "preprocess_mode": deep_get(cfg, "core.fastcore.omicverse.preprocess_mode", "shiftlog"),
         "target_sum": target_sum,
+        "log1p_norm_target_sum": float(deep_get(cfg, "core.normalize_total_target_sum", 10000)),
         "n_hvgs": n_hvgs,
         "n_pcs": n_pcs,
         "leiden_resolution": chosen_resolution,

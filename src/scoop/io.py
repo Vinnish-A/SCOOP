@@ -27,7 +27,15 @@ def canonical_json(payload: Any) -> bytes:
     ).encode("utf-8")
 
 
-def atomic_text(path: str | Path, text: str, *, mode: int = 0o600) -> Path:
+def default_file_mode() -> int:
+    """Return the mode open() gives a new file; mkstemp alone would leave 0600."""
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
+def atomic_text(path: str | Path, text: str, *, mode: int | None = None) -> Path:
+    mode = default_file_mode() if mode is None else mode
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)

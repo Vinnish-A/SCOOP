@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+import h5py
+
 from scsp_agent_sop.config import deep_get
 
 from .runtime import FastCoreCapabilities, detect_capabilities
@@ -34,12 +36,22 @@ class FastCorePlan:
         return asdict(self)
 
 
-def _input_is_backed(input_path: str | Path | None, adata: Any | None) -> bool:
-    if getattr(adata, "isbacked", False):
-        return True
-    if input_path is None:
-        return False
-    return str(input_path).endswith(".h5ad")
+def _input_is_backed(cfg: Mapping[str, Any], adata: Any | None) -> bool:
+    # An .h5ad path alone is not backed input; the caller may load it in memory.
+    return bool(getattr(adata, "isbacked", False) or deep_get(cfg, "core.fastcore.auto.input_backed", False))
+
+
+def _input_size(input_path: str | Path | None, adata: Any | None) -> tuple[int, int]:
+    """Return (n_obs, nnz) from the object, or from H5AD metadata before it is loaded."""
+    if adata is None and input_path is not None and str(input_path).endswith(".h5ad"):
+        with h5py.File(input_path, "r") as handle:
+            x = handle["X"]
+            if isinstance(x, h5py.Dataset):
+                return int(x.shape[0]), 0
+            return int(x.attrs["shape"][0]), int(x["data"].shape[0])
+    n_obs = int(getattr(adata, "n_obs", 0) or 0)
+    nnz = int(getattr(getattr(adata, "X", None), "nnz", 0) or 0)
+    return n_obs, nnz
 
 
 def canonical_backend(backend: str) -> str:
@@ -73,13 +85,11 @@ def plan_fastcore_backend(
         reasons.append("fastcore_cpu_backend_disabled")
         return FastCorePlan(fallback_backend, True, fallback_backend, reasons, caps.to_dict())
 
-    n_obs = int(getattr(adata, "n_obs", 0) or 0)
-    n_vars = int(getattr(adata, "n_vars", 0) or 0)
-    nnz = int(getattr(getattr(adata, "X", None), "nnz", 0) or 0)
+    n_obs, nnz = _input_size(input_path, adata)
     large_cells = n_obs >= int(deep_get(cfg, "core.fastcore.auto.rust_oom_min_cells", 100000))
     large_nnz = nnz >= int(deep_get(cfg, "core.fastcore.auto.rust_oom_min_nnz", 300000000))
     gpu_cells = n_obs >= int(deep_get(cfg, "core.fastcore.auto.gpu_min_cells", 30000))
-    backed = _input_is_backed(input_path, adata)
+    backed = _input_is_backed(cfg, adata)
 
     if (
         "fastcore_oom" in allowed
@@ -93,6 +103,7 @@ def plan_fastcore_backend(
         and caps.omicverse_available
         and caps.cuda_available
         and caps.torch_available
+        and gpu_cells
         and bool(deep_get(cfg, "core.fastcore.auto.prefer_gpu_when_available", True))
     ):
         return FastCorePlan("fastcore_mixed", False, fallback_backend, reasons, caps.to_dict())
