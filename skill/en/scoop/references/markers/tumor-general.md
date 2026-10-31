@@ -20,6 +20,24 @@ In tumor tissue, normal parenchymal and tumor cells often share markers. For exa
 
 Therefore, markers can establish only a “candidate origin,” not malignancy on their own.
 
+### 1.1 Lineage markers decide; RNA-CNV supports
+
+Identity is decided by the coherent lineage marker programme. Malignancy is assessed only among cells of a
+tumour-candidate lineage, and it rests on convergent evidence: tumour programmes, aberrant co-expression,
+expressed amplicon genes, patient-specific structure and reference mapping. Expression-inferred CNV is
+supporting evidence in that review and is never the deciding criterion on its own. When lineage markers
+and RNA-CNV disagree, the markers win and the discordance is recorded next to the label.
+
+RNA-CNV is lineage- and reference-confounded. A lineage that is absent from the CNV reference, or whose
+programme clusters on one chromosome (for example ECM genes on chr7), can produce apparent arm-level calls.
+Summaries that depend on the reference scope (q99 exceedance, +7/−10 flags) move with the reference
+composition. Before using CNV to separate cells, check it on externally validated cells of the same lineage.
+
+A cell that passes a non-tumour lineage gate (endothelial, mural, fibroblast, immune) without co-expressing
+tumour-lineage markers keeps that lineage whatever its CNV. Co-expression of a full non-tumour programme
+with tumour-lineage markers is resolved per cell, as doublet/ambient or as an explicit `<A>_or_<B>_lowConfidence`
+label. It is never resolved as transdifferentiation.
+
 ---
 
 ## 2. Where FastCNVpy is used
@@ -139,6 +157,9 @@ malignancy decision. This is not a new runtime annotation-schema enum.
 
 ```text
 Do not call malignant from EPCAM/KRT/GFAP/PDGFRA alone.
+Do not call malignant from RNA-CNV alone, and do not let CNV override a coherent non-tumour lineage programme.
+Do not call tumour-derived endothelium, pericytes or fibroblasts (vasculogenic mimicry, tumour-to-stromal transdifferentiation) from CNV, co-clustering or shared ECM genes.
+Do not apply a whole-cluster CNV call to a cluster that mixes a non-tumour lineage with tumour cells; split per cell on lineage markers.
 Do not call normal from CNV-negative alone if tumor type can be CNV-low or MSI-like; use SNV/reference/tumor program.
 Keep differentiation and functional states available while malignant_status is assessed separately; unresolved malignancy must not erase a supported epithelial identity.
 Do not turn RNA CNV thresholds into final malignant/normal labels. Retain continuous CNV/arm evidence separately; inspect reference, low-RNA, cycling and stress effects, and resolve malignancy using the complete biological evidence.

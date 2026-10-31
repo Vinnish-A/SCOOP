@@ -88,7 +88,25 @@ CRC fibroblast/CAF labels should preserve crypt niche and WNT/BMP axes when pres
 | TLS-adjacent reticular CAF | `CCL19, CCL21, CXCL13, PDPN` | `BRCA_CAF_TLS_Reticular` |
 | Tumor-border hypoxic CAF | `MME, NT5E, NDRG1, ENO1, CA9` | `BRCA_CAF_TumorBorder_Hypoxic` |
 
-### 5.3 PDAC reference pattern
+### 5.3 GBM / brain
+
+Brain fibroblasts are perivascular (PVF) or meningeal. GBM CAFs derive from perivascular fibroblasts and from mural
+cells through the pericyte-fibroblast transition (PFT). Keep both origins visible in the labels.
+
+| phenotype | markers | final label | notes |
+|---|---|---|---|
+| PVF-derived CAF | `C7, ABCA9, ABCA8, FBLN1, OGN, APOD, DCN, PDGFRA` with activation `FAP, COL11A1, CXCL12` | `CAF_Perivascular_<markers>` | retains the PVF programme; in tumour tissue this is a CAF, not a resident fibroblast |
+| Matrix CAF | `POSTN, CTHRC1, COL11A1, FAP, PDGFRA, DCN, LUM` | `CAF_Matrix_POSTN_CTHRC1` or `CAF_Matrix_POSTN_COL11A1` | — |
+| ECM pericyte (PFT state) | dominant `RGS5, PDGFRB, NOTCH3, KCNJ8` plus `DCN, COL1A1, LUM` | `Pericyte_ECM_<markers>` | mural programme dominates, so it stays mural (section 6); annotate it as the PFT source of CAFs |
+| Meningeal fibroblast | `SLC47A1, CRABP1/2, PTGDS` | `FB_Meningeal_<markers>` | — |
+| Fibroblast core + glial-tumour markers | fibroblast core with `SOX2/OLIG2/PTPRZ1` | `CAF_or_GBM_MES-like_ECM_lowConfidence` | doublet/ambient or unresolved; not transdifferentiation |
+| Fibroblast core + `PTPRC/LST1` | — | `CAF_or_Myeloid_doublet_MMT_lowConfidence` | macrophage-myofibroblast transition vs doublet unresolved |
+
+RNA-CNV in fibroblasts is supporting evidence only (tumor-general section 1.1). The CNV reference usually lacks
+fibroblasts, and chr7 carries many ECM genes, so check CNV on externally validated CAFs before using it. Never use
+CNV to move a fibroblast-gate cell into the tumour compartment.
+
+### 5.4 PDAC reference pattern
 
 PDAC often uses:
 
@@ -106,7 +124,9 @@ PDAC_CAF_LRRC15_TGFb_Matrix       # LRRC15/POSTN/THBS2/COL11A1/CTHRC1
 ```text
 CD74/HLA-DRA high + PTPRC/LST1/CD68 high -> myeloid/B doublet or immune cell, not apCAF.
 ACTA2/TAGLN high + RGS5/CSPG4/PDGFRB/MYH11 high -> pericyte/SMC before myCAF.
-COL1A1/COL1A2 high + EPCAM/KRT high + CNV abnormal -> EMT tumor possible, not CAF by default.
+COL1A1/COL1A2 high + EPCAM/KRT high + CNV abnormal, without the DCN/LUM/PDGFRA fibroblast core -> EMT tumor possible, not CAF by default.
+Fibroblast core (DCN/LUM/PDGFRA) + KRT or tumour-lineage markers -> resolve per cell; co-expressing cells are <CAF>_or_<tumour>_lowConfidence; CNV breaks ties but never decides alone.
+Fibroblast core without tumour-lineage markers + abnormal RNA-CNV -> CAF/fibroblast; record the CNV discordance.
 FAP high alone -> activated fibroblast/CAF-like only, not subtype.
 MKI67/TOP2A high -> cycling overlay only.
 HSPA1A/FOS/JUN high across all lineages -> dissociation stress.

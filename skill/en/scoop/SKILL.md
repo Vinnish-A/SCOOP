@@ -93,7 +93,10 @@ evidence is missing. Reserve identity `unresolved` for adequate evidence already
 reviewed that remains conflicting or mixed. This workflow status is not a new
 runtime annotation-schema enum.
 
-CNV-low does not establish normality; normal references require reviewed eligible
+Lineage markers decide identity; RNA-CNV is supporting evidence only. CNV-low does
+not establish normality, and CNV-high does not make a cell of a coherent non-tumour
+lineage (endothelial, mural, fibroblast, immune) malignant. Do not call tumour-to-
+vascular/stromal transdifferentiation. Normal references require reviewed eligible
 identities. scVI learns representations. scPoli requires explicit current approval
 bound by SHA-256 to the report, reviewed labels, input and labeled indices; only
 high-confidence reviewed cells supervise it. Patient outcomes never decide identity.

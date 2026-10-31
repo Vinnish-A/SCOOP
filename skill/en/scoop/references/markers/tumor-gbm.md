@@ -11,7 +11,7 @@ Purpose: First distinguish normal brain parenchymal cells from malignant glioma 
 ```text
 1. Broad brain/parenchymal annotation: astrocyte, OPC, oligodendrocyte, neuron, ependymal/ciliated, microglia, endothelial, mural, fibroblast/VLMC
 2. Candidate glioma cells: marker overlap with AC-like, OPC-like, NPC-like, MES-like programs
-3. FastCNVpy / SNV / tumor reference mapping to assign malignant_status
+3. Lineage gate first: cells with a coherent vascular, mural, fibroblast, immune, oligodendrocyte or neuronal programme and no glial-tumour co-expression keep that lineage; FastCNVpy / SNV / tumor reference mapping then support malignant_status among glial/neural candidates
 4. CNV-low/neutral cells -> joint review of genomic, normal-atlas, tumour-programme and patient/tissue evidence; no automatic normal routing
 5. malignant cells -> GBM historical states: AC-like, OPC-like, NPC-like, MES-like
 6. Reference-mapping may support GBmap-like states, but final identity requires model/analyst review rather than classifier naming
@@ -22,11 +22,15 @@ Purpose: First distinguish normal brain parenchymal cells from malignant glioma 
 
 ## 2. Malignancy evidence
 
-GBM marker overlap is severe; malignant status must prioritize genomic evidence.
+GBM marker overlap is severe within the glial/neural lineages. There, malignancy needs convergent evidence:
+tumour-state programmes, aberrant co-expression, expressed amplicon genes, patient-specific structure,
+reference mapping, and genomic support. Lineage markers come first (tumor-general section 1.1); RNA-CNV
+supports and does not decide. Outside the glial/neural lineages, CNV never converts a cell into a tumour cell.
 
 | evidence | markers / events | interpretation |
 |---|---|---|
-| CNV/CNA | `chr7 gain`, `chr10 loss`, `EGFR amplification`, `CDKN2A/B deletion`, `PDGFRA amplification`, `CDK4/MDM2 amplification`, `PTEN region loss` | strongest scRNA-level evidence |
+| RNA-inferred CNV | `chr7 gain`, `chr10 loss`, `EGFR amplification`, `CDKN2A/B deletion`, `PDGFRA amplification`, `CDK4/MDM2 amplification`, `PTEN region loss` | supporting for glial/neural candidates; lineage- and reference-confounded; cannot override a coherent non-glial lineage |
+| DNA-level CNA | matched WES/WGS/panel/scDNA/FISH | strong evidence |
 | SNV/fusion | tumor WES/WGS/panel, EGFRvIII, allele-specific CNA | strong evidence |
 | tumor reference mapping | GBM malignant-state reference such as AC/OPC/NPC/MES | supportive; resolve normal-cell overlap with joint genomic, patient/tissue and programme evidence, not a mandatory positive CNV gate |
 | marker alone | `GFAP`, `PDGFRA`, `SOX2`, `CD44`, etc. | insufficient |
@@ -45,9 +49,9 @@ Normal origin requires coherent brain lineage plus normal-reference and tissue-c
 | Neuron | pan-neuronal `RBFOX3, SNAP25, SYT1, MAP2, TUBB3`; excitatory `SLC17A7, CAMK2A`; inhibitory `GAD1, GAD2, SLC6A1` | `GBM_Normal_Neuron` | overlaps NPC/NEU-like tumor/ambient RNA |
 | Ependymal / ciliated | `FOXJ1, PIFO, TPPP3, DNAH5, CFAP*` | `GBM_Normal_EpendymalCiliated` | overlaps malignant cilia-like state if CNA+ |
 | Microglia | `P2RY12, TMEM119, CX3CR1, SALL1, CSF1R, AIF1` | `Mac_Microglia_P2RY12` | myeloid skill, not tumor |
-| Endothelial | `PECAM1, VWF, CLDN5, KDR, FLT1` | `Endo_Brain` | vascular niche |
-| Pericyte / mural | `PDGFRB, RGS5, MCAM, ACTA2, TAGLN` | `Pericyte_Brain` or `SMC_Brain` | overlaps MES/ECM tumor if CNA+ |
-| Fibroblast / VLMC | `COL1A1, COL1A2, DCN, LUM, COL3A1` | `FB_VLMC` | overlaps MES-ECM tumor if CNA+ |
+| Endothelial | `PECAM1, VWF, CLDN5, KDR, FLT1` | `Endo_Brain` | vascular niche; never tumour-derived (no vasculogenic mimicry calls) |
+| Pericyte / mural | `PDGFRB, RGS5, MCAM, ACTA2, TAGLN` | `Pericyte_Brain` or `SMC_Brain` | ECM-high pericytes (`DCN, COL1A1, LUM` on a dominant mural programme) are the pericyte-fibroblast transition state, a CAF source; not tumour |
+| Fibroblast / VLMC / CAF | `COL1A1, COL1A2, DCN, LUM, COL3A1, PDGFRA` | `FB_VLMC`; in tumour tissue `CAF_<phenotype>` (fibroblast.md section 5.3) | GBM CAFs derive from perivascular fibroblasts and mural cells; the fibroblast core (`DCN/LUM/PDGFRA`) without glial-tumour markers stays fibroblast/CAF even when RNA-CNV is abnormal |
 
 ---
 
@@ -93,7 +97,7 @@ Only use these labels for `malignant-high` or `malignant-probable` cells.
 | MES1-inflammatory / gliosis-like | `CD44, CHI3L1, LGALS3, S100A10, ANXA1, VIM, CCL2, CXCL8, IL6, STAT3, CEBPB` | `GBM_Malignant_MES-like_InflammatoryGliosis` | macrophage-rich niche may support |
 | MES2-hypoxia / angiogenic | `VEGFA, CA9, HILPDA, ADM, BNIP3, NDRG1, SLC2A1, LDHA, EGLN3` | `GBM_Malignant_MES-like_Hypoxia` | stronger near necrosis/hypoxic niche |
 | MES-stress / UPR | `HSPA1A, HSPA1B, HSP90AA1, DNAJB1, ATF3, DDIT3, XBP1` | `GBM_Malignant_MES-like_Stress` | check dissociation artifact |
-| MES-ECM / invasive-remodeling | `TNC, FN1, COL1A1, COL1A2, COL3A1, ITGA5, MMP2, MMP14, SERPINE1` | `GBM_Malignant_MES-like_ECMInvasive` | if no CNA, consider fibroblast/VLMC |
+| MES-ECM / invasive-remodeling | `TNC, FN1, COL1A1, COL1A2, COL3A1, ITGA5, MMP2, MMP14, SERPINE1` | `GBM_Malignant_MES-like_ECMInvasive` | requires glial-tumour markers (`SOX2, OLIG2, PTPRZ1, SOX9`) without the fibroblast core (`DCN, LUM, PDGFRA`); collagen plus CNA is not enough |
 | MES-connectivity | `CHI3L1, GAP43, APOE` | `GBM_Malignant_MES-like_Connectivity` | requires supporting context |
 
 ---
@@ -146,7 +150,9 @@ Do not call AC-like tumor from GFAP/AQP4 alone.
 Do not call OPC-like tumor from PDGFRA/OLIG2 alone.
 Do not call NPC/NEU-like tumor from STMN2/SYT1/SNAP25 alone; normal neuron/ambient RNA is common.
 Do not call MES-like tumor from CD44 alone.
-Do not call MES-ECM tumor without CNA/SNV if COL1A1/DCN/LUM suggest fibroblast/VLMC.
+Do not call MES-ECM tumor when the fibroblast core (DCN/LUM/PDGFRA) is present without glial-tumour markers, even if RNA-CNV is abnormal; label CAF/fibroblast and record the CNV discordance.
+Do not call vasculogenic mimicry, glioma-derived pericytes/endothelium or glioma-to-fibroblast transdifferentiation; cells with vascular, mural or fibroblast programmes are those lineages, and co-expression with glial-tumour markers is doublet/ambient or `<A>_or_<B>_lowConfidence`.
+Do not route a whole cluster by CNV when it mixes CAFs and tumour cells; split per cell on lineage markers.
 Do not make cycling a primary GBM state in this project; use overlay.
 Do not ignore immune-tumor doublet risk when PTPRC and tumor CNV/EGFR are both high.
 ```
