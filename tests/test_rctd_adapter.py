@@ -104,7 +104,7 @@ def test_valid_fit_survives_export_failure_without_refitting(tmp_path, monkeypat
     def fail_export(*args, **kwargs):
         raise OSError("serialization failed after fit")
     monkeypatch.setattr(adapter, "write_h5ad_atomic", fail_export)
-    output = tmp_path / "out/result.h5ad"
+    output = tmp_path / "out/rctd_full.h5ad"
     with pytest.raises(OSError, match="serialization"):
         adapter.run_rctd_api(path, None, output, cfg, "full")
     assert len(list((tmp_path / "out/cache").rglob("fit.json"))) == 1
@@ -143,7 +143,7 @@ def _cached_profile_run(tmp_path, monkeypatch, sigma=100):
 
 def test_unserializable_runtime_metadata_cannot_discard_a_finished_fit(tmp_path, monkeypatch):
     path, cfg, calls = _cached_profile_run(tmp_path, monkeypatch)
-    info = adapter.run_rctd_api(path, None, tmp_path / "out/result.h5ad", cfg, "full")
+    info = adapter.run_rctd_api(path, None, tmp_path / "out/rctd_full.h5ad", cfg, "full")
     cache = tmp_path / "out/cache/full" / info["fit_identity"]
     assert "info" not in json.loads((cache / "fit.json").read_text())
     saved = json.loads((cache / "fit_info.json").read_text())["info"]
@@ -161,29 +161,29 @@ def test_arrays_committed_before_checkpoint_json_are_reused(tmp_path, monkeypatc
         return writer(target, payload)
     monkeypatch.setattr(adapter, "atomic_json", crash_on_checkpoint)
     with pytest.raises(OSError, match="killed"):
-        adapter.run_rctd_api(path, None, tmp_path / "out/result.h5ad", cfg, "full")
+        adapter.run_rctd_api(path, None, tmp_path / "out/rctd_full.h5ad", cfg, "full")
     assert len(list((tmp_path / "out/cache").rglob("fit.npz"))) == 1
     assert not list((tmp_path / "out/cache").rglob("fit.json"))
     monkeypatch.setattr(adapter, "atomic_json", writer)
-    info = adapter.run_rctd_api(path, None, tmp_path / "out/result.h5ad", cfg, "full")
+    info = adapter.run_rctd_api(path, None, tmp_path / "out/rctd_full.h5ad", cfg, "full")
     assert len(calls) == 1 and info["computation_reused"]
     assert (tmp_path / "out/cache/full" / info["fit_identity"] / "fit.json").is_file()
 
 
 def test_output_label_keeps_fit_identity_and_refuses_foreign_completion(tmp_path, monkeypatch):
     path, cfg, calls = _cached_profile_run(tmp_path, monkeypatch, sigma=53)
-    output = tmp_path / "out/result.h5ad"
+    output = tmp_path / "out/rctd_full.h5ad"
     first = adapter.run_rctd_api(path, None, output, cfg, "full")
     assert first["sigma_step_limited"]  # fast: 4 epochs x 8 grid steps from 100 end at 53
     cfg["spatial"]["rctd"]["output_label"] = "full_fast"
-    labelled = adapter.run_rctd_api(path, None, output, cfg, "full")
+    labelled = adapter.run_rctd_api(path, None, tmp_path / "out/rctd_full_fast.h5ad", cfg, "full")
     assert labelled["fit_identity"] == first["fit_identity"] and labelled["computation_reused"] and len(calls) == 1
     assert (tmp_path / "out/full_fast_weights_raw.parquet").is_file()
     cfg["spatial"]["rctd"]["seed"] = 7
     with pytest.raises(ValueError, match="different RCTD fit"):
-        adapter.run_rctd_api(path, None, output, cfg, "full")
+        adapter.run_rctd_api(path, None, tmp_path / "out/rctd_full_fast.h5ad", cfg, "full")
     cfg["spatial"]["rctd"]["output_label"] = "full_seed7"
-    assert adapter.run_rctd_api(path, None, output, cfg, "full")["fit_identity"] != first["fit_identity"]
+    assert adapter.run_rctd_api(path, None, tmp_path / "out/rctd_full_seed7.h5ad", cfg, "full")["fit_identity"] != first["fit_identity"]
 
 
 def test_spatial_receipt_names_label_and_limits_step_limited_sigma(tmp_path, monkeypatch):
@@ -200,10 +200,66 @@ def test_spatial_receipt_names_label_and_limits_step_limited_sigma(tmp_path, mon
         return {"inputs": [], "outputs": [], "observations_input": 2, "observations_fitted": 2,
                 "reference": {"gaps": []}, "computation_checkpoint": "fit.json", "sigma_step_limited": True,
                 "heldout_gene_validation": {"status": "not_applicable"}, "run_purpose": "production",
-                "evidence_pending_components": [], "biological_interpretation_allowed": True}
+                "evidence_pending_components": [], "interpretation_withheld_components": [],
+                "biological_interpretation_allowed": True}
     monkeypatch.setattr(command, "run_rctd_api", fake_api)
     monkeypatch.setattr(sys, "argv", ["scoop spatial", "--config", str(config)])
     receipt = command.main()
     assert seen["output"].name == "rctd_full_fast.h5ad"
     assert {"name": "sigma_not_step_limited", "status": "limited"} in receipt["validation"]["checks"]
     assert any("step budget" in text for text in receipt["limitations"])
+
+
+def test_fit_identity_hashes_resolved_compute_settings_only(tmp_path, monkeypatch):
+    from scoop.io import default_file_mode
+
+    path, cfg, calls = _cached_profile_run(tmp_path, monkeypatch)
+    output = tmp_path / "out/rctd_full.h5ad"
+    cfg["spatial"]["rctd"]["exclude_genes"] = ["absent"]
+    first = adapter.run_rctd_api(path, None, output, cfg, "full")
+    cache = tmp_path / "out/cache/full" / first["fit_identity"]
+    assert (cache / "fit.npz").stat().st_mode & 0o777 == default_file_mode()
+    # Unconsumed QC, explicit defaults, repeated exclusions, labels and gates are the same computation.
+    cfg["qc"] = {"max_pct_mt": 25}
+    cfg["spatial"]["rctd"].update({"preset": "fast", "threads": 2, "seed": 271030, "N_epoch": 4,
+                                   "exclude_genes": ["absent", "absent"], "run_purpose": "sensitivity",
+                                   "annotation_level": "broad"})
+    again = adapter.run_rctd_api(path, None, output, cfg, "full")
+    assert again["fit_identity"] == first["fit_identity"] and again["computation_reused"] and len(calls) == 1
+    # The preset table is resolved into the record, so changing it is a different fit.
+    monkeypatch.setitem(adapter.PRESETS, "fast", {"N_fit": 999, "N_epoch": 4})
+    with pytest.raises(ValueError, match="different RCTD fit"):
+        adapter.run_rctd_api(path, None, output, cfg, "full")
+
+
+def test_output_h5ad_is_named_by_its_label(tmp_path, monkeypatch):
+    path, cfg, calls = _cached_profile_run(tmp_path, monkeypatch)
+    adapter.run_rctd_api(path, None, tmp_path / "out/rctd_full.h5ad", cfg, "full")
+    cfg["spatial"]["rctd"].update({"output_label": "seed7", "seed": 7})
+    with pytest.raises(ValueError, match="rctd_seed7.h5ad, not rctd_full.h5ad"):
+        adapter.run_rctd_api(path, None, tmp_path / "out/rctd_full.h5ad", cfg, "full")
+    assert len(calls) == 1
+    assert read_h5ad(tmp_path / "out/rctd_full.h5ad").uns["rctd_method"]["fit_identity"] == json.loads(
+        (tmp_path / "out/full_completion.json").read_text())["fit_identity"]
+
+
+def test_spatial_dry_run_checks_inputs_without_fitting(tmp_path, monkeypatch):
+    import sys
+    import yaml
+    from scoop.commands import spatial as command
+
+    path, cfg, _ = _cached_profile_run(tmp_path, monkeypatch)
+    monkeypatch.setattr(adapter, "_fit_payload", lambda *args: pytest.fail("a dry run must not fit"))
+    run_root = tmp_path / "runs/r1"; (run_root / "config").mkdir(parents=True)
+    config = run_root / "config/run.yaml"
+    rctd = {**cfg["spatial"]["rctd"], "output_label": "full_fast"}
+    config.write_text(yaml.safe_dump({"spatial": {"enabled": True, "spatial_h5ad": str(path), "rctd": rctd}}))
+    monkeypatch.setattr(sys, "argv", ["scoop spatial", "--config", str(config), "--dry-run"])
+    assert command.main() is None
+    record = json.loads((run_root / "spatial/deconvolution/full_fast_rctd_command.json").read_text())
+    assert record["n_shared_genes"] == 2 and record["observations_input"] == 3 and len(record["fit_identity"]) == 64
+    assert not (run_root / "spatial/deconvolution/cache").exists()
+    rctd["reference_profiles"] = str(tmp_path / "missing.npz")
+    config.write_text(yaml.safe_dump({"spatial": {"enabled": True, "spatial_h5ad": str(path), "rctd": rctd}}))
+    with pytest.raises(FileNotFoundError):
+        command.main()

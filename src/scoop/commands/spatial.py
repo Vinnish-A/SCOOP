@@ -6,8 +6,10 @@ Usage:
   scoop spatial --config runs/<run_id>/config/run.yaml --dry-run
 
 The default low-resolution mode is `full`. The command builds the configured
-RCTD-py command and executes it unless `--dry-run` is set. RCTD output is kept
-external; only summaries should be merged into spatial AnnData.
+RCTD-py command and executes it unless `--dry-run` is set; with the API adapter a
+dry run still reads and checks every input without fitting. RCTD output is kept
+external; only summaries should be merged into spatial AnnData. Artifacts are
+named by `spatial.rctd.output_label` (default: the mode).
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from pathlib import Path
 
 from scsp_agent_sop.config import deep_get, project_root_from_run_root, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
-from scsp_agent_sop.rctd_adapter import run_rctd_api
+from scsp_agent_sop.rctd_adapter import prepare_rctd, run_rctd_api
 from scsp_agent_sop.spatial import build_rctd_command, choose_rctd_mode, run_rctd_command
 from scsp_agent_sop.storage import write_json
 
@@ -53,6 +55,7 @@ def main() -> dict | None:
     )
     label = options.get("output_label") or mode
     output_h5ad = run_root / "spatial" / "deconvolution" / f"rctd_{label}.h5ad"
+    command_json = output_h5ad.parent / f"{label}_rctd_command.json"
     adapter = deep_get(cfg, "spatial.rctd.adapter", "api")
     if adapter not in {"api", "external"}:
         raise ValueError("spatial.rctd.adapter must be api or external.")
@@ -66,10 +69,17 @@ def main() -> dict | None:
         "reference_profiles": options.get("reference_profiles"),
     }
     if adapter == "api":
-        write_json(record, run_root / "spatial/deconvolution/rctd_command.json")
         if args.dry_run:
+            plan = prepare_rctd(spatial_h5ad, reference_h5ad, output_h5ad, cfg, mode)
+            record.update({"fit_identity": plan["fit_identity"], "run_purpose": plan["purpose"],
+                           "observations_input": plan["spatial"].n_obs,
+                           "observations_after_source_selection": int(plan["status"].source_selected.sum()),
+                           "reference_components": list(plan["reference"].cell_type_names),
+                           "evidence_pending_components": plan["pending"], "n_shared_genes": plan["n_shared_genes"]})
+            write_json(record, command_json)
             print(record)
             return
+        write_json(record, command_json)
         info = run_rctd_api(spatial_h5ad, reference_h5ad, output_h5ad, cfg, mode)
         log_decision(
             run_root,
@@ -82,6 +92,7 @@ def main() -> dict | None:
         sigma_check = ("not_applicable" if options.get("sigma_override") is not None
                        else "limited" if info["sigma_step_limited"] else "passed")
         heldout = info["heldout_gene_validation"]
+        unreviewed = [c for c in info["interpretation_withheld_components"] if c not in info["evidence_pending_components"]]
         heldout_check = ({"not_applicable": "not_applicable", "not_assessable": "not_assessed"}.get(heldout["status"])
                          or ("passed" if heldout["median_spearman"] > heldout["median_shuffled_null"] else "limited"))
         return {"inputs": info["inputs"], "outputs": info["outputs"],
@@ -103,6 +114,8 @@ def main() -> dict | None:
                                 *([f"{info['run_purpose']} fit with evidence_pending components "
                                    f"{info['evidence_pending_components']}; no biological interpretation."]
                                   if info["evidence_pending_components"] else []),
+                                *([f"Components not reviewed: {unreviewed}; their weights carry no biological interpretation."]
+                                  if unreviewed and info["run_purpose"] != "pilot" else []),
                                 *(["Pilot fit: method, timing and resources only; no biological interpretation."]
                                   if info["run_purpose"] == "pilot" else [])],
                 "computation_checkpoint": info["computation_checkpoint"]}
@@ -117,7 +130,7 @@ def main() -> dict | None:
         output_h5ad=output_h5ad,
     )
     record["command"] = cmd
-    write_json(record, run_root / "spatial/deconvolution/rctd_command.json")
+    write_json(record, command_json)
     if args.dry_run:
         print(" ".join(cmd))
         return

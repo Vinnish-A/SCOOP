@@ -6,7 +6,9 @@ Usage:
 
 The fit uses the managed RCTD adapter with the package's held-out genes excluded. Pass the
 written component_identifiability.parquet as spatial.rctd.identifiability_table so that each
-fit's component summary carries the verdicts.
+fit's component summary carries the verdicts; the table is bound to the package's profiles and
+excluded genes, and a fit with others refuses it. A rerun into --output that would change the
+fit is refused before any file there is replaced.
 """
 from __future__ import annotations
 

@@ -12,6 +12,9 @@ instead of counted as zeros, over every admitted training cell (no per-type cap 
 Sums are kept per (component, group), so merged packages re-aggregate exactly from
 ``component_sums.npz`` without another pass. A per-component cell holdout, chosen by a declared
 rule, is excluded from the sums and saved for identifiability tests.
+
+``native_exposure`` and ``component_review_status`` are the exposure and review rules the RCTD
+adapter applies to its own H5AD inputs; the package records the basis of each.
 """
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ import pandas as pd
 from scipy import sparse
 
 from scoop.io import atomic_json, sha256_file
+from . import __version__
 from .assays import gene_expression_mask
 from .h5ad_io import H5ADReader
 from .measurement import var_sha256
@@ -33,9 +37,62 @@ SCHEMA = "scoop.reference-profiles.v2"
 UNIT = "mean_counts_per_full_native_exposure"
 # In increasing order of caution; a component takes the most cautious status among its cells.
 REVIEW_STATUSES = ("reviewed", "low_confidence", "unresolved", "evidence_pending")
-# SCOOP's committed fine_annotation_status read as a component review status.
-FINE_STATUS = {"accepted": "reviewed", "unresolved": "unresolved", "review_required": "evidence_pending"}
+# SCOOP's committed broad_/fine_annotation_status (annotation_decision.committer) read as a review
+# status; a level never decided (unassigned) or not applicable is not reviewed.
+COMMITTED_STATUS = {"accepted": "reviewed", "unresolved": "unresolved", "review_required": "evidence_pending",
+                    "unassigned": "evidence_pending", "not_applicable": "evidence_pending"}
+ANNOTATION_LEVELS = ("broad", "fine")
 RCTD_FC, RCTD_EXPR = 0.75, 2e-4  # rctd.Reference.get_de_genes defaults
+TRUNCATED = "gene_axis_row_sum_with_unmeasured_genes"
+
+
+def native_exposure(obs, total, exposure_key=None):
+    """Full native exposure per row and its basis.
+
+    A declared ``exposure_key`` must be integer depth >= the row's gene counts ``total`` (None leaves
+    that comparison to a caller that streams the counts). Otherwise the gene-axis row sum is the
+    exposure, and it must equal a bound ``native_full_gene_UMI`` wherever that is declared.
+    """
+    if exposure_key:
+        exposure = pd.to_numeric(obs[exposure_key], errors="raise").to_numpy(float)
+        if (not np.isfinite(exposure).all() or not np.equal(exposure, np.rint(exposure)).all()
+                or (total is not None and (exposure < total).any())):
+            raise ValueError("Declared full native exposure must be finite integer depth >= measured count mass")
+        return exposure, f"declared:{exposure_key}"
+    if "native_full_gene_UMI" in obs:
+        declared = pd.to_numeric(obs.native_full_gene_UMI, errors="raise").to_numpy(float)
+        measured = np.isfinite(declared)
+        if not np.array_equal(declared[measured], total[measured]):
+            raise ValueError("Native count depth differs from the bound observation registry")
+        if measured.all():
+            return total, "gene_axis_row_sum_matches_native_full_gene_UMI"
+    return total, "gene_axis_row_sum"
+
+
+def component_review_status(obs, k_cell, n_components, *, level="fine", review_status_key=None):
+    """Each component's review status, the most cautious over its cells and over every review source.
+
+    Sources: SCOOP's committed ``{level}_annotation_status`` at the label's annotation level, and an
+    explicit per-cell ``review_status_key`` (review statuses or committed values). Without either, a
+    component is ``evidence_pending``. Returns the statuses and the sources read.
+    """
+    if level not in ANNOTATION_LEVELS:
+        raise ValueError(f"annotation_level must be one of {ANNOTATION_LEVELS}")
+    committed = f"{level}_annotation_status"
+    sources = [committed] if committed in obs else []
+    if review_status_key and review_status_key != committed:
+        sources.append(review_status_key)
+    member = np.asarray(k_cell) >= 0
+    rank = np.full(int(member.sum()), 0 if sources else REVIEW_STATUSES.index("evidence_pending"))
+    for key in sources:
+        cell = pd.Series(obs[key].to_numpy(object)[member]).map(
+            lambda v: "evidence_pending" if pd.isna(v) else COMMITTED_STATUS.get(str(v), str(v)))
+        unknown = set(cell) - set(REVIEW_STATUSES)
+        if unknown:
+            raise ValueError(f"Unknown review status in obs[{key!r}]: {sorted(unknown)}")
+        rank = np.maximum(rank, cell.map(REVIEW_STATUSES.index).to_numpy())
+    worst = pd.Series(rank).groupby(np.asarray(k_cell)[member]).max()
+    return [REVIEW_STATUSES[worst.get(k, len(REVIEW_STATUSES) - 1)] for k in range(n_components)], sources
 
 
 def registered_measurement(path) -> Path | None:
@@ -103,6 +160,7 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
                     layer: str | None = None, status_key: str = "annotation_status",
                     admit_status=("accepted", "labeled"), reviewed_key: str = "annotation_reviewed",
                     technical_key: str | None = None, require_true=(), review_status_key: str | None = None,
+                    annotation_level: str = "fine",
                     parent_key: str | None = None, compartment_key: str | None = None,
                     components: pd.DataFrame | None = None, group_key: str | None = None,
                     chemistry_key: str | None = None, exposure_key: str | None = None, measurement=None,
@@ -115,8 +173,9 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
 
     Cells enter only with ``status_key`` in ``admit_status``, ``reviewed_key`` true (when present),
     every ``require_true`` column true and exposure >= ``min_umi``. ``excluded_technical`` cells (and
-    ``technical_key`` cells) are never admitted. ``components`` (columns component, and any of
-    parent, compartment, review_status) overrides per-cell parent/compartment/review columns.
+    ``technical_key`` cells) are never admitted. Review status comes from ``component_review_status``
+    at ``annotation_level``. ``components`` (columns component, and any of parent, compartment,
+    review_status) overrides per-cell parent/compartment; its review_status can only add caution.
     """
     started = perf_counter()
     out = Path(output_dir)
@@ -126,6 +185,8 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
     with H5ADReader(path) as reader:
         obs, var_names = reader.obs, reader.var_names.astype(str)
         genes = np.flatnonzero(gene_expression_mask(reader, cfg or {"run": {"assay": "scrna"}}))
+    if not obs.index.is_unique or not var_names.is_unique:
+        raise ValueError("Reference observation/gene IDs must be unique; reconcile native namespaces/duplicate genes explicitly")
     if labels is not None:
         missing = ~obs.index.isin(labels.index)
         if missing.any():
@@ -148,15 +209,18 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
     label = obs[label_key]
     if label[admitted].isna().any() or label[admitted].astype(str).str.strip().eq("").any():
         raise ValueError("Admitted reference cells need nonmissing component labels")
-    if exposure_key:
-        exposure = pd.to_numeric(obs[exposure_key], errors="raise").to_numpy(float)
-        if not (np.isfinite(exposure[admitted]).all() and np.equal(exposure[admitted], np.rint(exposure[admitted])).all()):
-            raise ValueError("Declared native exposure must be finite integer depth")
-    else:
-        exposure = np.zeros(n)
-        rows = np.flatnonzero(admitted)
+    rows = np.flatnonzero(admitted)
+    total = None  # a declared exposure is checked against each row's counts in the streamed pass
+    if not exposure_key:
         jobs = [(path, layer, genes, block, chunk_rows) for block in np.array_split(rows, max(1, 2 * workers)) if len(block)]
-        exposure[rows] = np.concatenate(_map_jobs(_row_sums, jobs, workers) or [np.empty(0)])
+        total = np.concatenate(_map_jobs(_row_sums, jobs, workers) or [np.empty(0)])
+    exposure = np.zeros(n)
+    exposure[rows], exposure_basis = native_exposure(obs.iloc[rows], total, exposure_key)
+    if (exposure_basis == "gene_axis_row_sum" and measurement is not None
+            and not measurement.measured_in_all(obs[measurement.sample_key].to_numpy()[admitted])[genes].all()):
+        # Some admitted cells' samples lack genes of this axis, so their row sums are not shown to be
+        # full native depth.
+        exposure_basis = TRUNCATED
     reviewed_admitted = admitted.copy()
     admitted &= exposure >= min_umi
     lab = label.astype(str).to_numpy()
@@ -171,29 +235,31 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
     meta = pd.DataFrame(index=pd.Index(names, name="name"))
     for field, key in (("parent", parent_key), ("compartment", compartment_key)):
         meta[field] = _per_component(obs[key].to_numpy()[member], k_cell[member], names, field) if key else None
-    meta["review_status"] = "reviewed"
-    if review_status_key:
-        cell = obs[review_status_key].astype(str).map(lambda v: FINE_STATUS.get(v, v)).to_numpy()[member]
-        unknown = set(cell) - set(REVIEW_STATUSES)
-        if unknown:
-            raise ValueError(f"Unknown review status in obs[{review_status_key!r}]: {sorted(unknown)}")
-        rank = pd.Series(cell).map(REVIEW_STATUSES.index).groupby(k_cell[member]).max()
-        meta["review_status"] = [REVIEW_STATUSES[rank[k]] for k in range(K)]
+    meta["review_status"], review_sources = component_review_status(obs, k_cell, K, level=annotation_level,
+                                                                     review_status_key=review_status_key)
     if components is not None:
         declared = components.set_index("component")
-        unknown = sorted(set(declared.index.astype(str)) - set(names))
+        declared.index = declared.index.astype(str)
+        unknown = sorted(set(declared.index) - set(names))
         if unknown:
             raise ValueError(f"Declared components have no admitted cells: {unknown[:5]}")
-        for field in ("parent", "compartment", "review_status"):
+        for field in ("parent", "compartment"):
             if field in declared:
                 values = declared[field].dropna()
-                meta.loc[values.index.astype(str), field] = values.astype(str).to_numpy()
-    unknown = set(meta.review_status) - set(REVIEW_STATUSES)
-    if unknown:
-        raise ValueError(f"review_status must be one of {REVIEW_STATUSES}; got {sorted(unknown)}")
+                meta.loc[values.index, field] = values.astype(str).to_numpy()
+        if "review_status" in declared:
+            values = declared.review_status.dropna().astype(str)
+            unknown = set(values) - set(REVIEW_STATUSES)
+            if unknown:
+                raise ValueError(f"review_status must be one of {REVIEW_STATUSES}; got {sorted(unknown)}")
+            # A declaration adds caution; it cannot review what the annotation did not.
+            meta.loc[values.index, "review_status"] = [
+                REVIEW_STATUSES[max(REVIEW_STATUSES.index(a), REVIEW_STATUSES.index(b))]
+                for a, b in zip(meta.loc[values.index, "review_status"], values)]
 
-    # ---- per-component holdout by rule: min(max_cells, floor(fraction * n)) cells, round-robin
-    # over donors; fewer than holdout_min_cells is not held out (too few to test anything).
+    # ---- per-component holdout by rule: min(max_cells, floor(fraction * n)) cells, split over donors
+    # in proportion to their cells (largest remainder), so no donor is drained into the holdout;
+    # fewer than holdout_min_cells is not held out (too few to test anything).
     donor = obs[donor_key].astype(str).to_numpy()
     holdout = np.zeros(n, bool)
     holdout_status = []
@@ -206,9 +272,13 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
         if n_hold < holdout_min_cells:
             holdout_status.append("below_min_cells")
             continue
-        pieces = [rng.permutation(rows[donor[rows] == d]) for d in rng.permutation(np.unique(donor[rows]))]
-        turn = np.concatenate([np.arange(len(p)) for p in pieces])
-        picked = np.concatenate(pieces)[np.argsort(turn, kind="stable")[:n_hold]]
+        donors, of = np.unique(donor[rows], return_inverse=True)
+        share = n_hold * np.bincount(of) / len(rows)
+        quota = np.floor(share).astype(int)
+        order = rng.permutation(len(donors))  # random ties
+        order = order[np.argsort((quota - share)[order], kind="stable")]
+        quota[order[:n_hold - quota.sum()]] += 1
+        picked = np.concatenate([rng.permutation(rows[of == d])[:quota[d]] for d in range(len(donors))])
         holdout[picked] = True
         holdout_status.append("sufficient" if len(set(donor[picked])) >= min_donors else "below_min_donors")
     fit = member & ~holdout
@@ -280,9 +350,14 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
     order = np.argsort(hold_rows)
     hold_x = sparse.vstack([x for _, x in held]).tocsr()[order] if held else sparse.csr_matrix((0, len(genes)))
     hold_rows = hold_rows[order]
+    hold_var = pd.DataFrame(index=pd.Index(gene_names.astype(str)))
+    if measurement is not None:
+        # Pseudo-spots pool holdout cells across samples; only these genes are measured in all of them.
+        hold_var["measured_in_all_holdout_samples"] = measurement.measured_in_all(
+            obs[measurement.sample_key].to_numpy()[hold_rows])[genes]
     ad.AnnData(hold_x, obs=pd.DataFrame({"component": np.asarray(names)[k_cell[hold_rows]], "donor": donor[hold_rows],
                                          "native_full_exposure": exposure[hold_rows]}, index=obs.index[hold_rows].astype(str)),
-               var=pd.DataFrame(index=pd.Index(gene_names.astype(str)))).write_h5ad(out / "holdout_cells.h5ad")
+               var=hold_var).write_h5ad(out / "holdout_cells.h5ad")
     coverage = pd.DataFrame({"label": lab, "n_cells": 1, "n_excluded_technical": technical,
                              "n_not_admitted": ~technical & ~reviewed_admitted,
                              "n_below_min_umi": reviewed_admitted & ~admitted, "n_training": fit, "n_holdout": holdout}
@@ -293,18 +368,25 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
 
     chemistry = obs[chemistry_key].astype(str).to_numpy() if chemistry_key else np.full(n, "undeclared", dtype=object)
     mean_exposure = pd.Series(exposure[fit]).groupby([k_cell[fit], chemistry[fit]]).mean()
-    train_donors = pd.Series(donor[fit]).groupby(k_cell[fit]).nunique()
-    hold_donors = pd.Series(donor[holdout]).groupby(k_cell[holdout]).nunique()
+    native_preserved = exposure_basis != TRUNCATED
+    train_donors = pd.Series(donor[fit]).groupby(k_cell[fit]).agg(set)
+    hold_donors = pd.Series(donor[holdout]).groupby(k_cell[holdout]).agg(set)
     hold_cells = np.bincount(k_cell[holdout], minlength=K)
     entries = []
     for k, name in enumerate(names):
+        trained, held_by = train_donors.get(k, set()), hold_donors.get(k, set())
         entries.append({"name": name, "parent": meta.parent.iloc[k], "compartment": meta.compartment.iloc[k],
                         "review_status": meta.review_status.iloc[k], "training_cells": int(nk[k]),
-                        "training_donors": int(train_donors.get(k, 0)), "holdout_cells": int(hold_cells[k]),
-                        "holdout_donors": int(hold_donors.get(k, 0)), "holdout_status": holdout_status[k],
-                        "mean_native_exposure_by_chemistry": {c: float(v) for c, v in mean_exposure.loc[k].items()},
+                        "training_donors": len(trained), "holdout_cells": int(hold_cells[k]),
+                        "holdout_donors": len(held_by), "holdout_donors_in_training": len(held_by & trained),
+                        "holdout_status": holdout_status[k],
+                        "mean_native_exposure_by_chemistry": ({c: float(v) for c, v in mean_exposure.loc[k].items()}
+                                                              if native_preserved else None),
                         "measured_fraction_min": float(frac[fit_gene, k].min())})
     gaps = []
+    if not native_preserved:
+        gaps.append("native exposure not established: admitted cells' samples lack genes of the axis, so their "
+                    "row sums may miss native depth; declare --exposure-key. RCTD fits refuse this package")
     for c in entries:
         if c["review_status"] == "evidence_pending":
             gaps.append(f"{c['name']}: evidence_pending component; production fits refuse it")
@@ -319,14 +401,17 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
                         + ("not assessable" if c["holdout_status"] == "below_min_cells" else "donor-confounded"))
     gaps.append("whole-tissue reference coverage is not assessed by the builder")
     manifest = {
-        "schema_version": SCHEMA, "unit": UNIT, "native_full_exposure_preserved": True,
+        "schema_version": SCHEMA, "unit": UNIT, "native_full_exposure_preserved": native_preserved,
+        "exposure_basis": exposure_basis,
         "profiles_path": profile_path.name, "profiles_sha256": sha256_file(profile_path),
         "estimator": "per gene: sum over training cells of type whose sample measured the gene of x/nUMI, "
                      "divided by their number; nUMI = full native exposure",
         "components": entries, "coverage_complete": False, "gaps": gaps,
         "holdout_rule": {"cells_per_component": "min(max_cells, floor(fraction * n_admitted))",
                          "fraction": holdout_fraction, "max_cells": holdout_max_cells, "min_cells": holdout_min_cells,
-                         "min_donors": min_donors, "assignment": "round-robin over donors", "seed": seed,
+                         "min_donors": min_donors, "seed": seed,
+                         "assignment": "per donor, in proportion to its cells (largest remainder)",
+                         "scope": "cell holdout within donors: holdout donors also train (holdout_donors_in_training)",
                          "below_min_cells": "not held out; all cells train", "path": "holdout_cells.h5ad",
                          "n_cells": int(holdout.sum())},
         "heldout_validation_genes": {"path": "heldout_validation_genes.tsv", "n": len(heldout_genes),
@@ -339,7 +424,8 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
                       "never_admitted": "excluded_technical", "reviewed_key": reviewed_key if reviewed_key in obs else None,
                       "technical_key": technical_key, "require_true": list(require_true), "min_umi": min_umi,
                       "exposure": exposure_key or "row sum of gene-expression features",
-                      "review_status_key": review_status_key, "donor_key": donor_key, "group_key": group_key,
+                      "review_status_key": review_status_key, "annotation_level": annotation_level,
+                      "review_status_sources": review_sources, "donor_key": donor_key, "group_key": group_key,
                       "chemistry_key": chemistry_key, "n_admitted_cells": int(admitted.sum()),
                       "n_training_cells": int(fit.sum()), "n_excluded_technical": int(technical.sum())},
         "cap_policy": "no per-type cap: every admitted non-holdout cell enters the pooled mean",
@@ -347,6 +433,7 @@ def build_reference(counts_h5ad, output_dir, *, label_key: str, donor_key: str, 
                            "use": "exact re-aggregation of merged components (same cells, same estimator)"},
         "inputs": {"counts_h5ad": {"path": str(path.resolve()), "size_bytes": path.stat().st_size,
                                    "var_sha256": var_sha256(var_names), "layer": layer or "X"}},
+        "producer": {"scoop_version": __version__, "module_sha256": sha256_file(__file__)},
         "elapsed_seconds": perf_counter() - started,
     }
     if measurement is not None:

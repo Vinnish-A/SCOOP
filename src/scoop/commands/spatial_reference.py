@@ -5,7 +5,9 @@ Usage:
   scoop spatial build-reference --h5ad atlas.h5ad --label-key cell_type_lvl3 --donor-key donor_id --output ref/
 
 Counts are streamed; only reviewed, non-technical cells enter (see --status-key / --admit-status).
-A FeatureMeasurement (--feature-measurement, else the one registered in the H5AD) gives per-gene
+Each component's review status is the most cautious of SCOOP's committed {broad,fine}_annotation_status
+at --annotation-level and --review-status-key; with neither it is evidence_pending, which production
+fits refuse. A FeatureMeasurement (--feature-measurement, else the one registered in the H5AD) gives per-gene
 measured-cell denominators. Pass the package to `scoop spatial` through spatial.rctd.reference_profiles
 and reference_manifest; its heldout_validation_genes.tsv lists the genes for spatial.rctd.exclude_genes.
 """
@@ -38,13 +40,17 @@ def main() -> dict:
     ap.add_argument("--reviewed-key", default="annotation_reviewed", help="must be true when the column exists")
     ap.add_argument("--technical-key", help="extra boolean column of technical cells, never admitted")
     ap.add_argument("--require-true", nargs="*", default=[], help="boolean obs columns that must be true (e.g. final_use)")
-    ap.add_argument("--review-status-key", help="per-cell component review status (or SCOOP fine_annotation_status)")
+    ap.add_argument("--review-status-key", help="extra per-cell review status column; can only add caution to the committed status")
+    ap.add_argument("--annotation-level", default="fine", choices=["fine", "broad"],
+                    help="annotation level of --label-key; selects the committed {level}_annotation_status")
     ap.add_argument("--parent-key")
     ap.add_argument("--compartment-key")
-    ap.add_argument("--components", help="TSV: component[, parent, compartment, review_status]; overrides per-cell keys")
+    ap.add_argument("--components", help="TSV: component[, parent, compartment, review_status]; overrides per-cell "
+                                         "parent/compartment; review_status can only add caution")
     ap.add_argument("--group-key", help="keep linear sums per group (e.g. dataset) for exact re-aggregation")
     ap.add_argument("--chemistry-key", help="obs column for mean native exposure by chemistry")
-    ap.add_argument("--exposure-key", help="obs column of full native exposure; default: gene-feature row sums (extra pass)")
+    ap.add_argument("--exposure-key", help="obs column of full native exposure; default: gene-feature row sums (extra "
+                                           "pass), checked against obs native_full_gene_UMI when present")
     ap.add_argument("--feature-measurement", help="scoop.feature-measurement.v1 .npz")
     ap.add_argument("--min-umi", type=int, default=100)
     ap.add_argument("--min-cells", type=int, default=25)
@@ -66,7 +72,8 @@ def main() -> dict:
         args.h5ad, args.output, label_key=args.label_key, donor_key=args.donor_key,
         labels=_table(args.labels) if args.labels else None, layer=args.layer, status_key=args.status_key,
         admit_status=args.admit_status, reviewed_key=args.reviewed_key, technical_key=args.technical_key,
-        require_true=args.require_true, review_status_key=args.review_status_key, parent_key=args.parent_key,
+        require_true=args.require_true, review_status_key=args.review_status_key, annotation_level=args.annotation_level,
+        parent_key=args.parent_key,
         compartment_key=args.compartment_key, components=pd.read_csv(args.components, sep="\t") if args.components else None,
         group_key=args.group_key, chemistry_key=args.chemistry_key, exposure_key=args.exposure_key,
         measurement=FeatureMeasurement.load(measurement_path) if measurement_path else None,

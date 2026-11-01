@@ -20,6 +20,11 @@ scoop spatial --config runs/<run_id>/config/run.yaml --dry-run
 scoop spatial --config runs/<run_id>/config/run.yaml
 ```
 
+With the API adapter, `--dry-run` runs every pre-fit check without fitting: integer native
+counts and exposure, the reference and its review gate, the shared genes (at least one per
+component), a bound identifiability table and a conflicting completion. It writes only the
+command record, with the fit identity it would use.
+
 ## Reference granularity: all cell subgroups
 
 Spatial deconvolution must resolve **all reviewed cell subgroups across every
@@ -64,8 +69,9 @@ not automatic merging; specimen correspondence does not establish registered ROI
 
 Sidecar outputs:
 
-- `deconvolution/rctd_command.json` and `deconvolution/rctd_{label}.h5ad`
-  (`label` is `spatial.rctd.output_label`, else the mode).
+- `deconvolution/{label}_rctd_command.json` and `deconvolution/rctd_{label}.h5ad`
+  (`label` is `spatial.rctd.output_label`, else the mode). A direct `run_rctd_api` call must name
+  its H5AD `rctd_{label}.h5ad`, so two labels never share one.
 - API adapter, in `deconvolution/`: `{label}_weights_raw`, `_weights_visualization`,
   `_diagnostics`, `_fitted_profiles` and `_component_summary` Parquet; with
   `merge_level: parent|compartment` also `{label}_weights_{level}.parquet`; with
@@ -229,12 +235,15 @@ For a large already-qualified reference, provide `reference_profiles` (NPZ with
 `profiles`, `gene_names`, `cell_type_names`) and `reference_manifest` under
 `spatial.rctd`; build both with `scoop spatial build-reference` (below). A hand-made
 `scoop.reference-profiles.v1` manifest (`labels_reviewed`, per-type `training_cells`)
-is still accepted; without `labels_reviewed: true` every component is `evidence_pending`.
+is still accepted; without `labels_reviewed: true`, or with a `gate_override` whose
+`biological_interpretation_allowed` is false, every component is `evidence_pending`.
 Bind exact UID/QC, source axes and review receipts in the project construction
 evidence. The manifest records analyst qualification; naming a component is not proof of it.
 
-The H5AD route requires reviewed annotation status or an explicit reviewed
-`reference_mask_key`. Declared types dropped by backend thresholds cause an
+The H5AD route admits cells by reviewed annotation status or an explicit
+`reference_mask_key`. Their review status follows the builder's rule (below) at
+`spatial.rctd.annotation_level` (default `fine`); a mask admits cells but does not review
+them. Declared types dropped by backend thresholds cause an
 error; rare types require qualification rather than implicit deletion.
 Set `spatial_counts_layer: X` or `reference_counts_layer: X` only for explicit
 native-count X inputs. A projected count view can declare `spatial_exposure_key`
@@ -248,7 +257,11 @@ unassessed. Count-derived QC in a separate sidecar must be joined explicitly.
 
 The adapter saves a hash-bound computation checkpoint before tables/H5AD export.
 Retrying the same fit reuses it after input, code, parameters, package and lookup
-checks; changing export serialization alone does not refit. The arrays carry their
+checks; changing export serialization alone does not refit. The fit identity hashes the
+resolved compute settings: effective `N_fit`/`N_epoch` (preset values included), gene
+selection, `umi_min`, the sorted unique `exclude_genes`, seed, `sigma_override`, device class
+(cpu/cuda), count layers, exposure and mask keys and the gene-mask settings. Explicit defaults,
+unrelated `qc` keys, threads, batch size, labels and gates do not change it. The arrays carry their
 fit identity, so a crash after they are written still reuses them. A
 `{label}_completion.json` from a different fit is never overwritten; set a distinct
 `spatial.rctd.output_label`. `sigma_step_limited` (sigma moved the full step budget
@@ -270,18 +283,39 @@ same-cell/shared-gene comparisons before attributing discordance to an algorithm
   and `reference_coverage.tsv`. It admits `--admit-status` (default `accepted labeled`) cells with
   `annotation_reviewed` true (when present); `excluded_technical` cells never enter. Per-gene denominators count only
   cells whose sample measured the gene (registered or `--feature-measurement`). Each component records
-  `parent`, `compartment` and `review_status` (`reviewed | low_confidence | unresolved | evidence_pending`,
-  from `--review-status-key`/`--components`), training and holdout cells and donors, exposure by chemistry
-  and `measured_fraction_min`. `holdout_rule` holds out `min(max_cells, floor(fraction × n))` cells
-  round-robin over donors; `holdout_status` is `sufficient | below_min_cells | below_min_donors | not_requested`.
+  `parent`, `compartment` and `review_status` (`reviewed | low_confidence | unresolved | evidence_pending`),
+  training and holdout cells and donors, `holdout_donors_in_training`, exposure by chemistry
+  and `measured_fraction_min`. `holdout_rule` holds out `min(max_cells, floor(fraction × n))` cells,
+  split over donors in proportion to their cells, so no donor is drained into the holdout; holdout
+  donors also train. `holdout_status` is `sufficient | below_min_cells | below_min_donors | not_requested`.
+  The manifest's `producer` records the SCOOP version and builder sha256.
+- Review status is the most cautious, over a component's cells, of SCOOP's committed
+  `{level}_annotation_status` (`accepted` → reviewed, `unresolved`, `review_required` → evidence_pending;
+  `--annotation-level fine|broad`, default `fine`) and an optional `--review-status-key` column. With no
+  review source a component is `evidence_pending`. A legacy `labeled` cell has no committed level, so it
+  stays `evidence_pending` unless a source reviews it. `--components` sets parent/compartment, but its
+  `review_status` can only add caution.
+- Exposure follows the adapter's rule: a declared `--exposure-key`, otherwise gene-axis row sums, which must
+  equal a bound `native_full_gene_UMI`. `exposure_basis` records which was used. Row sums of cells whose
+  sample did not measure every gene on the axis are not shown to be full depth: the package then sets
+  `native_full_exposure_preserved: false` and RCTD fits refuse it until an exposure is declared.
 - `scoop spatial identifiability --reference DIR --output OUT` fits holdout pseudo-spots through the
   managed adapter (default `--run-purpose pilot`) and writes `component_identifiability.parquet`
   (`identifiable` r ≥ 0.7, `weakly_identifiable` ≥ 0.4, else `not_identifiable_fine`; `not_assessable`
   without dominant spots), `pair_identifiability.parquet`
-  and `identifiability_summary.json`. It has no platform effect, so it is an optimistic bound. Pass the
-  component table as `spatial.rctd.identifiability_table` to add verdicts to each `{label}_component_summary.parquet`.
+  and `identifiability_summary.json`. Spot exposure and truth are in native exposure, the profiles' unit,
+  and spots use only genes every holdout sample measured. It has no platform effect and holdout donors
+  also train, so it is an optimistic bound. A rerun into the same `OUT` that would change the fit is
+  refused before any file is replaced. Pass the
+  component table as `spatial.rctd.identifiability_table` to add verdicts to each `{label}_component_summary.parquet`;
+  the table carries `profiles_sha256` and `reference_fit_genes_sha256`, and a fit with other profiles or
+  excluded genes refuses it.
 - `spatial.rctd.run_purpose: production` (default) refuses `evidence_pending` components; `sensitivity` and
-  `pilot` fit them, but only a production or sensitivity fit without pending components sets
-  `biological_interpretation_allowed`. Pilot results support method, timing and resources only.
+  `pilot` fit them. Interpretation is decided per component: the component summary's
+  `biological_interpretation_allowed` is true only for `reviewed` components of a non-pilot fit, and the
+  fit-level flag only when every component qualifies (`interpretation_withheld_components` lists the rest).
+  Pilot results support method, timing and resources only.
+- A fitted unit with no positive raw weight stays NA and is left out of the component summary and
+  held-out validation (`fitted_observations_without_allocation`).
 - `spatial.rctd.merge_level: component` (default), `parent` or `compartment`; the latter two need a v2
   manifest that declares them and add exact summed weights, never a refit.

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-import json
 
 from .storage import sha256_file, write_json
 
@@ -10,7 +9,9 @@ from .storage import sha256_file, write_json
 def build_manifest(run_root: str | Path, *, paths=None, metadata=None) -> dict[str, Any]:
     run_root = Path(run_root).resolve()
     files = []
-    selected = sorted(run_root.rglob("*")) if paths is None else sorted({Path(p).resolve() for p in paths})
+    # An inventory lists the files present; only registered paths can be missing.
+    selected = (sorted(p for p in run_root.rglob("*") if p.is_file()) if paths is None
+                else sorted({Path(p).resolve() for p in paths}))
     missing = []
     for path in selected:
         if not path.is_file():
