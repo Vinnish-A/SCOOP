@@ -19,6 +19,9 @@ obs_keep:
     - pct_counts_mt
     - pct_counts_ribo
     - pct_counts_hb
+    - mt_unassessed
+    - ribo_unassessed
+    - hb_unassessed
     - qc_pass
     - qc_class
     - qc_failure_reason
@@ -41,6 +44,7 @@ obs_keep:
     - program_dominated_class
     - program_action
   clustering_annotation:
+    - leiden_scvi
     - cluster_identity
     - cluster_biology
     - cell_type_lvl1
@@ -49,12 +53,28 @@ obs_keep:
     - cell_state
     - annotation_confidence
     - annotation_status
+    - annotation_reviewed
+    - annotation_identity_scope
+    - broad_annotation_status
+    - fine_annotation_status
+    - malignancy_status
+    - malignancy_basis
+    - annotation_technical_kind
+    - annotation_identity_source
     - annotation_source
     - annotation_version
     - scvi_curated_cell_type
     - scpoli_predicted_cell_type
     - scpoli_uncertainty
     - scpoli_weighted_distance
+    - is_projected
+  cnv:
+    - fastcnv_reference_pool
+    - fastcnv_cnv_fraction
+    - fastcnv_normal_threshold
+    - fastcnv_threshold_source
+    - fastcnv_tumor_evidence
+    - fastcnv_sample_has_reference
   spatial:
     - spatial_unit_type
     - resolution_um
@@ -79,6 +99,7 @@ var_keep:
   - highly_variable_biology
   - highly_variable_identity
   - exclude_from_identity_hvg
+  - nmf_discovery_gene
 
 layers_keep:
   - counts
@@ -86,6 +107,7 @@ layers_keep:
   - counts_ambient_corrected
 
 obsm_keep:
+  - X_umap
   - X_pca_biology
   - X_pca_identity
   - X_pca_harmony_identity
@@ -106,10 +128,13 @@ obsp_keep:
   - scvi_distances
 
 uns_keep:
+  - qc_inheritance
+  - nmf_program_names
   - schema_version
   - pipeline_versions
   - input_hashes
   - file_registry
   - decision_summary
+  - annotation_review
   - references
   - storage_policy
