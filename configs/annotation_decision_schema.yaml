@@ -7,7 +7,17 @@ allowed_identity_scope:
   - broad
   - fine
   - unresolved
+  - fine_unresolved
 default_identity_scope: broad
+allowed_disposition:
+  - identity
+  - technical_exclusion
+allowed_technical_kind:
+  - doublet
+  - multiplet
+  - ambient
+  - low_quality
+  - artefact
 required_obs_fields:
   - cell_type_lvl1
   - cell_type_lvl2
@@ -23,9 +33,31 @@ tumor_gate:
     - tumour
     - cancer
     - neoplastic
-  required_evidence:
-    - fastcnv_tumor_evidence
-    - fastcnv_cnv_fraction
+  # Malignancy is declared per decision, never inferred from label text.
+  # Lineage markers decide; CNV is supporting evidence and never required.
+  malignancy_status:
+    - malignant
+    - probable_malignant
+    - normal
+    - ambiguous
+    - not_applicable
+  malignant_status:
+    - malignant
+    - probable_malignant
+  malignancy_basis:
+    - lineage_markers
+    - tumour_programmes
+    - cnv
+    - snv
+    - atac
+    - reference_mapping
+    - histology
+  required_basis:
+    - lineage_markers
+  # A declared cnv basis must cite an artefact registered under one of these schema prefixes.
+  cnv_schema_prefixes:
+    - cnv
+    - fastcnvpy
 program_sanitizer:
   classes:
     - identity

@@ -82,7 +82,7 @@ At runtime, require `annotation_confidence=high` or an explicit Boolean `referen
 
 Outputs:
 
-- H5AD `obs`: `fastcnv_reference_pool`, `fastcnv_cnv_fraction`, `fastcnv_normal_threshold`, `fastcnv_tumor_evidence`;
+- H5AD `obs`: `fastcnv_reference_pool`, `fastcnv_cnv_fraction`, `fastcnv_normal_threshold`, `fastcnv_threshold_source`, `fastcnv_tumor_evidence` (`cnv_unassessed` without enough references; see [tumor rules](../markers/tumor-general.md#24-actual-references-measurement-scales-and-checkpoints));
 - External tables: pooled manifest, pooled cell metadata, pooled chromosome-arm CNV, genomic windows, and per-sample FastCNVpy results;
 - Logs: reference composition, whether normal parenchymal cells were included, candidate cell counts, parallelism parameters, and dense/sparse H5AD mode.
 

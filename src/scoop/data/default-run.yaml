@@ -180,6 +180,12 @@ annotation:
     output_dir: annotation/decisions
     min_cells_high_confidence: 20
     min_samples_high_confidence: 2
+    # Samples count toward high-confidence support only with >= this many cells in the unit.
+    min_cells_per_sample: 20
+    # Composition-key overrides for the evidence bundle; null falls back to run.obs_keys, then keys.sample / keys.donor / study_id.
+    sample_key: null
+    donor_key: null
+    study_key: null
     require_review_for_unvalidated: true
   program_sanitizer:
     enabled: true
@@ -213,6 +219,8 @@ spatial:
     umi_min_low_resolution: 100
     umi_min_bin: 20
     cell_type_key: cell_type_lvl3
+    run_purpose: production  # sensitivity / pilot may fit evidence_pending components; pilot allows no interpretation
+    merge_level: component  # parent / compartment also write exact aggregated weights
 
 delivery:
   scope: reviewed-annotation  # current-state explicitly permits an earlier checkpoint

@@ -31,16 +31,18 @@ views or composition adjustment afterward.
 
 Before fitting, export a reference coverage table linking each subgroup to its
 parent lineage, reviewed identity source, cell and donor counts, inclusion status
-and any unresolved gap. Preserve rare, mixed or genuinely unresolved populations
+and any unresolved gap; `scoop spatial build-reference` writes it with the package
+(see [reference package](#reference-package-identifiability-and-run-purpose)).
+Preserve rare, mixed or genuinely unresolved populations
 under explicit labels. If a required subgroup is missing or cannot be separated,
 record that coverage or identifiability gap and prepare the missing reference or
 annotation evidence; do not claim a broad-only fit resolves all subgroups. A
 coarse reference may be retained as a declared pilot or sensitivity analysis.
 Do not create subtypes through automatic label transfer to satisfy the table.
 
-Inspect subgroup profiles and marker separability, especially closely related
-states. Overlapping profiles call for a recorded merged-state sensitivity
-analysis alongside the fine fit, not silent removal of inconvenient subgroups.
+Test separability of closely related states with `scoop spatial identifiability`.
+Overlapping profiles call for merged weights (`spatial.rctd.merge_level`) alongside
+the fine fit, not silent removal of inconvenient subgroups.
 
 ## Execution
 
@@ -62,9 +64,13 @@ not automatic merging; specimen correspondence does not establish registered ROI
 
 Sidecar outputs:
 
-- `deconvolution/rctd_command.json`.
-- RCTD-py output H5AD or tables, depending on configured command.
-- Deconvolution weights should be externalised as Parquet.
+- `deconvolution/rctd_command.json` and `deconvolution/rctd_{label}.h5ad`
+  (`label` is `spatial.rctd.output_label`, else the mode).
+- API adapter, in `deconvolution/`: `{label}_weights_raw`, `_weights_visualization`,
+  `_diagnostics`, `_fitted_profiles` and `_component_summary` Parquet; with
+  `merge_level: parent|compartment` also `{label}_weights_{level}.parquet`; with
+  held-out genes in the section, `{label}_heldout_gene_validation.parquet`; then
+  `{label}_completion.json`.
 
 Review triggers:
 
@@ -80,7 +86,7 @@ prove biology. Bins/ROIs are not patients; deconvolution does not prove contact,
 absolute counts or function. Review biology separately from numerics; unresolved
 clinical mapping need not block descriptive work.
 
-The managed default now calls the pinned RCTD-py 0.3.9 API directly; the old
+The managed default now calls the pinned RCTD-py 0.4.0 API directly; the old
 incompatible command template is removed from new configs. Explicit external
 adapters remain possible with `spatial.rctd.adapter: external` and a supplied
 `command_template`. `spatial.unit_type` controls the mode decision.
@@ -89,7 +95,9 @@ Set `spatial.rctd.q_matrices` or `RCTD_Q_MATRICES` to a staged upstream lookup
 file; otherwise the upstream package uses its documented cache/download path.
 Use native full reference counts before gene intersection. `exclude_genes`
 removes held-out genes from reference fitting while preserving full spatial UMI
-exposure. Save raw weights separately from nonnegative normalized visualizations.
+exposure; list the package's `heldout_validation_genes.tsv` genes there and each
+fit scores them against a shuffled-unit null. Save raw weights separately from
+nonnegative normalized visualizations.
 Multi mode reconstructs the sparse result from `sub_weights/cell_type_indices`;
 `weights` is its initial full fit. Doublet mode similarly keeps pair weights and
 spot-class diagnostics. These estimates do not commit biological cell labels.
@@ -158,7 +166,9 @@ counts and full row depth. Preserve original rows and source tissue/QC flags.
 Matching spot IDs alone does not complete count-derived QC or format support.
 
 Use held-out native cells or sample units to stress related and rare reference
-components. If a cached common-gene matrix omits actually measured genes, preserve
+components; the v2 package's per-component holdout and `scoop spatial identifiability`
+implement the cell holdout. If a cached common-gene matrix omits actually measured
+genes, preserve
 their original count mass separately and restore the known full exposure before
 calibration; never add a fictional catch-all gene. Constructed mixtures measure
 recovery of recorded source RNA origins, not independent biological identity or
@@ -217,12 +227,11 @@ posteriors with full-native RNA fractions.
 
 For a large already-qualified reference, provide `reference_profiles` (NPZ with
 `profiles`, `gene_names`, `cell_type_names`) and `reference_manifest` under
-`spatial.rctd`. The JSON manifest uses `schema_version: scoop.reference-profiles.v1`,
-`unit: mean_counts_per_full_native_exposure`, `labels_reviewed: true`,
-`native_full_exposure_preserved: true`, `profiles_sha256`, per-type
-`training_cells`, and explicit `coverage_complete`/`gaps`. Bind exact UID/QC,
-source axes and review receipts in the project construction evidence. This
-manifest records analyst qualification; naming a component is not proof of it.
+`spatial.rctd`; build both with `scoop spatial build-reference` (below). A hand-made
+`scoop.reference-profiles.v1` manifest (`labels_reviewed`, per-type `training_cells`)
+is still accepted; without `labels_reviewed: true` every component is `evidence_pending`.
+Bind exact UID/QC, source axes and review receipts in the project construction
+evidence. The manifest records analyst qualification; naming a component is not proof of it.
 
 The H5AD route requires reviewed annotation status or an explicit reviewed
 `reference_mask_key`. Declared types dropped by backend thresholds cause an
@@ -239,10 +248,40 @@ unassessed. Count-derived QC in a separate sidecar must be joined explicitly.
 
 The adapter saves a hash-bound computation checkpoint before tables/H5AD export.
 Retrying the same fit reuses it after input, code, parameters, package and lookup
-checks; changing export serialization alone does not refit. Source/reference
+checks; changing export serialization alone does not refit. The arrays carry their
+fit identity, so a crash after they are written still reuses them. A
+`{label}_completion.json` from a different fit is never overwritten; set a distinct
+`spatial.rctd.output_label`. `sigma_step_limited` (sigma moved the full step budget
+of every epoch) makes validation `limited`; refit with `preset: standard` or more
+epochs. Source/reference
 changes require a new computation. Successful output still has limited validation
 and unassessed fine-proportion interpretation until the relevant science is reviewed.
 
 When comparing deconvolution methods, separate estimator, actual training UID,
 feature selection, calibration and reference coverage changes. Use controlled
 same-cell/shared-gene comparisons before attributing discordance to an algorithm.
+
+
+## Reference package, identifiability and run purpose
+
+- `scoop spatial build-reference --h5ad ATLAS --label-key KEY --donor-key KEY --output DIR`
+  streams native counts into a `scoop.reference-profiles.v2` package: `reference_manifest.json`,
+  `reference_profiles.npz`, `component_sums.npz`, `holdout_cells.h5ad`, `heldout_validation_genes.tsv`
+  and `reference_coverage.tsv`. It admits `--admit-status` (default `accepted labeled`) cells with
+  `annotation_reviewed` true (when present); `excluded_technical` cells never enter. Per-gene denominators count only
+  cells whose sample measured the gene (registered or `--feature-measurement`). Each component records
+  `parent`, `compartment` and `review_status` (`reviewed | low_confidence | unresolved | evidence_pending`,
+  from `--review-status-key`/`--components`), training and holdout cells and donors, exposure by chemistry
+  and `measured_fraction_min`. `holdout_rule` holds out `min(max_cells, floor(fraction × n))` cells
+  round-robin over donors; `holdout_status` is `sufficient | below_min_cells | below_min_donors | not_requested`.
+- `scoop spatial identifiability --reference DIR --output OUT` fits holdout pseudo-spots through the
+  managed adapter (default `--run-purpose pilot`) and writes `component_identifiability.parquet`
+  (`identifiable` r ≥ 0.7, `weakly_identifiable` ≥ 0.4, else `not_identifiable_fine`; `not_assessable`
+  without dominant spots), `pair_identifiability.parquet`
+  and `identifiability_summary.json`. It has no platform effect, so it is an optimistic bound. Pass the
+  component table as `spatial.rctd.identifiability_table` to add verdicts to each `{label}_component_summary.parquet`.
+- `spatial.rctd.run_purpose: production` (default) refuses `evidence_pending` components; `sensitivity` and
+  `pilot` fit them, but only a production or sensitivity fit without pending components sets
+  `biological_interpretation_allowed`. Pilot results support method, timing and resources only.
+- `spatial.rctd.merge_level: component` (default), `parent` or `compartment`; the latter two need a v2
+  manifest that declares them and add exact summed weights, never a refit.

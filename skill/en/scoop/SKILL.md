@@ -36,7 +36,10 @@ adapter and record method/environment, reason, inputs/parameters, outputs and
 checks. Isolate genuinely conflicting dependencies; do not modify a shared release
 or silently switch algorithms. A bypass does not grant biological approval.
 
-Preserve raw counts, cell/gene order, clinical joins and source files. Resume
+Preserve raw counts, cell/gene order, clinical joins and source files. Declare
+typed obs columns in `run.obs_keys` and any known per-sample gene measurement as a
+[feature measurement](references/docs/data-boundaries.md#observability-positive-evidence-and-input-versions);
+unmeasured is missing, not zero. Resume
 validated checkpoints; a save failure does not require refitting valid models.
 Keep large tables external and preserve executable graph/embedding metadata.
 [Workflow receipts](references/workflow-contract.md) describe actual execution
@@ -63,7 +66,8 @@ interpretation and coverage. Register verified project-adapter artifacts through
 
 For spatial deconvolution, cover **all reviewed cell subgroups across the whole
 tissue** in the fitted reference, not only the focal lineage. Fit the fine
-reference first; aggregate its weights for broad displays when needed. Keep
+reference first; aggregate its weights for broad displays when needed
+(`spatial.rctd.merge_level`). Keep
 unresolved populations explicit and report unassessed subgroup gaps; do not
 replace reviewed subtypes with broad classes for convenience. See the spatial
 route for the reference coverage contract.

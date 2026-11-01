@@ -53,6 +53,19 @@ do not make every such cell Unknown. Do not inherit formal DEG, fine subtype,
 functional state or reference eligibility from neighbouring cells. Missing or
 filtered genes remain unavailable for negative-marker claims and formal tests.
 
+Declare a known per-sample measurement as `scoop.feature-measurement.v1`
+(`scsp_agent_sop.measurement.FeatureMeasurement`: a bit-packed sample × gene `.npz`
+bound to the var axis by `var_sha256`), registered with
+`register_file(adata, key="feature_measurement", path=NPZ, category="artifacts", schema=FORMAT)`
+at `uns.file_registry.artifacts.feature_measurement`. Consumers then keep unmeasured
+missing: QC gives NaN with `mt/ribo/hb_unassessed`; marker DEG tests partially
+measured genes on measuring cells only; COSG specificity and tumour CNV use genes
+measured in every sample and write the excluded genes; HVG selection honours it on
+`scanpy_legacy`/`fastcore_cpu`, programme scores on `scanpy_legacy`, and
+`spatial build-reference` averages each gene over measuring cells. Other core
+backends record `measurement: not_honoured` and request review. Without a
+declaration receipts record `not_declared` and every gene counts as measured.
+
 Reconcile pre-QC candidates, frozen retained rows and assay-specific assessment
 denominators by exact UID. A count difference is not evidence of duplicate cells
 or a reason to restore excluded rows. An exact barcode/UID bridge also does not
@@ -68,7 +81,13 @@ external tables for large results. Managed QC/core/programme/spatial/atlas/deliv
 after successful serialization. The embedded registry does not claim a file
 contains its own hash; the external manifest fingerprints the final object.
 Verify a saved/read-back object rather than
-repeating model fitting after an export failure.
+repeating model fitting after an export failure. Managed writes take the process
+umask; approval gates stay owner-only (0600).
+
+`qc`, `annotate tumor-cnv` and `annotate commit` accept `--output-format
+obs-parquet`: only new or changed obs columns (commit: all committed label fields)
+keyed by `obs_name`, plus a `<stem>.json` receipt with the obs-order hash and file
+registry. No matrix, var or uns is written; join it back by `obs_name`.
 
 Pruning retains graph descriptors that point to retained adjacency/distance
 matrices and embedding descriptors for retained PCA/UMAP coordinates. Use a

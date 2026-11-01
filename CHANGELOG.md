@@ -2,10 +2,21 @@
 
 ## Unreleased
 
+- `scoop spatial build-reference` builds a measurement-aware `scoop.reference-profiles.v2` package. It streams counts, uses per-gene measured denominators, records per-component review state, parent, compartment, training and holdout counts and exposure by chemistry, holds cells out by rule, and never admits technical exclusions.
+- RCTD adds `spatial.rctd.run_purpose` (production refuses evidence-pending components; pilot runs carry no interpretation), `merge_level: parent|compartment` for exact aggregated weights, a per-component summary and held-out gene validation against a shuffled null. v1 manifests are still accepted. `scoop spatial identifiability` reports per-component and pairwise identifiability from holdout pseudo-spots. The cached-fit code hash changes once.
+- `annotate tumor-cnv`, `annotate commit` and `qc` accept `--output-format obs-parquet`, which writes only new or changed obs columns plus a JSON receipt. `annotate review` and `annotate commit` accept `--cluster-table` keyed by obs_name. Opt-in `programs.batch_correction: harmony_moe` passes the typed batch to FastCNMF Harmony preprocessing. COSG specificity scores only genes measured in every sample and lists the genes it excludes.
+
 - Add `run.obs_keys {sample, donor, batch, study}`, resolved once with fallback to the legacy `keys.*` names and recorded with each key's source. Declared keys must exist in obs. `de prepare` aggregates accepted cells only and carries donor, batch, study and batch-candidate design columns. scVI takes its batch from `atlas.scvi.batch_key` or `run.obs_keys.batch`, never a guessed candidate.
 
 - HVG selection and programme scores honour a declared feature measurement on the scanpy_legacy and vendored CPU backends: each batch ranks only genes it measured, and scores use genes measured in every sample. Output without a measurement is unchanged. OmicVerse preprocess backends, which cannot take a mask, record `measurement: not_honoured` and request review. Rescoring replaces cell-cycle columns instead of duplicating them.
 - `atlas integrate` requires an explicit `atlas.scvi.batch_key` (default `null`) and honours `atlas.split.held_out_query_units`: held-out cells are embedded by the trained encoder and marked in `obs.is_projected`.
+
+- Bind annotation evidence by content: DEG tables attach only to units whose `label_key` and group they test (`ref` or `ref::group` citations). Commit refuses a stale partition, a changed unit cell count or a different evidence bundle; legacy bundles commit as `limited`. Composition keys and per-sample cell minima are configurable, and config thresholds reach the validator.
+- Declare malignancy instead of inferring it from label words: `malignancy_status`/`malignancy_basis`, where lineage markers plus DEG decide and CNV is optional support that must cite a registered CNV artefact with assessed cells. Tumour-term labels need a declared status, independent of `is_tumor`.
+- Add decision outcomes `technical_exclusion` (`excluded_technical`, counted as reviewed) and `fine_unresolved`, non-gating `notes`, unit lineage in a complete `merge_split_log`, and a hash-bound `--cell-layer` whose per-cell confidence can only lower the unit value.
+- Marker DEG tests genes not measured in every sample on measuring cells only, with an exact tie-corrected Mann–Whitney, and exports `n_measured_*`, `U`, `log10_pval` and `log10_pval_adj` so P no longer underflows.
+- RCTD commits a finished fit before its diagnostics: runtime metadata is made JSON-safe, checkpoint arrays carry their fit identity and are reused after a crash, `spatial.rctd.output_label` keeps differently configured fits apart, and `sigma_step_limited` marks a sigma stopped by the epoch cap.
+- Tumour CNV records the threshold source per cell; too few references give `cnv_unassessed` unless the all-cells q75 fallback is opted in; a skipped plan is recorded as `not_run`/`skipped`; the plan records the effective nonparenchymal vocabulary and the reviewed cells it drops.
 
 - Record what was measured: add a hash-bound per-sample feature-measurement mask (`scoop.feature-measurement.v1`). QC reports MT/ribo/HB fractions as unassessed (NaN with `*_unassessed` flags) instead of 0 when a sample measured none of the genes, passes `qc.symbol_key`, and reads gene feature types from `qc.gene_feature_types`.
 - Write `log1p_norm` at `core.normalize_total_target_sum` on the vendored OmicVerse CPU backend, keeping its shiftlog matrix internal to HVG scaling and PCA. Size unloaded H5AD inputs from metadata instead of treating every path as backed, and honour `gpu_min_cells`. Coalesce scattered `read_rows` reads into bounded hyperslabs. Accept `accepted` in the scPoli atlas gate, resolve run roots beside configs outside `config/`, and write outputs with the process umask while keeping approval gates private.
@@ -29,7 +40,6 @@
 - Add a project-wide multimodal preparation route covering native assay semantics, exact/estimated pairing, reusable checkpoints and missing ATAC/ChIP, protein, bulk, perturbation and clinical stages.
 - Require integrated-cluster DEG for integrated annotation; document RCTD version-specific calibration validation and complete reference/exposure checks while retaining the fast backend.
 - Preserve nonuniform graph weights in NetworKit's explicit COO triplet interface and bind Leiden checkpoints to the graph-construction policy, rejecting legacy results produced by a different builder.
-
 
 - Restore the AnnData/SciPy sparse-index compatibility bound and test real backed slicing during installation.
 - Share selective read-only H5AD access across metadata/benchmark readers and add exact-count QC inheritance for retained lineage subsets.

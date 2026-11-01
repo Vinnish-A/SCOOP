@@ -18,15 +18,21 @@ scoop qc --config runs/<run_id>/config/run.yaml
 
 H5AD writes:
 
-- QC metrics in `obs`.
+- QC metrics in `obs`. `pct_counts_mt/ribo/hb` is NaN and `mt/ribo/hb_unassessed`
+  True when the axis has no flagged gene or, with a registered
+  [feature measurement](../docs/data-boundaries.md#observability-positive-evidence-and-input-versions),
+  the cell's sample measured none. Unassessed is not 0%; NaN never crosses a threshold.
+  MT/ribo/HB gene flags read symbols from `var[qc.symbol_key]` when set.
 - `doublet_score`, `doublet_call_scrublet`, `doublet_call`.
 - `final_use` updated only for high-confidence failures and doublets.
+- `--output-format obs-parquet --output <path>.parquet` writes only the new or
+  changed obs columns plus a JSON receipt instead of the H5AD.
 
 Sidecar outputs:
 
-- `tables/qc_thresholds_by_sample.tsv`.
-- `tables/scrublet_summary_by_sample.tsv`.
-- `tables/scrublet_scores.parquet`.
+- `qc/tables/qc_thresholds_by_sample.tsv`.
+- `qc/tables/scrublet_summary_by_sample.tsv`.
+- `qc/tables/scrublet_scores.parquet`.
 
 Review triggers:
 
@@ -38,6 +44,9 @@ Assay routing: ordinary RNA defaults to `run.assay: scrna`. For Xenium/CosMx and
 spot ST, use the separate [spatial QC ranges and checklist](../docs/assay-preprocessing.md).
 This route records controls/geometry/coordinates, skips droplet Scrublet, and
 never treats unassayed mitochondrial genes as evidence of healthy cells.
+Spatial QC, spatial core, RCTD and `spatial build-reference` take gene features from
+`var.is_gene_expression`, else `feature_types` matched against `qc.gene_feature_types`
+(default `[gene expression, gene]`).
 
 Independent libraries use bounded process workers (`qc.scrublet.workers: auto`,
 `threads_per_worker: 1`) and count/ID/parameter/version-bound checkpoints under

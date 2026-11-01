@@ -53,17 +53,28 @@ def _tumor_bundle(has_cnv: bool):
     )
 
 
-def test_tumor_malignant_label_without_cnv_evidence_forces_review() -> None:
+# Phase G C: lineage markers decide malignancy and CNV is supporting only, so
+# the former "without CNV forces review" test is replaced by these two.
+def test_tumor_label_without_declared_malignancy_forces_review() -> None:
     _, bundle = _tumor_bundle(False)
     result = validate_annotation_decision(_decision(), bundle)
     assert result.valid is True
     assert result.review_required is True
     assert result.accepted is False
+    assert any("malignancy_status" in reason for reason in result.reasons)
+
+
+def test_declared_lineage_malignancy_passes_without_cnv() -> None:
+    _, bundle = _tumor_bundle(False)
+    result = validate_annotation_decision(
+        _decision(malignancy_status="malignant", malignancy_basis=("lineage_markers",)), bundle)
+    assert result.accepted is True
 
 
 def test_tumor_malignant_label_with_cnv_evidence_can_pass() -> None:
     _, bundle = _tumor_bundle(True)
-    result = validate_annotation_decision(_decision(evidence_refs={"cnv": ("fastcnv_tumor_evidence",)}), bundle)
+    result = validate_annotation_decision(_decision(evidence_refs={"cnv": ("fastcnv_tumor_evidence",)},
+                                                    malignancy_status="malignant", malignancy_basis=("lineage_markers",)), bundle)
     assert result.valid is True
     assert result.review_required is False
     assert result.accepted is True
@@ -80,7 +91,8 @@ def test_marker_conflict_prevents_high_confidence() -> None:
 
 def test_committer_writes_expected_obs_fields(tmp_path) -> None:
     adata, bundle = _tumor_bundle(True)
-    decision = _decision(evidence_refs={"cnv": ("fastcnv_tumor_evidence",)})
+    decision = _decision(evidence_refs={"cnv": ("fastcnv_tumor_evidence",)},
+                         malignancy_status="malignant", malignancy_basis=("lineage_markers",))
     commit_annotation_decisions(adata, [decision], bundle, run_root=tmp_path, output_dir=tmp_path / "tables")
     for field in ["cell_type_lvl1", "cell_type_lvl2", "cell_type_lvl3", "cell_state", "annotation_confidence", "annotation_status"]:
         assert field in adata.obs

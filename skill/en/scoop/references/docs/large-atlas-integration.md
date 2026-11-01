@@ -22,6 +22,11 @@ Freeze train, validation and query by complete donor/study before evaluating
 supervised mapping. A random cell split leaks patient-specific structure. Record
 rare labels that cannot be independently held out.
 
+`atlas.split.held_out_query_units` lists `atlas.split.unit` values (default
+`donor_id`) that scVI never trains on. The trained encoder embeds them without
+fine-tuning, and `obs.is_projected` marks them. Their batch and covariate
+categories must also occur in training cells.
+
 ## scVI execution
 
 ```bash
@@ -34,6 +39,11 @@ available through `atlas.scvi.train_kwargs` and `atlas.scvi.plan_kwargs`, includ
 datasplitter/trainer settings. CLI overrides take precedence. Without an explicit
 KL schedule, epoch warmup is one third of the training budget, capped at 400;
 explicit epoch warmup must fit the budget. Step-based warmup remains explicit.
+
+scVI has no default batch. Set `atlas.scvi.batch_key` (default `null`) or
+`run.obs_keys.batch` to the technical batch column; it never falls back to a
+`keys.batch_candidates` column, and a sample is biology, not batch. The receipt
+records `batch_key_source`.
 
 Use technical batch/covariates; do not automatically correct disease, treatment,
 response or target identity. If study and disease are confounded, retain that

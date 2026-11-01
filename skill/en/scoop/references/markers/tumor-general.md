@@ -45,7 +45,7 @@ label. It is never resolved as transdifferentiation.
 ### 2.1 Broad-group stage
 
 ```text
-broad cell types -> candidate compartment -> CNV/SNV/reference/context review -> malignant_status
+broad cell types -> candidate compartment -> lineage markers + DEG, with CNV/SNV/reference/context support -> malignancy_status
 ```
 
 Candidate malignant compartments typically include:
@@ -64,6 +64,15 @@ baseline scaling, and thresholds. Passing an allowlist to the outer interface do
 uses it in full; samples with few references may be excluded by the default minimum, potentially even changing gene-selection scope.
 Inspect actual backend selection/return structures and retain unused references’ original positions in the complete query.
 State whether the baseline is weighted by cell or by sample; the total number of references passed in cannot replace the actual denominator.
+
+`annotate tumor-cnv` writes `obs.fastcnv_threshold_source`. With at least 10 normal-reference cells it is
+`reference_q99_mad`. Otherwise non-reference cells are `cnv_unassessed` (`unassessed_insufficient_reference`),
+unless `--all-cells-q75-fallback` or `tumor_fastcnv.all_cells_q75_fallback: true` opts in to a query q75
+(`all_cells_q75_fallback`), which calls about a quarter of cells tumour-like by construction. A plan that cannot
+run writes no CNV columns; its result is `execution: not_run` and the stage `skipped`. The receipt records the
+effective `nonparenchymal_lineages` and `dropped_reference_by_lineage`. With a registered feature measurement only
+genes measured in every sample enter the pooled fit; the rest are listed in
+`annotation/fastcnvpy_tumor/tumor_fastcnv_unmeasured_genes_excluded.tsv`.
 
 Bind checkpoint identity to count content/UID/gene order, sample key, reference
 labels and actual UID hashes, minimum, samples actually used for gene selection, gene metadata/build/arm
@@ -103,7 +112,7 @@ CNV neutral alone -> no automatic normal label
 same broad epithelial/parenchymal cluster
   -> CNV abnormal arm-level pattern: supporting evidence, adjudicate with identity/reference/context
   -> coherent normal lineage plus normal-reference and tissue-context support: normal parenchymal (CNV neutrality alone is insufficient)
-  -> CNV low/diploid + concordant tumor programme, patient-specific structure and tumor context: malignant-probable remains eligible
+  -> CNV low/diploid + concordant tumor programme, patient-specific structure and tumor context: probable_malignant remains eligible
   -> genuinely conflicting or insufficient multi-source evidence: ambiguous
 ```
 
@@ -124,10 +133,13 @@ same broad epithelial/parenchymal cluster
 
 ## 4. malignancy_status labels
 
+Declare malignancy per decision with the schema vocabulary (`tumor_gate` in the annotation decision schema);
+certainty goes in `confidence`, not in the status name.
+
 ```yaml
-malignant-high:
-  required: convergent tumor evidence and high-confidence review; RNA-CNV alone is insufficient and high confidence is not DNA confirmation
-malignant-probable:
+malignant:
+  required: convergent tumor evidence; RNA-CNV alone is insufficient and high confidence is not DNA confirmation
+probable_malignant:
   required: convergent tumor-context, patient-specific structure and tumor-program/normal-reference evidence; weak or absent CNV does not exclude this label
 normal:
   required: coherent normal lineage plus matched-normal-reference and tissue/context support; CNV neutrality alone is insufficient
@@ -136,6 +148,15 @@ ambiguous:
 not_applicable:
   used_for: immune, stromal, endothelial, mural cells unless tumor lineage is expected
 ```
+
+`malignancy_basis` lists the evidence used: `lineage_markers`, `tumour_programmes`, `cnv`, `snv`, `atac`,
+`reference_mapping`, `histology`. The validator forces review when a tumour term (`malignant`, `tumor`,
+`tumour`, `cancer`, `neoplastic`) appears in a label without a declared status, whatever `is_tumor` says;
+when `normal` meets a tumour-term label; when `malignant`/`probable_malignant` lacks `lineage_markers` in
+the basis or a valid DEG citation; and when the basis includes `cnv` without a cited artefact registered under
+a `cnv*`/`fastcnvpy*` schema, or none of the unit's cells was CNV-assessed. CNV is never required. The committer
+adds `malignancy_status`/`malignancy_basis` columns only when some decision declares them; units without a
+declared status get `not_assessed`.
 
 Missing evidence is `evidence_pending` workflow progress: actively retrieve or
 generate it, document inaccessible evidence and do not submit a final identity or
@@ -161,7 +182,7 @@ Do not call malignant from RNA-CNV alone, and do not let CNV override a coherent
 Do not call tumour-derived endothelium, pericytes or fibroblasts (vasculogenic mimicry, tumour-to-stromal transdifferentiation) from CNV, co-clustering or shared ECM genes.
 Do not apply a whole-cluster CNV call to a cluster that mixes a non-tumour lineage with tumour cells; split per cell on lineage markers.
 Do not call normal from CNV-negative alone if tumor type can be CNV-low or MSI-like; use SNV/reference/tumor program.
-Keep differentiation and functional states available while malignant_status is assessed separately; unresolved malignancy must not erase a supported epithelial identity.
+Keep differentiation and functional states available while malignancy_status is assessed separately; unresolved malignancy must not erase a supported epithelial identity.
 Do not turn RNA CNV thresholds into final malignant/normal labels. Retain continuous CNV/arm evidence separately; inspect reference, low-RNA, cycling and stress effects, and resolve malignancy using the complete biological evidence.
 Do not let cycling/ribosomal/stress clusters become tumor subtypes.
 ```
@@ -174,10 +195,11 @@ Do not let cycling/ribosomal/stress clusters become tumor subtypes.
 tumor_status_record:
   cluster_id: <cluster>
   broad_type: epithelial_or_parenchymal
-  cnv_status: abnormal | neutral | weak | not_run
+  cnv_status: abnormal | neutral | weak | unassessed | not_run
   snv_status: positive | negative | unknown
   normal_reference_mapping: matched | poor | unknown
-  malignant_status: malignant-high | malignant-probable | normal | ambiguous
+  malignancy_status: malignant | probable_malignant | normal | ambiguous | not_applicable
+  malignancy_basis: [lineage_markers, ...]
   next_skill: tumor-BRCA.md | tumor-CRC.md | tumor-GBM.md | normal tissue annotation
   confidence: high | medium | low
 ```

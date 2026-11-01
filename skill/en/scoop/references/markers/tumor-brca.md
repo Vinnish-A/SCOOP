@@ -2,7 +2,7 @@
 
 Version: v1.0-refined  
 Scope: human breast tumor scRNA-seq.  
-Purpose: Use only on candidate `Epithelial/parenchymal` cells; malignant_status must first be adjudicated using FastCNVpy / SNV / reference evidence.
+Purpose: Use only on candidate `Epithelial/parenchymal` cells; malignancy_status must first be adjudicated on lineage markers and DEG, with FastCNVpy / SNV / reference evidence as support.
 
 ---
 
@@ -11,7 +11,7 @@ Purpose: Use only on candidate `Epithelial/parenchymal` cells; malignant_status 
 ```text
 1. Epithelial gate: EPCAM/TACSTD2/KRT8/KRT18/KRT19/CDH1/MUC1
 2. Exclude immune, endothelial, fibroblast, mural, adipocyte doublets
-3. Assign malignant_status using FastCNVpy/SNV/reference/spatial/pathology
+3. Assign malignancy_status on lineage markers and DEG, supported by FastCNVpy/SNV/reference/spatial/pathology
 4. CNV-low/neutral cells -> joint malignancy review; normal breast phenotypes require normal-reference and tissue-context support
 5. malignant cells -> BRCA malignant intrinsic subtype
 6. cNMF programs -> functional overlays: HRhi, Prolifhi, HER2Signalhi, BasalStemhi, EMThi, Hypoxiahi, IFN_MHChi, etc.
@@ -49,7 +49,7 @@ Normal origin requires coherent breast lineage plus normal-reference and tissue-
 
 ## 4. BRCA malignant epithelial subtypes
 
-Only use the following labels for `malignant-high` or `malignant-probable` epithelial cells.
+Only use the following labels for `malignant` or `probable_malignant` epithelial cells.
 
 | subtype | markers / signature | negative / caution | final label |
 |---|---|---|---|

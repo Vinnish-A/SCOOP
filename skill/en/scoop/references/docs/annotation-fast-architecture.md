@@ -259,6 +259,10 @@ class AnnotationDecision:
     reason: str
 ```
 
+The implemented schema adds optional `identity_scope`, `disposition`/`technical_kind`, `notes`,
+`malignancy_status`/`malignancy_basis`, `parent_unit`/`unit_rule` and `bundle_sha256`; the bundle adds
+`partition_sha256` and `deg_tables`. See the [structured decision contract](../markers/annotation-workflow.md#structured-decision-contract).
+
 Allowed confidence values:
 
 ```text
@@ -278,7 +282,7 @@ Required validation checks:
 3. `evidence_refs` references known artifacts or declared external evidence.
 4. `final_label` must not be empty.
 5. Program-dominated labels such as ribosomal, mitochondrial, stress, or cell-cycle should normally be written as `cell_state` or `functional_modifier`, not as a canonical cell type.
-6. If `evidence_bundle.is_tumor` is true and the decision uses malignant/tumor/cancer labels, the decision must cite CNV evidence unless it is marked `review_required`.
+6. Malignancy is declared, not inferred from label words or `is_tumor`: a tumour-term label needs `malignancy_status`; `malignant`/`probable_malignant` needs `lineage_markers` in `malignancy_basis` and a valid DEG citation; a `cnv` basis must cite a registered CNV artefact with assessed cells. CNV is never required (as implemented; see [tumor rules](../markers/tumor-general.md#4-malignancy_status-labels)).
 7. If marker conflicts are present, confidence cannot be `high`.
 8. If `n_cells` is below threshold or `n_samples` is too low, confidence cannot be `high`.
 9. If the validator cannot verify enough evidence, it must force `review_required = True`.
@@ -376,15 +380,14 @@ FastCNVpy evidence fields:
 fastcnv_reference_pool
 fastcnv_cnv_fraction
 fastcnv_normal_threshold
+fastcnv_threshold_source
 fastcnv_tumor_evidence
 ```
 
 Decision validator rule:
 
-- A malignant/tumor label must cite CNV evidence.
-- If CNV is unavailable or indeterminate, the label must be downgraded to candidate/review, for example:
-  - `Tumor-candidate epithelial cell`
-  - `CNV-indeterminate malignant-like epithelial cell`
+- Superseded by validator rule 6: lineage markers plus DEG decide malignancy; CNV is optional support and never required.
+- Without enough normal references, non-reference cells are `cnv_unassessed`, not normal-like (`fastcnv_threshold_source`).
 
 ---
 

@@ -22,6 +22,16 @@ A latent-only Harmony result cannot satisfy this expression-processing step;
 if the chosen route lacks the required interface, record that gap and use a
 validated compatible route before calling the main analysis batch-handled.
 
+The managed expression-level route is opt-in `programs.batch_correction: harmony_moe`
+(default `none`). It needs the resolved `run.obs_keys` batch (else the first present
+`keys.batch_candidates` column) and raw `layers["counts"]`. FastCNMF preprocessing
+rereads the input, picks `programs.n_top_hvg` (default 3000) seurat_v3 HVGs
+batch-blind, Harmony-corrects them and clips at zero; native consensus NMF then runs
+on that dense matrix (`nmf_method.expression: fastcnmf_harmony_moe_corrected_hvg`,
+files under `programs/fastcnmf_preprocess/`). The decision log records `batch_handling`;
+with `none` and a declared `run.obs_keys.batch` the receipt lists the unmodelled batch
+as a limitation.
+
 Native consensus uses one-to-one component matches across independent random
 seeds. Report per-component cross-seed cosine, the weakest component and actual
 convergence; same-seed components and singleton groups cannot establish stability.

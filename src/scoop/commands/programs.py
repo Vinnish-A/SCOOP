@@ -7,6 +7,8 @@ Usage:
 The native stage reports its actual sklearn multistart/consensus implementation.
 Legacy method names remain accepted as compatibility aliases. The standalone
 FastCNMF executable is a separate implementation, not silently claimed here.
+With programs.batch_correction: harmony_moe, FastCNMF preprocessing corrects
+seurat_v3 HVGs for run.obs_keys.batch before the same consensus NMF (S010).
 
 """
 
@@ -19,13 +21,14 @@ from pathlib import Path
 import anndata as ad
 import pandas as pd
 
-from scsp_agent_sop.config import deep_get, read_yaml, resolve_run_root
+from scsp_agent_sop.config import deep_get, read_yaml, resolve_obs_keys, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
 from scsp_agent_sop.programs import (
     FASTCNMF_COMPATIBLE_METHODS,
     FASTCNMF_DEFAULT_MAX_ITER,
     FASTCNMF_DEFAULT_SEEDS,
     run_fast_consensus_nmf,
+    run_harmony_consensus_nmf,
     run_omicverse_cnmf_validation,
 )
 from scsp_agent_sop.storage import write_h5ad_atomic, ensure_dir, init_file_registry, register_file, write_table
@@ -52,16 +55,36 @@ def main() -> dict:
 
     seeds = list(deep_get(cfg, "programs.seeds", list(FASTCNMF_DEFAULT_SEEDS)))
     max_iter = int(deep_get(cfg, "programs.max_iter", FASTCNMF_DEFAULT_MAX_ITER))
-    summary, weights, usage = run_fast_consensus_nmf(
-        adata,
-        layer=deep_get(cfg, "programs.layer", "log1p_norm"),
-        hvg_key=deep_get(cfg, "programs.hvg_key", "highly_variable_biology"),
+    batch_correction = str(deep_get(cfg, "programs.batch_correction", "none"))
+    if batch_correction not in {"none", "harmony_moe"}:
+        raise ValueError(f"unsupported programs.batch_correction={batch_correction!r}; use none or harmony_moe")
+    keys = resolve_obs_keys(cfg, adata.obs, required=("batch",) if batch_correction == "harmony_moe" else ())
+    nmf_kwargs = dict(
         k_grid=deep_get(cfg, "programs.k_grid", [5, 8, 10, 12, 15]),
         seeds=seeds,
         max_iter=max_iter,
         workers=int(deep_get(cfg, "programs.workers", 4)),
         stability_threshold=deep_get(cfg, "programs.stability_threshold", 0.70),
     )
+    preprocess = None
+    if batch_correction == "harmony_moe":
+        summary, weights, usage, preprocess = run_harmony_consensus_nmf(
+            adata,
+            input_h5ad=input_path,
+            batch_key=keys.batch,
+            output_prefix=run_root / "programs" / "fastcnmf_preprocess" / "programs",
+            n_top_genes=int(deep_get(cfg, "programs.n_top_hvg", 3000)),
+            seed=int(deep_get(cfg, "run.random_seed", 0)),
+            **nmf_kwargs,
+        )
+    else:
+        summary, weights, usage = run_fast_consensus_nmf(
+            adata,
+            layer=deep_get(cfg, "programs.layer", "log1p_norm"),
+            hvg_key=deep_get(cfg, "programs.hvg_key", "highly_variable_biology"),
+            **nmf_kwargs,
+        )
+    batch_handling = {"method": batch_correction, **keys.record()["batch"]}
     summary_path = write_table(summary, run_root / "programs" / "tables" / "nmf_k_sweep.tsv")
     weights_path = write_table(weights, run_root / "programs" / "tables" / "nmf_gene_weights.parquet")
     usage_path = write_table(usage, run_root / "programs" / "tables" / "nmf_usage.parquet")
@@ -108,6 +131,7 @@ def main() -> dict:
             "k_grid": deep_get(cfg, "programs.k_grid", []),
             "n_seeds": len(seeds),
             "max_iter": max_iter,
+            "batch_handling": batch_handling,
         },
         evidence={"min_stability": min_stability, "selected_converged_fraction": convergence_fraction},
         fallback_used=fallback_used,
@@ -119,15 +143,26 @@ def main() -> dict:
         if review_required
         else None,
     )
+    limitations = ["Discovery feature coverage differs from whole-input projection; programme usage does not assign identity."]
+    if preprocess is not None:
+        limitations.append(f"Programmes were discovered on {preprocess['n_vars']} Harmony-corrected seurat_v3 HVGs "
+                           f"(batch {keys.batch!r}); the HVGs were chosen batch-blind and the matrix is dense (S012).")
+    elif keys.sources["batch"] == "run.obs_keys.batch":
+        limitations.append(f"Programme discovery did not model the declared batch {keys.batch!r}; "
+                           "set programs.batch_correction: harmony_moe to correct for it.")
+    preprocess_outputs = [preprocess["corrected_h5ad"], preprocess["hvg_txt"],
+                          str(Path(preprocess["output_prefix"]).parent / "fastcnmf_preprocess_manifest.json")] if preprocess else []
     return {"inputs": [str(input_path.resolve())],
-            "outputs": [str(output.resolve()), str(summary_path.resolve()), str(weights_path.resolve()), str(usage_path.resolve()), str(stability_path.resolve())],
+            "outputs": [str(output.resolve()), str(summary_path.resolve()), str(weights_path.resolve()), str(usage_path.resolve()), str(stability_path.resolve()),
+                        *preprocess_outputs],
             "execution": {"status": "completed"},
             "validation": {"status": "limited" if review_required else "passed", "scope": "cross_seed_component_stability_and_fit_termination",
                            "checks": [{"name": "selected_components_cross_seed_stability_and_convergence", "status": "limited" if review_required else "passed"}]},
             "interpretation": {"status": "not_assessed"},
             "coverage": [{"scope": "programme_usage", "unit": "observation_views", "total": adata.n_obs, "processed": adata.n_obs}],
-            "limitations": ["Discovery feature coverage differs from whole-input projection; programme usage does not assign identity."],
-            "programme_method": dict(adata.uns["nmf_method"])}
+            "limitations": limitations,
+            "programme_method": dict(adata.uns["nmf_method"]),
+            "batch_handling": batch_handling}
 
 
 if __name__ == "__main__":

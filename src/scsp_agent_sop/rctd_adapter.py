@@ -18,9 +18,11 @@ from threadpoolctl import threadpool_limits, threadpool_info
 from scoop.io import atomic_json, sha256_file
 from .assays import gene_expression_mask
 from .config import deep_get
+from .reference_profiles import REVIEW_STATUSES
 from .storage import write_h5ad_atomic, write_table
 
 PRESETS = {"fast": {"N_fit": 50, "N_epoch": 4}, "standard": {"N_fit": 1000, "N_epoch": 8}}
+RUN_PURPOSES = ("production", "sensitivity", "pilot")
 
 
 def selected_weights(result, mode: str) -> np.ndarray:
@@ -123,24 +125,13 @@ def _reference(reference_path, cfg, options):
     if options.get("reference_profiles"):
         if not options.get("reference_manifest"):
             raise ValueError("reference_profiles requires its reviewed reference_manifest")
-        profile_path = Path(options["reference_profiles"])
-        metadata = json.loads(Path(options["reference_manifest"]).read_text())
-        if metadata.get("schema_version") != "scoop.reference-profiles.v1":
-            raise ValueError("Cached reference requires scoop.reference-profiles.v1 metadata")
-        if (metadata.get("unit") != "mean_counts_per_full_native_exposure"
-                or metadata.get("labels_reviewed") is not True
-                or metadata.get("native_full_exposure_preserved") is not True):
-            raise ValueError("Reference cache needs reviewed component labels and full-native count/exposure provenance")
-        if sha256_file(profile_path) != metadata["profiles_sha256"]:
-            raise ValueError("Cached reference profiles differ from the declared hash")
-        with np.load(profile_path, allow_pickle=False) as z:
+        with np.load(Path(options["reference_profiles"]), allow_pickle=False) as z:
             reference = rctd.Reference.__new__(rctd.Reference)
             reference.profiles = z["profiles"].copy()
             reference.gene_names = z["gene_names"].astype(str).tolist()
             reference.cell_type_names = z["cell_type_names"].astype(str).tolist()
         reference.n_genes, reference.n_types = reference.profiles.shape
-        training = metadata.get("training_cells", {})
-        review = "reviewed_component_labels"
+        metadata, training, review, components = _profile_manifest(options, reference.cell_type_names)
     else:
         reference_cfg = {"run": {"assay": "scrna"}, "qc": {"counts_layer": deep_get(cfg, "qc.counts_layer", "counts")}}
         full, status = _count_input(ad.read_h5ad(reference_path), reference_cfg, options, "reference")
@@ -175,6 +166,7 @@ def _reference(reference_path, cfg, options):
         qualified = labels.astype(str)[depth >= int(options.get("reference_min_umi", 100))]
         training = qualified.value_counts().clip(upper=int(options.get("reference_max_cells", 3000))).to_dict()
         metadata = {"coverage_complete": False, "gaps": ["whole-tissue reference coverage not assessed"]}
+        components = [{"name": str(t), "review_status": "reviewed"} for t in reference.cell_type_names]
     if (reference.n_types < 2 or reference.n_genes < 2
             or len(set(reference.gene_names)) != reference.n_genes
             or len(reference.gene_names) != reference.n_genes
@@ -185,6 +177,8 @@ def _reference(reference_path, cfg, options):
         raise ValueError("Reference profile axes, values or component exposure are invalid")
     held_out = set(options.get("exclude_genes", []))
     keep = np.array([g not in held_out for g in reference.gene_names])
+    reference.heldout_profiles = pd.DataFrame(reference.profiles[~keep], index=np.asarray(reference.gene_names)[~keep],
+                                              columns=reference.cell_type_names)
     reference.profiles = reference.profiles[keep]
     reference.gene_names = [g for g, use in zip(reference.gene_names, keep) if use]
     reference.n_genes = int(keep.sum())
@@ -192,7 +186,39 @@ def _reference(reference_path, cfg, options):
         raise ValueError("Gene exclusion removed all expression of a declared reference component")
     return reference, {"review": review, "training_cells": training,
         "rare_components": [t for t, n in training.items() if n < 25],
-        "coverage_complete": bool(metadata.get("coverage_complete", False)), "gaps": metadata.get("gaps", [])}
+        "coverage_complete": bool(metadata.get("coverage_complete", False)), "gaps": metadata.get("gaps", []),
+        "components": components}
+
+
+def _profile_manifest(options, names):
+    """Check a cached package's manifest (v1 or v2) and return its per-component review state.
+
+    Kept outside the fit-identity hash: the manifest gates which fits may run and how they are
+    labelled; it does not change the computation.
+    """
+    metadata = json.loads(Path(options["reference_manifest"]).read_text())
+    if (metadata.get("unit") != "mean_counts_per_full_native_exposure"
+            or metadata.get("native_full_exposure_preserved") is not True):
+        raise ValueError("Reference cache needs full-native count/exposure provenance")
+    if sha256_file(options["reference_profiles"]) != metadata["profiles_sha256"]:
+        raise ValueError("Cached reference profiles differ from the declared hash")
+    schema = metadata.get("schema_version")
+    if schema == "scoop.reference-profiles.v1":
+        # v1 has one package-level flag: reviewed means every component is reviewed.
+        reviewed = metadata.get("labels_reviewed") is True
+        components = [{"name": n, "review_status": "reviewed" if reviewed else "evidence_pending"} for n in names]
+        review = "reviewed_component_labels" if reviewed else "unreviewed_v1_package"
+        return metadata, metadata.get("training_cells", {}), review, components
+    if schema != "scoop.reference-profiles.v2":
+        raise ValueError("Cached reference requires scoop.reference-profiles.v1 or v2 metadata")
+    declared = {c["name"]: c for c in metadata["components"]}
+    if sorted(declared) != sorted(names) or len(metadata["components"]) != len(names):
+        raise ValueError("Reference manifest components differ from the profile component axis")
+    statuses = {c["review_status"] for c in declared.values()}
+    if statuses - set(REVIEW_STATUSES):
+        raise ValueError(f"Unknown component review_status: {sorted(statuses - set(REVIEW_STATUSES))}")
+    components = [declared[n] for n in names]
+    return metadata, {c["name"]: c["training_cells"] for c in components}, "per_component_review_status", components
 
 
 def _fit_payload(spatial, status, reference, options, mode):
@@ -286,11 +312,70 @@ def _lookup_path(options, rctd):
     return path
 
 
+def _component_summary(weights, types, components, identifiability=None):
+    """One row per component: review state, post-fit support and, if given, identifiability."""
+    dominant = np.bincount(weights.argmax(axis=1), minlength=len(types)) / len(weights)
+    table = pd.DataFrame({"component": types,
+        "review_status": [c["review_status"] for c in components],
+        "parent": [c.get("parent") for c in components], "compartment": [c.get("compartment") for c in components],
+        "training_cells": [c.get("training_cells") for c in components],
+        "holdout_status": [c.get("holdout_status") for c in components],
+        "mean_weight": weights.mean(axis=0), "max_weight": weights.max(axis=0), "dominance_fraction": dominant,
+        "frac_units_weight_ge_0.1": (weights >= 0.1).mean(axis=0),
+        "effectively_absent": weights.max(axis=0) < 0.01})
+    if identifiability is not None:
+        path = Path(identifiability)
+        found = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path, sep="\t")
+        keep = [c for c in ["r_true_vs_est", "dominant_recall", "identifiability_verdict", "confusable_partners"] if c in found]
+        table = table.merge(found[["component", *keep]], on="component", how="left")
+        if "identifiability_verdict" in table:
+            table["identifiability_verdict"] = table.identifiability_verdict.fillna("not_assessed")
+    return table
+
+
+def _heldout_validation(spatial, status, rows, weights, heldout_profiles, seed, genes_table=None, min_counts=20):
+    """F09: per held-out gene, Spearman of observed y/nUMI vs sum_k w_k * profile_gk over fitted units.
+
+    Held-out genes get no platform-effect rescaling, so only the per-gene rank is meaningful. The
+    null predicts with the weights of shuffled units.
+    """
+    from scipy.stats import spearmanr
+
+    genes = [g for g in heldout_profiles.index if g in spatial.var_names]
+    if not genes or len(rows) < 20:
+        return pd.DataFrame(), {"status": "not_assessable" if genes else "not_applicable", "n_genes_excluded": len(heldout_profiles),
+                                "n_genes_in_section": len(genes)}
+    y = spatial[rows, genes].X
+    y = y.toarray() if sparse.issparse(y) else np.asarray(y)
+    rate = y / status.native_full_exposure.to_numpy(dtype=float)[rows, None]
+    profiles = heldout_profiles.loc[genes].to_numpy()
+    predicted = weights @ profiles.T
+    null = weights[np.random.default_rng(seed).permutation(len(weights))] @ profiles.T
+    counts = y.sum(axis=0)
+    table = pd.DataFrame({"gene": genes, "section_counts": counts.astype(int),
+        "spearman": [spearmanr(rate[:, j], predicted[:, j]).statistic if counts[j] >= min_counts else np.nan for j in range(len(genes))],
+        "spearman_shuffled_null": [spearmanr(rate[:, j], null[:, j]).statistic if counts[j] >= min_counts else np.nan
+                                   for j in range(len(genes))]})
+    if genes_table is not None:
+        table = table.merge(genes_table[["gene", "selection", "source_component"]], on="gene", how="left")
+    scored = table.dropna(subset=["spearman"])
+    summary = {"status": "assessed" if len(scored) else "not_assessable", "n_genes_excluded": len(heldout_profiles),
+               "n_genes_in_section": len(genes), "n_genes_scored": len(scored), "min_section_counts": min_counts,
+               "median_spearman": float(scored.spearman.median()) if len(scored) else None,
+               "median_shuffled_null": float(scored.spearman_shuffled_null.median()) if len(scored) else None}
+    if "selection" in scored:
+        summary["by_selection"] = {sel: {"n_genes": len(g), "median_spearman": float(g.spearman.median()),
+                                         "median_shuffled_null": float(g.spearman_shuffled_null.median())}
+                                   for sel, g in scored.groupby("selection")}
+    return table, summary
+
+
 def run_rctd_api(spatial_path: Path, reference_path: Path | None, output_path: Path,
                  cfg: Mapping[str, Any], mode: str) -> dict[str, Any]:
     import anndata as ad
     import rctd
     import tempfile
+    from rctd._sigma import SIGMA_ALL
 
     if version("rctd-py") != "0.4.0":
         raise RuntimeError("This adapter requires the validated rctd-py0.4.0 locked runtime")
@@ -300,6 +385,18 @@ def run_rctd_api(spatial_path: Path, reference_path: Path | None, output_path: P
     options = dict(deep_get(cfg, "spatial.rctd", {}))
     spatial, status = _count_input(ad.read_h5ad(spatial_path), cfg, options)
     reference, reference_info = _reference(reference_path, cfg, options)
+    purpose = options.get("run_purpose", "production")
+    if purpose not in RUN_PURPOSES:
+        raise ValueError(f"spatial.rctd.run_purpose must be one of {RUN_PURPOSES}")
+    pending = [c["name"] for c in reference_info["components"] if c["review_status"] == "evidence_pending"]
+    if pending and purpose == "production":
+        raise ValueError(f"Production RCTD fits need reviewed reference components; evidence_pending: {pending}. "
+                         "Declare spatial.rctd.run_purpose: pilot or sensitivity for a non-production fit")
+    merge_level = options.get("merge_level")
+    if merge_level not in {None, "component", "parent", "compartment"}:
+        raise ValueError("spatial.rctd.merge_level must be component, parent or compartment")
+    if merge_level in {"parent", "compartment"} and not any(c.get(merge_level) for c in reference_info["components"]):
+        raise ValueError(f"merge_level {merge_level} needs a v2 reference manifest that declares component {merge_level}s")
     lookup = _lookup_path(options, rctd)
     paths = {"spatial_counts": Path(spatial_path), "likelihood_lookup": lookup}
     if options.get("reference_profiles"):
@@ -311,7 +408,8 @@ def run_rctd_api(spatial_path: Path, reference_path: Path | None, output_path: P
             paths[key] = Path(options[key])
     input_hashes = {key: sha256_file(path) for key, path in paths.items()}
     compute_options = {k: v for k, v in options.items() if k not in {
-        "reference_manifest", "reference_profiles", "spatial_registry", "reference_registry", "q_matrices", "max_iter"}}
+        "reference_manifest", "reference_profiles", "spatial_registry", "reference_registry", "q_matrices", "max_iter",
+        "output_label", "run_purpose", "merge_level", "identifiability_table"}}
     code = "\n".join(inspect.getsource(f) for f in [
         selected_weights, _attach_registry, _count_input, _reference, _fit_payload, gene_expression_mask])
     identity = {"schema": "scoop.rctd-fit.v1", "inputs": input_hashes, "options": compute_options,
@@ -321,9 +419,17 @@ def run_rctd_api(spatial_path: Path, reference_path: Path | None, output_path: P
     fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()
     folder = Path(output_path).parent
     folder.mkdir(parents=True, exist_ok=True)
+    # Published names follow output_label; only the cache below is keyed by fit identity.
+    label = str(options.get("output_label") or mode)
+    if not label or Path(label).name != label:
+        raise ValueError("spatial.rctd.output_label must be a plain file-name prefix")
+    completion = folder / f"{label}_completion.json"
+    if completion.is_file() and json.loads(completion.read_text()).get("fit_identity") != fingerprint:
+        raise ValueError(f"{completion} belongs to a different RCTD fit; set a distinct spatial.rctd.output_label")
     cache = folder / "cache" / mode / fingerprint
     cache.mkdir(parents=True, exist_ok=True)
     checkpoint = cache / "fit.json"
+    info_path = cache / "fit_info.json"
     data_path = cache / "fit.npz"
     previous_q = os.environ.get("RCTD_Q_MATRICES")
     os.environ["RCTD_Q_MATRICES"] = str(lookup)
@@ -334,10 +440,27 @@ def run_rctd_api(spatial_path: Path, reference_path: Path | None, output_path: P
                 raise ValueError("Saved RCTD computation checkpoint is corrupt or bound to different inputs")
             with np.load(data_path, allow_pickle=False) as z:
                 arrays = {k: z[k].copy() for k in z.files}
-            info = saved["info"]
+            # Earlier checkpoints carried diagnostics inline.
+            info = saved["info"] if "info" in saved else json.loads(info_path.read_text())["info"]
+            reused = True
+        elif data_path.is_file() and info_path.is_file():
+            # The arrays are the commit; a crash before fit.json leaves them reusable.
+            with np.load(data_path, allow_pickle=False) as z:
+                arrays = {k: z[k].copy() for k in z.files}
+            diagnostics = json.loads(info_path.read_text())
+            if str(arrays.get("fit_identity")) != fingerprint or diagnostics["fit_identity"] != fingerprint:
+                raise ValueError("Saved RCTD arrays are bound to different inputs")
+            info = diagnostics["info"]
+            atomic_json(checkpoint, {"fit_identity": fingerprint, "identity": identity,
+                        "arrays_sha256": sha256_file(data_path)})
             reused = True
         else:
             arrays, info = _fit_payload(spatial, status, reference, options, mode)
+            # Runtime metadata (threadpool entries) can hold callables; it must not
+            # be able to fail the commit of a finished fit.
+            info = json.loads(json.dumps(info, default=repr))
+            atomic_json(info_path, {"fit_identity": fingerprint, "info": info})
+            arrays["fit_identity"] = np.asarray(fingerprint)
             with tempfile.NamedTemporaryFile(dir=cache, suffix=".npz", delete=False) as handle:
                 temporary = Path(handle.name)
             try:
@@ -346,13 +469,20 @@ def run_rctd_api(spatial_path: Path, reference_path: Path | None, output_path: P
             finally:
                 temporary.unlink(missing_ok=True)
             atomic_json(checkpoint, {"fit_identity": fingerprint, "identity": identity,
-                        "arrays_sha256": sha256_file(data_path), "info": info})
+                        "arrays_sha256": sha256_file(data_path)})
             reused = False
     finally:
         if previous_q is None:
             os.environ.pop("RCTD_Q_MATRICES", None)
         else:
             os.environ["RCTD_Q_MATRICES"] = previous_q
+    # choose_sigma starts at 100 and moves at most 8 grid steps per epoch. A sigma
+    # at that reach used every epoch, so the epoch cap, not convergence, stopped it.
+    sigma_step_limited = False
+    if options.get("sigma_override") is None:
+        epochs = int(options.get("N_epoch", PRESETS[options.get("preset", "fast")]["N_epoch"]))
+        start, end = (int(np.flatnonzero(SIGMA_ALL == s)[0]) for s in (100, info["sigma"]))
+        sigma_step_limited = abs(end - start) >= 8 * epochs
     rows, raw, types = arrays["fitted_rows"], arrays["raw"], arrays["types"].tolist()
     all_raw = np.full((spatial.n_obs, len(types)), np.nan)
     all_raw[rows] = raw
@@ -377,24 +507,54 @@ def run_rctd_api(spatial_path: Path, reference_path: Path | None, output_path: P
     for name, table in [("weights_raw", pd.DataFrame(all_raw, index=status.index, columns=types)),
                         ("weights_visualization", pd.DataFrame(normalized, index=status.index, columns=types)),
                         ("diagnostics", status)]:
-        path = folder / f"{mode}_{name}.parquet"
+        path = folder / f"{label}_{name}.parquet"
         write_table(table.reset_index(), path)
         files.append(str(path.resolve()))
-    profile_path = folder / f"{mode}_fitted_profiles.parquet"
+    profile_path = folder / f"{label}_fitted_profiles.parquet"
     write_table(pd.DataFrame(arrays["profiles"], index=pd.Index(arrays["fit_genes"], name="gene"), columns=types).reset_index(), profile_path)
     files.append(str(profile_path.resolve()))
     if "initial_full_weights" in arrays:
         initial = np.full_like(all_raw, np.nan)
         initial[rows] = arrays["initial_full_weights"]
-        path = folder / f"{mode}_weights_initial_full.parquet"
+        path = folder / f"{label}_weights_initial_full.parquet"
         write_table(pd.DataFrame(initial, index=status.index, columns=types).reset_index(), path)
+        files.append(str(path.resolve()))
+    fitted_weights = normalized[rows]
+    summary_path = folder / f"{label}_component_summary.parquet"
+    summary = _component_summary(fitted_weights, types, reference_info["components"], options.get("identifiability_table"))
+    write_table(summary, summary_path)
+    files.append(str(summary_path.resolve()))
+    if merge_level in {"parent", "compartment"}:
+        # Exact: visualization weights are linear in the positive raw weights, so a parent's
+        # weight is the sum of its components' weights.
+        groups = [c.get(merge_level) or c["name"] for c in reference_info["components"]]
+        merged = pd.DataFrame(normalized, index=status.index, columns=types).T.groupby(groups, sort=False).sum(min_count=1).T
+        path = folder / f"{label}_weights_{merge_level}.parquet"
+        write_table(merged.reset_index(), path)
+        files.append(str(path.resolve()))
+    genes_table = None
+    if options.get("reference_manifest"):
+        manifest_path = Path(options["reference_manifest"])
+        declared = json.loads(manifest_path.read_text()).get("heldout_validation_genes", {}).get("path")
+        if declared and (manifest_path.parent / declared).is_file():
+            genes_table = pd.read_csv(manifest_path.parent / declared, sep="\t")
+    heldout_table, heldout_summary = _heldout_validation(spatial, status, rows, fitted_weights, reference.heldout_profiles,
+                                                         int(options.get("seed", 271030)), genes_table)
+    if len(heldout_table):
+        path = folder / f"{label}_heldout_gene_validation.parquet"
+        write_table(heldout_table, path)
         files.append(str(path.resolve()))
     norms = np.linalg.norm(arrays["profiles"], axis=0)
     if not np.isfinite(norms).all() or (norms <= 0).any():
         raise ValueError("Fitted reference has nonfinite or zero-expression components")
     singular = np.linalg.svd(arrays["profiles"] / norms, compute_uv=False)
     info = {**info, "reference": reference_info, "computation_reused": reused,
-            "computation_checkpoint": str(checkpoint.resolve()), "fit_identity": fingerprint,
+            "computation_checkpoint": str(checkpoint.resolve()), "fit_identity": fingerprint, "output_label": label,
+            "sigma_step_limited": sigma_step_limited, "run_purpose": purpose,
+            "evidence_pending_components": pending,
+            "biological_interpretation_allowed": purpose != "pilot" and not pending,
+            "merge_level": merge_level or "component", "heldout_gene_validation": heldout_summary,
+            "effectively_absent_components": summary.component[summary.effectively_absent].tolist(),
             "source_qc_assessed_observations": int(status.source_selection_assessed.sum()),
             "unfitted_observations_retained_as_NA": int((~status.fitted).sum()),
             "profile_condition_number": float(singular[0] / singular[-1]) if singular[-1] > 0 else None,
@@ -409,7 +569,8 @@ def run_rctd_api(spatial_path: Path, reference_path: Path | None, output_path: P
     output.obs["rctd_fitted"] = status.fitted.to_numpy()
     output.obs["rctd_native_full_exposure"] = status.native_full_exposure.to_numpy()
     output.uns["rctd_cell_types"] = types
-    output.uns["rctd_method"] = {k: info[k] for k in ["method", "version", "mode", "sigma", "fit_identity"]}
+    output.uns["rctd_method"] = {k: info[k] for k in ["method", "version", "mode", "sigma", "fit_identity", "run_purpose",
+                                                      "biological_interpretation_allowed"]}
     output.uns["rctd_method"]["details_json"] = json.dumps(info)
     # Checkpoint is already committed. A serialization failure can now recover
     # by exporting the same computation, without fitting or recalibrating again.
@@ -424,7 +585,6 @@ def run_rctd_api(spatial_path: Path, reference_path: Path | None, output_path: P
     info["inputs"] = [str(p.resolve()) for p in paths.values()]
     if options.get("reference_manifest"):
         info["inputs"].append(str(Path(options["reference_manifest"]).resolve()))
-    completion = folder / f"{mode}_completion.json"
     atomic_json(completion, info)
     info["outputs"].append(str(completion.resolve()))
     return info

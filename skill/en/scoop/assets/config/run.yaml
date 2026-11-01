@@ -6,6 +6,13 @@ run:
   organism: human
   assay: scrna  # scrna | xenium | cosmx | visium | legacy_st
   tissue: unknown
+  # Typed obs columns (R10), validated once against obs. null falls back to
+  # keys.sample / keys.donor / the first present keys.batch_candidates / study_id.
+  obs_keys:
+    sample: null
+    donor: null
+    batch: null  # technical batch; a sample is biology, not batch
+    study: null
 
 keys:
   sample: sample_id
@@ -130,10 +137,10 @@ atlas:
   split:
     unit: donor_id
     validation_units: []
-    held_out_query_units: []
+    held_out_query_units: []  # split.unit values embedded by the trained encoder, not trained on (obs.is_projected)
   scvi:
     counts_layer: counts
-    batch_key: sample_id
+    batch_key: null  # required: the technical batch column; a sample is biology, not batch
     categorical_covariate_keys: [study_id, chemistry]
     n_latent: 30
     gene_likelihood: nb
@@ -164,7 +171,7 @@ atlas:
 annotation:
   default_marker_method: wilcoxon
   fast_marker_method: fastde_cosg
-  marker_n_genes: 100
+  marker_n_genes: 100  # auxiliary specificity/preview; statistical DEG exports all input genes
   major_lineage_key: cell_type_lvl1
   decision:
     enabled: false
@@ -173,6 +180,12 @@ annotation:
     output_dir: annotation/decisions
     min_cells_high_confidence: 20
     min_samples_high_confidence: 2
+    # Samples count toward high-confidence support only with >= this many cells in the unit.
+    min_cells_per_sample: 20
+    # Composition-key overrides for the evidence bundle; null falls back to run.obs_keys, then keys.sample / keys.donor / study_id.
+    sample_key: null
+    donor_key: null
+    study_key: null
     require_review_for_unvalidated: true
   program_sanitizer:
     enabled: true
@@ -195,6 +208,9 @@ spatial:
   unit_type: spot
   rctd:
     adapter: api
+    preset: fast  # N_fit=50, N_epoch=4; standard uses 1000,8
+    threads: 4
+    seed: 271030
     device: auto
     batch_size: 512
     mode_low_resolution: full
@@ -203,6 +219,11 @@ spatial:
     umi_min_low_resolution: 100
     umi_min_bin: 20
     cell_type_key: cell_type_lvl3
+    run_purpose: production  # sensitivity / pilot may fit evidence_pending components; pilot allows no interpretation
+    merge_level: component  # parent / compartment also write exact aggregated weights
+
+delivery:
+  scope: reviewed-annotation  # current-state explicitly permits an earlier checkpoint
 
 ccc:
   enabled: false

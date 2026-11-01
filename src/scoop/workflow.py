@@ -248,6 +248,8 @@ def run_command_module(stage: str, module_name: str, arguments: list[str]) -> in
         execution = "not_run" if status in {"prepared", "skipped"} else "failed" if status == "failed" else "completed"
         if assessment.get("execution", {}).get("status") == "failed":
             status, execution = "failed", "failed"
+        elif assessment.get("execution", {}).get("status") == "not_run" and status != "failed":
+            status, execution = "skipped", "not_run"
         atomic_json(
             receipt_path,
             {

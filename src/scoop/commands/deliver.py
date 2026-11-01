@@ -29,7 +29,8 @@ def review_coverage(adata) -> dict:
     if flags.isna().any() or not flags.isin([True, False, 0, 1]).all() or not flags.all():
         raise ValueError("Unreviewed observations remain; finish their decisions or explicitly export --scope current-state.")
     status = adata.obs.annotation_status
-    if not status.isin(["accepted", "labeled", "review_required"]).all():
+    # excluded_technical is a reviewed outcome (doublet, ambient, ...), not a backlog.
+    if not status.isin(["accepted", "labeled", "review_required", "excluded_technical"]).all():
         raise ValueError("Annotation contains unassigned/unreviewed statuses.")
     if "cell_type_lvl3" not in adata.obs:
         raise ValueError("Reviewed annotation delivery requires cell_type_lvl3 labels")
@@ -39,7 +40,8 @@ def review_coverage(adata) -> dict:
         raise ValueError("Accepted observations require assigned labels")
     return {"observations": int(adata.n_obs), "reviewed": int(flags.sum()),
             "accepted": int(status.isin(["accepted", "labeled"]).sum()),
-            "reviewed_unresolved": int(status.eq("review_required").sum())}
+            "reviewed_unresolved": int(status.eq("review_required").sum()),
+            "technical_excluded": int(status.eq("excluded_technical").sum())}
 
 
 def main() -> dict:

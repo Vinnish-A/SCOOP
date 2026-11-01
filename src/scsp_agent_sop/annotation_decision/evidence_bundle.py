@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Mapping
 from pathlib import Path
 
@@ -13,6 +14,7 @@ def bound_evidence_files(bundle, cited_refs) -> list[Path]:
     """Verify referenced registry artifacts before changing annotation outputs."""
     from scsp_agent_sop.storage import sha256_file
 
+    cited_refs = {str(ref).split("::", 1)[0] for ref in cited_refs}
     paths = []
     for category in bundle.file_registry.values():
         if not isinstance(category, Mapping):
@@ -20,10 +22,76 @@ def bound_evidence_files(bundle, cited_refs) -> list[Path]:
         for key, record in category.items():
             if key in cited_refs and isinstance(record, Mapping) and record.get("path"):
                 path = Path(record["path"]).resolve()
-                if not path.is_file() or (record.get("sha256") and sha256_file(path) != record["sha256"]):
+                expected = record.get("sha256") or bundle.deg_tables.get(key, {}).get("sha256")
+                if not path.is_file() or (expected and sha256_file(path) != expected):
                     raise ValueError(f"Cited annotation evidence is missing or changed: {path}")
                 paths.append(path)
     return paths
+
+
+def partition_sha256(adata, cluster_key: str) -> str:
+    """Bind the decision units to the exact obs axis and unit membership."""
+    digest = hashlib.sha256(f"{cluster_key}\0".encode())
+    digest.update("\0".join(adata.obs_names.astype(str)).encode())
+    digest.update(b"\1")
+    digest.update("\0".join(adata.obs[cluster_key].astype(str)).encode())
+    return digest.hexdigest()
+
+
+DEG_GROUP_COLUMNS = ("group", "cluster", "cell_type")
+DEG_GENE_COLUMNS = ("names", "gene", "feature")
+DEG_SCORE_COLUMNS = ("scores", "score", "z")
+TOP_MARKERS_FROM_TABLE = 25
+
+
+def deg_tables_from_registry(registry: Mapping[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, pd.DataFrame]]:
+    """Read registered DEG tables: which partition (label_key) and groups they test.
+
+    A table is a candidate when its record declares label_key or its schema
+    names markers; it is a DEG table only if it has group and gene columns.
+    Unreadable files are left out, so they can never support a citation.
+    """
+    from scsp_agent_sop.storage import sha256_file
+
+    tables, frames = {}, {}
+    for key, record in dict(registry.get("tables", {})).items():
+        if not isinstance(record, Mapping) or not record.get("path"):
+            continue
+        if "label_key" not in record and "markers" not in str(record.get("schema", "")):
+            continue
+        path = Path(record["path"])
+        if not path.is_file():
+            continue
+        if path.suffix.lower() == ".parquet":
+            import pyarrow.parquet as pq
+
+            names = pq.read_schema(path).names
+            wanted = (*DEG_GROUP_COLUMNS, *DEG_GENE_COLUMNS, *DEG_SCORE_COLUMNS, "label_key")
+            frame = pd.read_parquet(path, columns=[name for name in wanted if name in names])
+        else:
+            frame = pd.read_csv(path, sep="," if path.suffix.lower() == ".csv" else "\t")
+        group = next((name for name in DEG_GROUP_COLUMNS if name in frame), None)
+        gene = next((name for name in DEG_GENE_COLUMNS if name in frame), None)
+        if group is None or gene is None:
+            continue
+        label_key = record.get("label_key")
+        if label_key is None and "label_key" in frame and frame["label_key"].nunique() == 1:
+            label_key = str(frame["label_key"].iloc[0])
+        frame = frame.assign(**{group: frame[group].astype(str)})
+        tables[str(key)] = {"label_key": None if label_key is None else str(label_key),
+                            "groups": sorted(frame[group].unique().tolist()),
+                            "sha256": record.get("sha256") or sha256_file(path)}
+        score = next((name for name in DEG_SCORE_COLUMNS if name in frame), None)
+        if score is not None:
+            frame = frame.sort_values(score, ascending=False, kind="stable")
+        frames[str(key)] = frame.rename(columns={group: "_group", gene: "_gene"})[["_group", "_gene"]]
+    return tables, frames
+
+
+def bind_legacy_bundle(bundle: "AnnotationEvidenceBundle", adata) -> "AnnotationEvidenceBundle":
+    """Rebuild content bindings a v1 bundle lacks; the commit reports this as limited."""
+    deg_tables, _ = deg_tables_from_registry(bundle.file_registry)
+    return replace(bundle, partition_sha256=partition_sha256(adata, bundle.cluster_key), deg_tables=deg_tables)
 
 
 @dataclass(frozen=True)
@@ -47,6 +115,10 @@ class ClusterEvidence:
     nearest_clusters: tuple[str, ...]
     distribution_summary: dict[str, Any]
     program_usage_summary: dict[str, Any]
+    # n_samples counts samples with >= min_cells_per_sample cells; this is the raw count.
+    n_samples_raw: int | None = None
+    # DEG tables testing this partition (label_key == cluster_key) that contain this group.
+    deg_refs: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return _json_safe(asdict(self))
@@ -64,6 +136,7 @@ class ClusterEvidence:
             "cnv_refs",
             "qc_warnings",
             "nearest_clusters",
+            "deg_refs",
         }
         normalized = dict(data)
         for field in tuple_fields:
@@ -87,6 +160,10 @@ class AnnotationEvidenceBundle:
     cluster_key: str
     clusters: tuple[ClusterEvidence, ...]
     file_registry: dict[str, Any]
+    # Absent in v1 bundles; bind_legacy_bundle rebuilds them from the input.
+    partition_sha256: str | None = None
+    deg_tables: dict[str, dict[str, Any]] = field(default_factory=dict)
+    composition_keys: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -98,6 +175,8 @@ class AnnotationEvidenceBundle:
         normalized = dict(data)
         normalized["clusters"] = tuple(ClusterEvidence.from_dict(item) for item in normalized.get("clusters", ()))
         normalized["file_registry"] = dict(normalized.get("file_registry", {}))
+        normalized["deg_tables"] = dict(normalized.get("deg_tables") or {})
+        normalized["composition_keys"] = dict(normalized.get("composition_keys") or {})
         normalized["is_tumor"] = bool(normalized.get("is_tumor", False))
         return cls(**normalized)
 
@@ -124,6 +203,10 @@ def build_evidence_bundle(
     file_registry: Mapping[str, Any] | None = None,
     marker_refs: tuple[str, ...] = (),
     reference_refs: tuple[str, ...] = (),
+    sample_key: str = "sample_id",
+    donor_key: str = "donor_id",
+    study_key: str = "study_id",
+    min_cells_per_sample: int = 20,
 ) -> AnnotationEvidenceBundle:
     if cluster_key not in adata.obs:
         raise KeyError(f"cluster_key {cluster_key!r} is not present in adata.obs")
@@ -131,18 +214,31 @@ def build_evidence_bundle(
     if not marker_refs:
         marker_refs = tuple(str(key) for key, record in registry.get("tables", {}).items()
                             if isinstance(record, Mapping) and str(record.get("schema", "")).startswith("cluster_markers"))
+    deg_tables, deg_frames = deg_tables_from_registry(registry)
+    composition_keys = {"sample_key": sample_key, "donor_key": donor_key, "study_key": study_key,
+                        "min_cells_per_sample": int(min_cells_per_sample)}
     neighbours = _cluster_neighbours(adata, cluster_key)
     clusters = []
     for cluster_id, indices in adata.obs.groupby(cluster_key, observed=True).indices.items():
         obs = adata.obs.iloc[list(indices)]
+        cluster_id = str(cluster_id)
+        deg_refs = tuple(ref for ref, table in deg_tables.items()
+                         if table["label_key"] == cluster_key and cluster_id in table["groups"])
+        # A registered marker table that tests another partition, or lacks this
+        # group, must not look like this unit's DEG (FC-06, C2-02).
+        unit_marker_refs = tuple(ref for ref in marker_refs if ref not in deg_tables or ref in deg_refs)
+        top_markers = _extract_top_markers(adata, cluster_id)
+        if deg_refs:
+            frame = deg_frames[deg_refs[0]]
+            top_markers = tuple(frame.loc[frame["_group"] == cluster_id, "_gene"].astype(str).head(TOP_MARKERS_FROM_TABLE))
         clusters.append(
             ClusterEvidence(
-                cluster_id=str(cluster_id),
+                cluster_id=cluster_id,
                 cluster_key=cluster_key,
                 n_cells=int(len(obs)),
-                n_samples=_n_unique(obs, "sample_id"),
-                marker_refs=tuple(marker_refs),
-                top_markers=_extract_top_markers(adata, str(cluster_id)),
+                n_samples=_n_unique(obs, sample_key, min_cells_per_sample),
+                marker_refs=unit_marker_refs,
+                top_markers=top_markers,
                 anti_marker_warnings=(),
                 nmf_refs=_nmf_refs(adata),
                 dominant_programs=_dominant_programs(obs),
@@ -151,15 +247,17 @@ def build_evidence_bundle(
                 cnv_refs=_cnv_refs(obs),
                 cnv_summary=_cnv_summary(obs),
                 qc_warnings=_qc_warnings(obs),
-                n_donors=_n_unique(obs, "donor_id"),
-                n_studies=_n_unique(obs, "study_id"),
-                nearest_clusters=neighbours.get(str(cluster_id), ()),
-                distribution_summary=_distribution_summary(obs),
+                n_donors=_n_unique(obs, donor_key),
+                n_studies=_n_unique(obs, study_key),
+                nearest_clusters=neighbours.get(cluster_id, ()),
+                distribution_summary=_distribution_summary(obs, (study_key, donor_key, sample_key)),
                 program_usage_summary=_program_usage_summary(adata, list(indices)),
+                n_samples_raw=_n_unique(obs, sample_key),
+                deg_refs=deg_refs,
             )
         )
     return AnnotationEvidenceBundle(
-        schema_version="scoop.annotation_evidence_bundle.v1",
+        schema_version="scoop.annotation_evidence_bundle.v2",
         run_id=str(run_id),
         organism=str(organism),
         tissue=str(tissue),
@@ -168,13 +266,16 @@ def build_evidence_bundle(
         cluster_key=cluster_key,
         clusters=tuple(clusters),
         file_registry=registry,
+        partition_sha256=partition_sha256(adata, cluster_key),
+        deg_tables=deg_tables,
+        composition_keys=composition_keys,
     )
 
 
-def _n_unique(obs: pd.DataFrame, key: str) -> int | None:
+def _n_unique(obs: pd.DataFrame, key: str, min_cells: int = 1) -> int | None:
     if key not in obs:
         return None
-    return int(obs[key].nunique())
+    return int((obs[key].value_counts() >= max(min_cells, 1)).sum())
 
 
 def _extract_top_markers(adata, cluster_id: str) -> tuple[str, ...]:
@@ -201,9 +302,9 @@ def _dominant_programs(obs: pd.DataFrame) -> tuple[str, ...]:
     return ()
 
 
-def _distribution_summary(obs: pd.DataFrame) -> dict[str, Any]:
+def _distribution_summary(obs: pd.DataFrame, composition_keys: tuple[str, ...]) -> dict[str, Any]:
     summary: dict[str, Any] = {}
-    for key in ("study_id", "donor_id", "sample_id", "condition", "tissue", "chemistry"):
+    for key in dict.fromkeys((*composition_keys, "condition", "tissue", "chemistry")):
         if key in obs:
             summary[key] = {
                 str(name): int(count) for name, count in obs[key].dropna().astype(str).value_counts().items()
@@ -275,7 +376,10 @@ _FASTCNV_FIELDS = (
     "fastcnv_cnv_fraction",
     "fastcnv_normal_threshold",
     "fastcnv_tumor_evidence",
+    "fastcnv_threshold_source",
 )
+# Calls without a reference threshold: not assessed, never CNV-negative or normal.
+FASTCNV_UNASSESSED_CALLS = {"cnv_unassessed"}
 
 
 def _cnv_summary(obs: pd.DataFrame) -> dict[str, Any]:
@@ -283,8 +387,16 @@ def _cnv_summary(obs: pd.DataFrame) -> dict[str, Any]:
     if "fastcnv_tumor_evidence" in obs:
         values = obs["fastcnv_tumor_evidence"].dropna().astype(str)
         summary["fastcnv_tumor_evidence_counts"] = values.value_counts().to_dict()
+        assessed = values[~values.isin(FASTCNV_UNASSESSED_CALLS)]
+        summary["fastcnv_assessed_cells"] = int(len(assessed))
+        summary["fastcnv_unassessed_cells"] = int(len(values) - len(assessed))
+        # None, not False, when no cell was assessed.
         summary["has_tumor_evidence"] = bool(
-            values.str.lower().isin({"tumor", "malignant", "aneuploid", "positive", "true", "1"}).any()
+            assessed.str.lower().isin({"cnv_tumor_like", "tumor", "malignant", "aneuploid", "positive", "true", "1"}).any()
+        ) if len(assessed) else None
+    if "fastcnv_threshold_source" in obs:
+        summary["fastcnv_threshold_source_counts"] = (
+            obs["fastcnv_threshold_source"].dropna().astype(str).value_counts().to_dict()
         )
     if "fastcnv_cnv_fraction" in obs:
         numeric = pd.to_numeric(obs["fastcnv_cnv_fraction"], errors="coerce")

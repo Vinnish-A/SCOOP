@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Iterable
 import hashlib
 import itertools
@@ -220,6 +221,44 @@ def run_fast_consensus_nmf(
     summary["selected"] = summary["k"] == selected_k
     return summary, weights, usage
 
+
+
+def run_harmony_consensus_nmf(adata, *, input_h5ad, batch_key: str, output_prefix, n_top_genes: int = 3000,
+                              seed: int = 0, **nmf_kwargs) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    """Consensus NMF on FastCNMF Harmony-MOE-corrected expression for ``batch_key`` (S010).
+
+    ``fastcnmf.preprocess.run_fast_harmony_preprocess`` rereads ``input_h5ad``
+    (raw counts in ``layers["counts"]``), selects seurat_v3 HVGs, corrects them
+    for ``batch_key`` and clips at zero. The native consensus NMF runs on that
+    matrix; usage, programme evidence and the method record are written back
+    onto ``adata``. Returns the NMF tables and the preprocess manifest.
+    """
+    import anndata as ad
+    from fastcnmf.preprocess import run_fast_harmony_preprocess
+
+    if "counts" not in adata.layers:
+        # FastCNMF otherwise normalises whatever adata.X holds
+        raise ValueError("Harmony-corrected programmes read raw counts from layers['counts']")
+    manifest = run_fast_harmony_preprocess(input_h5ad=Path(input_h5ad), output_prefix=Path(output_prefix),
+                                           sample_key=batch_key, n_top_genes=n_top_genes, seed=seed,
+                                           write_tp10k_h5ad=False)
+    corrected = ad.read_h5ad(manifest["corrected_h5ad"])
+    if not corrected.obs_names.equals(adata.obs_names):
+        raise ValueError(f"{input_h5ad} is not the object being annotated; corrected obs differ")
+    for flag in ("mt_gene", "hb_gene"):
+        if flag in adata.var:
+            corrected.var[flag] = adata.var[flag].reindex(corrected.var_names, fill_value=False).to_numpy(bool)
+    summary, weights, usage = run_fast_consensus_nmf(corrected, layer=None, **nmf_kwargs)
+    discovery = corrected.var_names[corrected.var["nmf_discovery_gene"].to_numpy(bool)]
+    adata.var["nmf_discovery_gene"] = adata.var_names.isin(discovery)
+    adata.obsm["X_nmf_usage"] = corrected.obsm["X_nmf_usage"]
+    for column in ("dominant_nmf_program", "nmf_program_entropy"):
+        adata.obs[column] = corrected.obs[column].values
+    adata.uns["nmf_component_evidence"] = corrected.uns["nmf_component_evidence"]
+    adata.uns["nmf_method"] = {**corrected.uns["nmf_method"], "input_features": adata.n_vars,
+                               "expression": "fastcnmf_harmony_moe_corrected_hvg", "batch_key": batch_key,
+                               "n_top_genes": int(n_top_genes)}
+    return summary, weights, usage, manifest
 
 def run_omicverse_cnmf_validation(adata, components, output_dir: str, n_iter: int = 100, use_gpu: bool = True):
     """Optional validation path using OmicVerse cNMF.

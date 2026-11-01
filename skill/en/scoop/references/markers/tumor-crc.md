@@ -2,7 +2,7 @@
 
 Version: v1.0-refined  
 Scope: human colorectal cancer malignant epithelial and normal intestinal epithelial scRNA-seq.  
-Purpose: Use only on candidate epithelial cells; assess malignant_status jointly from genetics, normal atlases, patient structure, and tissue context. FastCNVpy is supporting evidence, not a positive gate that every malignant cell must pass.
+Purpose: Use only on candidate epithelial cells; assess malignancy_status jointly from genetics, normal atlases, patient structure, and tissue context. FastCNVpy is supporting evidence, not a positive gate that every malignant cell must pass.
 
 ---
 
@@ -11,7 +11,7 @@ Purpose: Use only on candidate epithelial cells; assess malignant_status jointly
 ```text
 1. Epithelial gate: EPCAM/TACSTD2/KRT8/KRT18/KRT19/KRT20/CDH1/CLDN3/CLDN4
 2. Exclude immune, fibroblast, endothelial, mural doublets
-3. Assign malignant_status using FastCNVpy/SNV/reference/patient-specific clustering
+3. Assign malignancy_status on lineage markers and DEG, supported by FastCNVpy/SNV/reference/patient-specific clustering
 4. CNV-low / neutral cells -> joint review of normal reference, tumor programme and patient/tissue context; never automatically normal
 5. malignant cells -> iCMS2 / iCMS3 / mixed / indeterminate
 6. Add cNMF overlays: stem-like, TA-proliferative, goblet-mucinous, IFN, metabolic, EMT-invasive, fetal-regenerative, hypoxia, DTP-like

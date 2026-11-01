@@ -35,6 +35,8 @@ COMMANDS: dict[tuple[str, ...], tuple[str, str]] = {
     ("annotate", "review"): ("annotation-review", "scoop.commands.annotation_review"),
     ("annotate", "commit"): ("annotation-commit", "scoop.commands.annotation_commit"),
     ("spatial",): ("spatial", "scoop.commands.spatial"),
+    ("spatial", "build-reference"): ("spatial-build-reference", "scoop.commands.spatial_reference"),
+    ("spatial", "identifiability"): ("spatial-identifiability", "scoop.commands.spatial_identifiability"),
     ("ccc",): ("ccc", "scoop.commands.ccc"),
     ("de", "prepare"): ("de-prepare", "scoop.commands.de_prepare"),
     ("de", "run"): ("de-run", "scoop.commands.de_run"),

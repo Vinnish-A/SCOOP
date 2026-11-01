@@ -17,7 +17,7 @@ inputs:
   clusters: reviewed clustering outputs and within-parent neighbourhoods
   cluster_deg: differential genes for each cluster
   cnmf_programs: batch-handled parent cNMF / FastCNMF programs and usage, required for formal fine review, not broad review
-  cnv_result: FastCNVpy result for tumor-relevant compartments, optional for non-tumor
+  cnv_result: FastCNVpy result for tumor-relevant compartments; supporting evidence, never required
   project_context:
     species: human | mouse | other
     tissue: <tissue>
@@ -115,7 +115,7 @@ credible clustering + conventional DEG + tissue markers -> reviewed biological b
 broad annotation
   -> identify epithelial / parenchymal / glial / other candidate malignant compartments
   -> CNV/SNV, normal reference and patient/tissue-context review
-  -> malignant_status assignment separate from differentiation/state
+  -> declared malignancy_status (lineage markers + DEG decide; CNV/SNV support) separate from differentiation/state
   -> cancer-type references support candidate review; malignant subtype names require supported malignancy
   -> normal tissue skill for normal-reference/context-supported parenchymal cells; CNV-neutral alone does not route cells to normal
 ```
@@ -126,7 +126,7 @@ FastCNVpy provides supporting evidence:
 
 ```text
 tumor-like programme + concordant CNV/context -> reviewed malignant support
-coherent normal lineage + matched normal-reference + tissue-context support -> normal-high; CNV neutrality alone is insufficient
+coherent normal lineage + matched normal-reference + tissue-context support -> normal; CNV neutrality alone is insufficient
 ```
 
 #### Case B: normal parenchymal and tumor cells are not separated
@@ -137,7 +137,7 @@ Distinguish origins using joint evidence:
 same marker-defined parenchymal/epithelial cluster
   -> CNV abnormal cells: supporting evidence; review reference, programme and context
   -> CNV neutral cells: inspect normal atlas, tumor programmes, patient structure and tissue context; missing evidence is pending, while reviewed conflicting evidence may be unresolved
-  -> CNV weak or absent with concordant non-CNV tumor evidence: retain malignant-probable as an option
+  -> CNV weak or absent with concordant non-CNV tumor evidence: retain probable_malignant as an option
   -> unresolved multi-source conflict: ambiguous; record alternatives and confidence
 ```
 
@@ -165,7 +165,7 @@ Do not assign excessively fine subtype names at the broad-group stage, for examp
 ```text
 Do not directly call T_CD8_TEXterm during initial clustering of all cells.
 Do not directly call Mac_TAM_SPP1_TREM2 before extracting and reclustering myeloid cells.
-Do not directly call MaligEpi_LuminalB in a tumor epithelial group without CNV analysis.
+Do not directly call MaligEpi_LuminalB in a tumor epithelial group without a reviewed malignancy decision.
 ```
 
 ---
@@ -213,7 +213,7 @@ Subprocesses may organize candidate evidence in the following order; the main pr
 ```text
 1. Check broad lineage gate.
 2. Reject incompatible lineages using exclusion markers.
-3. If tumor-relevant, check malignancy_status from FastCNVpy/SNV/reference.
+3. If tumor-relevant, review malignancy_status on lineage markers and DEG, with FastCNVpy/SNV/reference as support.
 4. Search matching historical phenotypes in the relevant marker skill.
 5. If a canonical historical phenotype is supported, use it.
 6. If phenotype is uncertain but real cell identity is clear, use <real phenotype + function>.
@@ -241,7 +241,7 @@ low:
   triggered_by:
     - single-marker call
     - ambient RNA or doublet risk
-    - CNV weak or absent where required
+    - weak or conflicting malignancy evidence in a tumour-relevant lineage
     - conflicting historical phenotypes
     - very small cluster or low UMI
 ```
@@ -280,8 +280,8 @@ review all affected identities and states again; when original expression and te
 
 ### Review coverage and identity granularity
 
-Structured decisions may use `identity_scope: broad | fine | unresolved` (the old interface defaults to
-fine). Keep missing evidence in work-progress/gap tables first and actively obtain it; do not submit unresolved merely because evidence is missing.
+Structured decisions use `identity_scope: broad | fine | fine_unresolved | unresolved` (default `broad`; see the
+[structured decision contract](#structured-decision-contract)). Keep missing evidence in work-progress/gap tables first and actively obtain it; do not submit unresolved merely because evidence is missing.
 That status is only for adequate evidence that remains mixed or conflicting after review. Committing writes `annotation_reviewed`, `broad_annotation_status`, and
 `fine_annotation_status` separately; reviewing only a broad lineage does not automatically review fine subgroups or confer normality.
 A rejected new decision must revoke the corresponding cells’ old accepted eligibility, retaining old text for provenance.
@@ -290,3 +290,28 @@ Explicitly distinguish all records reviewed, broad lineage resolved, fine subgro
 Evidence from cluster sampling may conceal small heterogeneous residual populations. Separately inspect competing lineages
 and sampling coverage in the final unresolved UID subset; return to actual native features, unsupervised clustering, and all-gene DEG when systematic competing signals exist.
 Do not describe missed checks, unrequested panels, or lineage genes absent from HVGs as intrinsic unidentifiability of the data.
+
+### Structured decision contract
+
+- **Evidence binding.** `annotate review` writes `annotation_evidence_bundle.json` (with `partition_sha256` over
+  obs names and cluster-key values, and `deg_tables {ref: label_key, groups, sha256}`) and a template whose
+  decisions carry `bundle_sha256`; the previous pair is archived. A DEG citation `ref` counts only when that
+  table's `label_key` is the decision's cluster key and it tests the unit's group; cite another partition's group as
+  `ref::group`. `manual:`/`external:` refs remain declared, unbound DEG. Commit refuses a changed partition, a unit
+  whose cell count differs from the bundle, and a `bundle_sha256` other than the bundle file's; a legacy bundle
+  without a partition hash is rebound from the input and the receipt is `limited`.
+- **Support.** `n_samples` counts samples with at least `annotation.decision.min_cells_per_sample` (default 20) cells
+  in the unit (`n_samples_raw` keeps all). Composition keys come from `annotation.decision.{sample,donor,study}_key`,
+  else `run.obs_keys`. `min_cells_high_confidence` and `min_samples_high_confidence` reach the validator.
+- **Scope.** `fine_unresolved` accepts the broad lineage and records the fine level as reviewed but unresolved
+  (`fine_annotation_status: unresolved`, no forced review). `unresolved` writes the labels but forces review.
+- **Technical outcome.** `disposition: technical_exclusion` with `technical_kind: doublet | multiplet | ambient |
+  low_quality | artefact` commits `annotation_status: excluded_technical`, broad/fine status `not_applicable`; the
+  cells count as reviewed (`technical_excluded`) and remain deliverable. It needs one registered evidence ref, not DEG.
+- **Annotations without gating.** `notes` never gates; keep `conflicts` for genuine marker conflicts (they block
+  high confidence). `parent_unit`/`unit_rule` record unit lineage in `merge_split_log.tsv`, which logs every
+  decision as `commit | record_unresolved | technical_exclusion | review_required`.
+- **Per-cell layer.** `annotate commit --cell-layer <table>` (`obs_name` plus any of `cell_confidence`, `cell_state`,
+  `identity_source`) is bound as an input and applies only to cells whose unit labels were written. Per-cell
+  confidence can only lower the unit confidence; `identity_source` fills `annotation_identity_source`.
+- **Malignancy** is declared, never read from label words; see [tumor rules](tumor-general.md#4-malignancy_status-labels).

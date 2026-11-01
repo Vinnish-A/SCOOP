@@ -10,7 +10,9 @@ Inputs:
   - obs[sample_id]
 
 Outputs:
-  - artifacts/adata_qc.h5ad
+  - artifacts/adata_qc.h5ad, or with --output-format obs-parquet only the new or
+    changed obs columns at --output plus a <stem>.json receipt (var gene flags and
+    uns are not written)
   - qc/tables/qc_thresholds_by_sample.tsv
   - qc/tables/scrublet_summary_by_sample.tsv
   - qc/tables/scrublet_scores.parquet
@@ -35,7 +37,8 @@ from scsp_agent_sop.qc import (
     inherit_qc,
     run_scrublet_per_sample,
 )
-from scsp_agent_sop.storage import write_h5ad_atomic, ensure_dir, init_file_registry, register_file, write_table
+from scsp_agent_sop.storage import (changed_obs_columns, write_h5ad_atomic, ensure_dir, init_file_registry, register_file,
+                                    write_obs_sidecar, write_table)
 
 
 def main() -> None:
@@ -44,7 +47,12 @@ def main() -> None:
     ap.add_argument("--input", default=None)
     ap.add_argument("--output", default=None)
     ap.add_argument("--inherit-from", help="Parent QC H5AD; verify exact retained-cell counts and inherit decisions")
+    ap.add_argument("--output-format", choices=["h5ad", "obs-parquet"], default="h5ad",
+                    help="obs-parquet writes only the new or changed obs columns keyed by obs_name, plus a JSON receipt")
     args = ap.parse_args()
+    if args.output_format == "obs-parquet" and not args.output:
+        # the managed stage receipt checks the --output path
+        ap.error("--output-format obs-parquet needs an explicit --output <path>.parquet")
     cfg = read_yaml(args.config)
     run_root = resolve_run_root(args.config, cfg)
     project_root = project_root_from_run_root(run_root)
@@ -54,14 +62,21 @@ def main() -> None:
     output = Path(args.output) if args.output else run_root / "artifacts" / "adata_qc.h5ad"
     adata = ad.read_h5ad(input_path)
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
+    input_obs = adata.obs.copy() if args.output_format == "obs-parquet" else None
+
+    def write_output() -> None:
+        ensure_dir(output.parent)
+        if input_obs is None:
+            write_h5ad_atomic(adata, output)
+        else:
+            write_obs_sidecar(adata, changed_obs_columns(input_obs, adata), output, key="qc_obs")
 
     organism = deep_get(cfg, "run.organism", "human")
     sample_key = deep_get(cfg, "keys.sample", "sample_id")
     counts_layer = deep_get(cfg, "qc.counts_layer", "counts")
     if args.inherit_from:
         provenance = inherit_qc(adata, Path(args.inherit_from), counts_layer=counts_layer, sample_key=sample_key)
-        ensure_dir(output.parent)
-        write_h5ad_atomic(adata, output)
+        write_output()
         log_decision(run_root, module="qc", decision="qc_inherited", reason="Exact retained subset; no QC or doublet refit.",
                      parameters=provenance, evidence={"output_h5ad": str(output)})
         return
@@ -86,8 +101,7 @@ def main() -> None:
             )
             fov_path = write_table(by_fov, run_root / "qc/tables/spatial_qc_by_fov.tsv")
             register_file(adata, key="spatial_qc_by_fov", path=fov_path, schema="spatial_fov_qc.v1")
-        ensure_dir(output.parent)
-        write_h5ad_atomic(adata, output)
+        write_output()
         log_decision(
             run_root,
             module="qc",
@@ -138,8 +152,7 @@ def main() -> None:
     )
     register_file(adata, key="scrublet_scores", path=score_path, schema="scrublet_scores.v1")
 
-    ensure_dir(output.parent)
-    write_h5ad_atomic(adata, output)
+    write_output()
     log_decision(
         run_root,
         module="qc",

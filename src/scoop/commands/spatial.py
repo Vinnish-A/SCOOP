@@ -39,7 +39,8 @@ def main() -> dict | None:
     reference = deep_get(cfg, "spatial.reference_h5ad")
     reference_h5ad = project_root / reference if reference else None
     options = cfg["spatial"].setdefault("rctd", {})
-    for key in ("reference_profiles", "reference_manifest", "spatial_registry", "reference_registry", "q_matrices"):
+    for key in ("reference_profiles", "reference_manifest", "spatial_registry", "reference_registry", "q_matrices",
+                "identifiability_table"):
         if options.get(key):
             options[key] = str((project_root / Path(options[key]).expanduser()).resolve())
     if reference_h5ad is None and not options.get("reference_profiles"):
@@ -50,12 +51,14 @@ def main() -> dict | None:
         expected_cells_per_unit=expected,
         default_low_res=deep_get(cfg, "spatial.rctd.mode_low_resolution", "full"),
     )
-    output_h5ad = run_root / "spatial" / "deconvolution" / f"rctd_{mode}.h5ad"
+    label = options.get("output_label") or mode
+    output_h5ad = run_root / "spatial" / "deconvolution" / f"rctd_{label}.h5ad"
     adapter = deep_get(cfg, "spatial.rctd.adapter", "api")
     if adapter not in {"api", "external"}:
         raise ValueError("spatial.rctd.adapter must be api or external.")
     record = {
         "mode": mode,
+        "output_label": label,
         "adapter": adapter,
         "output_h5ad": str(output_h5ad),
         "spatial_h5ad": str(spatial_h5ad),
@@ -76,16 +79,32 @@ def main() -> dict | None:
             parameters=record,
             evidence=info,
         )
+        sigma_check = ("not_applicable" if options.get("sigma_override") is not None
+                       else "limited" if info["sigma_step_limited"] else "passed")
+        heldout = info["heldout_gene_validation"]
+        heldout_check = ({"not_applicable": "not_applicable", "not_assessable": "not_assessed"}.get(heldout["status"])
+                         or ("passed" if heldout["median_spearman"] > heldout["median_shuffled_null"] else "limited"))
         return {"inputs": info["inputs"], "outputs": info["outputs"],
                 "execution": {"status": "completed"},
                 "validation": {"status": "limited", "scope": "native_counts_source_masks_fit_and_persistence",
                                "checks": [{"name": "finite_fitted_weights_exact_component_axis", "status": "passed"},
-                                          {"name": "saved_original_observation_axis", "status": "passed"}]},
-                "interpretation": {"status": "not_assessed"},
+                                          {"name": "saved_original_observation_axis", "status": "passed"},
+                                          {"name": "sigma_not_step_limited", "status": sigma_check},
+                                          {"name": "heldout_genes_above_shuffled_null", "status": heldout_check}]},
+                "interpretation": {"status": "not_applicable" if info["run_purpose"] == "pilot" else "not_assessed",
+                                   "run_purpose": info["run_purpose"],
+                                   "biological_interpretation_allowed": info["biological_interpretation_allowed"]},
                 "coverage": [{"scope": "spatial_fit_source_observations", "unit": "observation_views",
                               "total": info["observations_input"], "processed": info["observations_fitted"]}],
                 "limitations": ["RNA allocation weights require reference coverage, identifiability and biological validation.",
-                                *info["reference"]["gaps"]],
+                                *info["reference"]["gaps"],
+                                *(["Sigma travelled the full per-epoch step budget and may not have converged; "
+                                   "refit with preset standard or a larger N_epoch."] if info["sigma_step_limited"] else []),
+                                *([f"{info['run_purpose']} fit with evidence_pending components "
+                                   f"{info['evidence_pending_components']}; no biological interpretation."]
+                                  if info["evidence_pending_components"] else []),
+                                *(["Pilot fit: method, timing and resources only; no biological interpretation."]
+                                  if info["run_purpose"] == "pilot" else [])],
                 "computation_checkpoint": info["computation_checkpoint"]}
     if reference_h5ad is None:
         raise ValueError("The external command adapter requires reference_h5ad")

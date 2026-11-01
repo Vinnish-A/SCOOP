@@ -31,8 +31,24 @@ H5AD writes:
 
 Sidecar outputs:
 
-- `tables/cluster_markers.parquet`.
+- `tables/cluster_markers.parquet` (registered with its `label_key`).
 - `tables/annotation_evidence_template.tsv`.
+- With a COSG option, `tables/cluster_specificity_scores.parquet`; under a
+  measurement it scores only genes measured in every sample and lists the rest
+  in `tables/cluster_specificity_excluded_genes.tsv`.
+
+Marker DEG reads the registered feature measurement, or `--feature-measurement
+<npz>` (which also registers it). Genes measured in every sample go through
+scanpy; partially measured genes get an exact tie-corrected Mann–Whitney on
+measuring cells only, and need `annotation.default_marker_method: wilcoxon`.
+Fewer than 3 measuring cells on either side leaves no row (unassessed). Wilcoxon
+output adds `U`, `n_measured_group`, `n_measured_rest`, `log10_pval` and
+`log10_pval_adj`, which stay finite where `pvals` underflows.
+
+`annotate review` and `annotate commit` take `--cluster-table` (`obs_name` plus
+the cluster-key column) when the input lacks that obs column. Commit also takes
+`--cell-layer` and `--output-format obs-parquet`; see the
+[annotation workflow](../markers/annotation-workflow.md#structured-decision-contract).
 
 Review triggers:
 

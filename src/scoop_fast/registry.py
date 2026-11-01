@@ -65,7 +65,7 @@ _ENGINES: dict[str, EngineSpec] = {
         consumes=("h5ad", "gene_metadata", "sample_key", "major_lineage_key"),
         produces=("cnv_evidence_obs", "pooled_manifest", "sample_results"),
         default_cli=("scoop", "annotate", "tumor-cnv"),
-        writes_h5ad_fields=("fastcnv_reference_pool", "fastcnv_cnv_fraction", "fastcnv_normal_threshold", "fastcnv_tumor_evidence"),
+        writes_h5ad_fields=("fastcnv_reference_pool", "fastcnv_cnv_fraction", "fastcnv_normal_threshold", "fastcnv_tumor_evidence", "fastcnv_threshold_source"),
         writes_external_artifacts=("tumor_fastcnv_fastcnvpy_pooled_manifest.json",),
         quality_gates=("reference_pool_size", "candidate_cell_count"),
     ),

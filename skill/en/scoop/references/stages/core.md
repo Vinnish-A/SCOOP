@@ -33,6 +33,19 @@ H5AD writes:
 - `obsm["X_umap_identity"]` and `obsm["X_umap_biology"]`.
 - `obs["cluster_identity"]`.
 
+`scanpy_legacy` and `fastcore_cpu` write `log1p_norm` as plain normalize_total at
+`core.normalize_total_target_sum` (default 10000) then log1p; the `fastcore_cpu`
+shiftlog matrix (`core.fastcore.omicverse.target_sum`) stays internal to HVG
+scaling and PCA.
+
+With a registered [feature measurement](../docs/data-boundaries.md#observability-positive-evidence-and-input-versions),
+`scanpy_legacy` and `fastcore_cpu` rank each HVG batch only on genes all its
+samples measured (adding `n_batches_measured` when any gene is partial).
+`scanpy_legacy` programme scores draw set and control genes from genes measured
+in every sample (`uns["program_score_genes"]`). Other backends record
+`measurement: not_honoured` in `fastcore_manifest.json` and request review.
+Rescoring replaces the cell-cycle columns instead of duplicating them.
+
 Numeric cluster IDs are unsupervised partitions, not biological identities. For
 annotation, review the actual clustering and UMAP distances/neighbourhoods with
 DEG and tissue markers; two-dimensional UMAP distance alone cannot establish

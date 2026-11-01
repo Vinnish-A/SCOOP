@@ -19,6 +19,9 @@ unmeasured genes remain unassessed. Preserve the semantics of counts and
 normalized-only inputs; do not invent counts. Interpret source confounding and
 measurement differences explicitly. These cell-level contrasts are descriptive
 annotation evidence, not independent patient or condition inference.
+With a declared feature measurement, `annotate evidence` tests partially measured
+genes on measuring cells only and exports `n_measured_*`, `U` and `log10_pval(_adj)`;
+see [annotation evidence](annotation.md).
 
 ## Patient/condition DE
 
@@ -56,3 +59,8 @@ Review triggers:
 - Fewer than three biological replicates per group.
 - Batch and condition are confounded.
 - Rare cell type has too few cells per sample.
+
+`de prepare` resolves `run.obs_keys` (sample required). When `annotation_status`
+exists it aggregates only `accepted`/`labeled` cells; `review_required` (including
+reviewed unresolved), `excluded_technical` and `unassigned` cells never enter a pseudobulk. The metadata carries
+the donor, batch, study and `keys.batch_candidates` columns present, for the design.

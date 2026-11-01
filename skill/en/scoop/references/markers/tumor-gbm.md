@@ -11,7 +11,7 @@ Purpose: First distinguish normal brain parenchymal cells from malignant glioma 
 ```text
 1. Broad brain/parenchymal annotation: astrocyte, OPC, oligodendrocyte, neuron, ependymal/ciliated, microglia, endothelial, mural, fibroblast/VLMC
 2. Candidate glioma cells: marker overlap with AC-like, OPC-like, NPC-like, MES-like programs
-3. Lineage gate first: cells with a coherent vascular, mural, fibroblast, immune, oligodendrocyte or neuronal programme and no glial-tumour co-expression keep that lineage; FastCNVpy / SNV / tumor reference mapping then support malignant_status among glial/neural candidates
+3. Lineage gate first: cells with a coherent vascular, mural, fibroblast, immune, oligodendrocyte or neuronal programme and no glial-tumour co-expression keep that lineage; FastCNVpy / SNV / tumor reference mapping then support malignancy_status among glial/neural candidates
 4. CNV-low/neutral cells -> joint review of genomic, normal-atlas, tumour-programme and patient/tissue evidence; no automatic normal routing
 5. malignant cells -> GBM historical states: AC-like, OPC-like, NPC-like, MES-like
 6. Reference-mapping may support GBmap-like states, but final identity requires model/analyst review rather than classifier naming
@@ -57,7 +57,7 @@ Normal origin requires coherent brain lineage plus normal-reference and tissue-c
 
 ## 4. GBM malignant historical states
 
-Only use these labels for `malignant-high` or `malignant-probable` cells.
+Only use these labels for `malignant` or `probable_malignant` cells.
 
 ### 4.1 AC-like / astrocyte-like
 

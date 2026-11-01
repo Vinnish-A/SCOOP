@@ -19,7 +19,7 @@ Version: v1.0-refined
 - T cells now follow the 2025 modular nomenclature style: historical phenotype + marker + modular attributes, without over-reifying individual states.
 - Myeloid removes M1/M2 as final labels, replacing them with hierarchical annotation of monocyte / macrophage / DC / TAM states.
 - Fibroblast / CAF retains real CAF phenotypes and cancer-specific niches, while treating ECM, contractile, IFN, cycling, and similar signals as state or functional overlays.
-- BRCA / CRC / GBM tumor cells are handled separately by cancer type; every malignant subtype first requires malignant_status.
+- BRCA / CRC / GBM tumor cells are handled separately by cancer type; every malignant subtype first requires a declared malignancy_status.
 - CNV provides malignant/normal and clonal evidence, rather than directly interpreting functional states.
 - cNMF / FastCNMF is used for functional continua and identity disambiguation, not as a hard-threshold scorer within the skill.
 
@@ -41,7 +41,7 @@ Version: v1.0-refined
 ```text
 Read marker evidence + DEG + cNMF programs + FastCNVpy + project context
   -> Find the corresponding markers skill
-  -> First assess identity and malignant_status
+  -> First assess identity and malignancy_status
   -> Then map the historical phenotype
   -> Finally attach the functional overlay
   -> Output final_label, confidence, uncertainty, do_not_call

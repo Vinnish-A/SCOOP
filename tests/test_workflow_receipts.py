@@ -44,3 +44,16 @@ def test_spatial_preparation_is_not_analysis_completion(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "receipt_test", SimpleNamespace(main=lambda: None))
     run_command_module("spatial", "receipt_test", ["--config", str(config), "--dry-run"])
     assert json.loads((run / "state/stages/spatial.json").read_text())["status"] == "prepared"
+
+
+def test_stage_reporting_not_run_is_recorded_as_skipped(tmp_path, monkeypatch):
+    run = tmp_path / "runs/test"
+    (run / "config").mkdir(parents=True)
+    config = run / "config/run.yaml"
+    config.write_text(yaml.safe_dump({"run": {"run_id": "test"}}))
+    result = {"execution": {"status": "not_run", "reason": "no eligible reference"}}
+    monkeypatch.setitem(sys.modules, "receipt_test", SimpleNamespace(main=lambda: result))
+    assert run_command_module("tumor_cnv", "receipt_test", ["--config", str(config)]) == 0
+    receipt = json.loads((run / "state/stages/tumor_cnv.json").read_text())
+    assert receipt["status"] == "skipped"
+    assert receipt["execution"]["status"] == "not_run"

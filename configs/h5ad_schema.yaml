@@ -19,6 +19,9 @@ obs_keep:
     - pct_counts_mt
     - pct_counts_ribo
     - pct_counts_hb
+    - mt_unassessed
+    - ribo_unassessed
+    - hb_unassessed
     - qc_pass
     - qc_class
     - qc_failure_reason
@@ -54,6 +57,9 @@ obs_keep:
     - broad_annotation_status
     - fine_annotation_status
     - malignancy_status
+    - malignancy_basis
+    - annotation_technical_kind
+    - annotation_identity_source
     - annotation_source
     - annotation_version
     - scvi_curated_cell_type

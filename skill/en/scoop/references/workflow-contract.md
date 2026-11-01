@@ -59,6 +59,8 @@ elapsed_seconds:
 ```
 
 `executed` means the command returned and its declared artifacts were recorded.
+A result with `execution: not_run` (for example a tumour-CNV plan that cannot run)
+records the stage `skipped`.
 Read `execution`, `validation`, `interpretation` and measured `coverage`
 independently. Legacy `committed` receipts imply none of the missing assessments.
 Old receipts are archived under `state/stages/history/` before another attempt;
@@ -96,11 +98,17 @@ independent adjudication by the registrar.
 - Review QC removal and unstable embeddings before dependent interpretation.
 - Review annotation conflicts before commit; an explicit unresolved identity is
   a valid reviewed result, not a reason to stop every branch.
-- Malignant labels require joint biological evidence/review; CNV neutrality does
-  not establish normality.
+- Malignancy is declared per decision (`malignancy_status`/`malignancy_basis`);
+  lineage markers plus a valid DEG citation decide it. CNV is optional support and,
+  when cited, must be a registered CNV artefact with assessed cells. CNV
+  neutrality does not establish normality. See [tumor rules](markers/tumor-general.md#4-malignancy_status-labels).
+- Annotation commit binds decisions to the reviewed content: the bundle's partition
+  hash, unit cell counts, `bundle_sha256` and DEG tables that test the unit; see the
+  [structured decision contract](markers/annotation-workflow.md#structured-decision-contract).
 - scPoli requires a current approved annotation gate bound to exact artifacts.
 - Reviewed annotation delivery requires per-observation review coverage and a
-  committed input. Explicitly unresolved reviewed cells remain deliverable.
+  committed input. Explicitly unresolved and `excluded_technical` reviewed cells
+  remain deliverable.
   `scoop deliver --scope current-state` exports an earlier checkpoint deliberately;
   the default cannot silently fall back to QC/programme/evidence files.
 

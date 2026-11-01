@@ -63,6 +63,39 @@ def write_h5ad_atomic(adata, path: str | Path) -> Path:
     return path
 
 
+def changed_obs_columns(before: pd.DataFrame, adata) -> list[str]:
+    """obs columns that a stage added or rewrote, relative to an earlier copy of obs."""
+    return [c for c in adata.obs.columns if c not in before or not adata.obs[c].equals(before[c])]
+
+
+def write_obs_sidecar(adata, columns: Iterable[str], path: str | Path, *, key: str | None = None) -> Path:
+    """Write obs_name plus ``columns`` to parquet instead of a full H5AD copy (DC1, C1-08, S032).
+
+    The table is registered under ``key`` (default: the file stem). A JSON
+    receipt beside it records the columns, the obs_name order hash and the
+    file registry that an H5AD copy would have carried in uns. Returns the
+    receipt path.
+    """
+    path = Path(path)
+    if path.suffix != ".parquet":
+        raise ValueError(f"An obs sidecar is a .parquet file: {path}")
+    key = key or path.stem
+    columns = list(columns)
+    table = adata.obs[columns].copy()
+    for column in columns:
+        # parquet needs one type per column; committed label columns hold mixed objects
+        if table[column].dtype == object:
+            table[column] = table[column].astype("string")
+    write_table(table.reset_index(names="obs_name"), path)
+    obs_names_sha256 = hashlib.sha256("\n".join(map(str, adata.obs_names)).encode("utf-8")).hexdigest()
+    register_file(adata, key=key, path=path, schema="obs_sidecar.v1",
+                  extra={"columns": columns, "n_obs": int(adata.n_obs), "obs_names_sha256": obs_names_sha256})
+    registry = adata.uns["file_registry"]
+    receipt = {"schema_version": "scoop.obs_sidecar_receipt.v1", "sidecar": registry["tables"][key], "file_registry": registry}
+    receipt = json.loads(json.dumps(receipt, default=lambda v: v.tolist() if hasattr(v, "tolist") else str(v)))
+    return write_json(receipt, path.with_suffix(".json"))
+
+
 def append_jsonl(obj: Mapping[str, Any], path: str | Path) -> Path:
     path = Path(path)
     ensure_dir(path.parent)
