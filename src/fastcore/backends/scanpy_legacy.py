@@ -160,7 +160,6 @@ def run_scanpy_legacy_core(adata, cfg: Mapping[str, Any], run_root: str | Path) 
         timings,
         "leiden_sweep",
         leiden_sweep,
-        leiden_search_options,
         adata,
         graph_prefix="identity",
         resolutions=deep_get(cfg, "core.leiden_resolutions", [0.25, 0.5, 0.75, 1.0, 1.25, 1.5]),

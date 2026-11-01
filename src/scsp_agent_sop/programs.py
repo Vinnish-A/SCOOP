@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable
+import hashlib
+import itertools
 
 import numpy as np
 import pandas as pd
@@ -65,33 +67,44 @@ def run_nmf_once(X, k: int, seed: int, max_iter: int = FASTCNMF_DEFAULT_MAX_ITER
     )
 
 
-def consensus_stability(results: list[NMFRunResult], k: int) -> tuple[float, np.ndarray]:
-    from sklearn.cluster import AgglomerativeClustering
-    from sklearn.metrics.pairwise import cosine_similarity
+def _matched_consensus(results: list[NMFRunResult], k: int):
+    """One component per independent seed; no self/same-seed stability credit."""
+    from scipy.optimize import linear_sum_assignment
 
-    H_all = np.vstack([_normalize_components(r.H) for r in results if r.k == k])
-    if H_all.shape[0] <= k:
-        return float("nan"), H_all
-    sim = cosine_similarity(H_all)
-    dist = 1 - np.clip(sim, 0, 1)
-    clustering = AgglomerativeClustering(n_clusters=k, metric="precomputed", linkage="average")
-    labels = clustering.fit_predict(dist)
-    stabilities = []
-    consensus = []
-    for label in range(k):
-        idx = np.where(labels == label)[0]
-        if len(idx) == 0:
-            continue
-        sub = sim[np.ix_(idx, idx)]
-        stabilities.append(float(np.mean(sub[np.triu_indices_from(sub, k=1)])) if len(idx) > 1 else 1.0)
-        consensus.append(H_all[idx].mean(axis=0))
-    return float(np.median(stabilities)) if stabilities else 0.0, np.vstack(consensus)
+    runs = sorted((r for r in results if r.k == k), key=lambda r: r.seed)
+    if not runs or len({r.seed for r in runs}) != len(runs):
+        raise ValueError("Consensus requires nonempty, independently seeded runs for K")
+    components = [_normalize_components(r.H) for r in runs]
+    if any(h.shape != components[0].shape or h.shape[0] != k for h in components):
+        raise ValueError("Consensus component/gene axes differ")
+    if len(runs) == 1:
+        return float("nan"), components[0], np.full(k, np.nan), runs[0].seed
+    pair_scores = np.zeros((len(runs), len(runs)))
+    for i, j in itertools.combinations(range(len(runs)), 2):
+        sim = components[i] @ components[j].T
+        row, col = linear_sum_assignment(-sim)
+        pair_scores[i, j] = pair_scores[j, i] = float(sim[row, col].mean())
+    medoid = int(np.argmax(pair_scores.sum(axis=1)))
+    aligned = []
+    for h in components:
+        row, col = linear_sum_assignment(-(components[medoid] @ h.T))
+        aligned.append(h[col[np.argsort(row)]])
+    cross_seed = [np.einsum("ij,ij->i", aligned[i], aligned[j])
+                  for i, j in itertools.combinations(range(len(runs)), 2)]
+    stability = np.clip(np.mean(cross_seed, axis=0), 0, 1)
+    return float(np.median(stability)), np.mean(aligned, axis=0), stability, runs[medoid].seed
+
+
+def consensus_stability(results: list[NMFRunResult], k: int) -> tuple[float, np.ndarray]:
+    stability, consensus, _, _ = _matched_consensus(results, k)
+    return stability, consensus
 
 
 def choose_k(summary: pd.DataFrame, stability_threshold: float = 0.70) -> int:
-    stable = summary[summary["median_stability"] >= stability_threshold].copy()
+    metric = "min_component_stability" if "min_component_stability" in summary else "median_stability"
+    stable = summary[summary[metric] >= stability_threshold].copy()
     if stable.empty:
-        return int(summary.sort_values(["median_stability", "median_error"], ascending=[False, True]).iloc[0]["k"])
+        return int(summary.sort_values([metric, "median_error"], ascending=[False, True]).iloc[0]["k"])
     # This rule chooses the smallest stable K; it does not estimate an error elbow.
     stable = stable.sort_values("k")
     return int(stable.iloc[0]["k"])
@@ -121,6 +134,7 @@ def run_fast_consensus_nmf(
         if col in adata.var:
             gene_mask &= ~adata.var[col].to_numpy(bool)
     genes = np.asarray(adata.var_names)[gene_mask]
+    adata.var["nmf_discovery_gene"] = gene_mask
     X = _as_nonnegative_matrix(get_matrix(adata, layer)[:, gene_mask])
     if max(k_grid) > min(X.shape):
         raise ValueError("NMF K exceeds the number of observations or selected features.")
@@ -132,15 +146,21 @@ def run_fast_consensus_nmf(
             futures = [pool.submit(run_nmf_once, X, k, seed, max_iter) for k, seed in jobs]
             results = [future.result() for future in futures]
     summary_rows = []
+    consensuses = {}
     for k in k_grid:
         kr = [r for r in results if r.k == int(k)]
-        stability, _ = consensus_stability(results, int(k))
+        stability, consensus, per_component, medoid_seed = _matched_consensus(results, int(k))
+        consensuses[int(k)] = (consensus, per_component, medoid_seed)
         summary_rows.append(
             {
                 "k": int(k),
                 "median_error": float(np.median([r.error for r in kr])),
                 "min_error": float(np.min([r.error for r in kr])),
                 "median_stability": stability,
+                "min_component_stability": float(np.min(per_component)),
+                "stable_component_fraction": float(np.mean(per_component >= stability_threshold)) if len(kr) > 1 else float("nan"),
+                "stability_metric": "cross_independent_seed_one_to_one_cosine",
+                "stability_assessed": len(kr) > 1,
                 "n_seeds": len(kr),
                 "converged_fraction": float(np.mean([r.converged for r in kr])),
                 "median_iterations": float(np.median([r.n_iter for r in kr])),
@@ -155,7 +175,7 @@ def run_fast_consensus_nmf(
     # relabeling the single lowest-error replicate as a consensus solution.
     from sklearn.decomposition import non_negative_factorization
 
-    _, consensus = consensus_stability(results, selected_k)
+    consensus, per_component, medoid_seed = consensuses[selected_k]
     with threadpool_limits(limits=1, user_api="blas"):
         W, H, refit_iterations = non_negative_factorization(
             X,
@@ -172,12 +192,22 @@ def run_fast_consensus_nmf(
     adata.uns["nmf_method"] = {
         "method": "sklearn_multistart_nmf",
         "init": "random",
-        "selection": "smallest_K_passing_component_stability_else_best_stability",
+        "selection": "smallest_K_passing_minimum_cross_seed_component_stability_else_best_minimum",
+        "stability_metric": "cross_independent_seed_one_to_one_cosine",
+        "stability_assessed": len(seeds) > 1,
+        "medoid_seed": medoid_seed,
+        "input_features": adata.n_vars,
+        "discovery_features": len(genes),
+        "discovery_axis_sha256": hashlib.sha256("\n".join(map(str, genes)).encode()).hexdigest(),
         "output": "consensus_components_and_fixed_H_usage_refit",
         "usage_refit_iterations": int(refit_iterations),
+        "usage_refit_converged": int(refit_iterations) < max_iter,
         "max_iter": max_iter,
         "n_seeds": len(seeds),
     }
+    adata.uns["nmf_component_evidence"] = {"program": np.asarray([f"P{i + 1}" for i in range(selected_k)]),
+                                         "cross_seed_cosine": per_component,
+                                         "aligned_seed_replicates": len(seeds)}
     adata.obsm["X_nmf_usage"] = W
     adata.obs["dominant_nmf_program"] = pd.Categorical([f"P{int(i) + 1}" for i in np.argmax(W, axis=1)])
     usage_sum = np.maximum(W.sum(axis=1), 1e-12)

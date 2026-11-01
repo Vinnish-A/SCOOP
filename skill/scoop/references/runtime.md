@@ -36,6 +36,13 @@ availability is hardware-dependent. Before costly analysis, test the actual
 backend on representative input: semantics, outputs, memory and timing. Import
 success is insufficient; stop hanging probes and use a recorded alternative.
 
+Bound and inspect each actual thread pool, including BLAS, OpenMP and Numba,
+across concurrent workers. `sc.settings.n_jobs`, a CLI thread argument or an
+environment variable alone does not prove every compiled backend honors it.
+UMAP's Numba graph operations can otherwise use the machine-wide default; a
+bundled single-thread BLAS can ignore requested parallelism. Record observed
+capabilities and limits instead of attributing performance to ineffective knobs.
+
 ## Installation safety
 
 Build a candidate release in a temporary directory, verify its allowlisted
@@ -66,3 +73,8 @@ For project Python/API scripts, use `$SCOOP_HOME/bin/python` (or the pinned
 and prepends that release's application modules; it creates no extra environment.
 `environment.path` identifies the dependency interpreter, not an installed SCOOP
 wheel. Existing legacy environment paths are retained.
+
+
+### Testing canonical source versus the managed release
+
+The managed Python launcher deliberately pins application code to the active immutable release. A caller-provided PYTHONPATH can therefore still test that release rather than an edited worktree. For canonical-source regression tests, invoke the dependency environment interpreter directly with canonical src before managed support libraries, or use a staged application release; assert the imported module path. A passing source test does not mean running jobs or the active release were modified.

@@ -13,7 +13,7 @@ from pathlib import Path
 import anndata as ad
 
 from scsp_agent_sop.annotation_decision.decision_schema import AnnotationDecision
-from scsp_agent_sop.annotation_decision.evidence_bundle import build_evidence_bundle
+from scsp_agent_sop.annotation_decision.evidence_bundle import build_evidence_bundle, bound_evidence_files
 from scsp_agent_sop.config import deep_get, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
 from scsp_agent_sop.storage import ensure_dir, write_json
@@ -26,7 +26,7 @@ def _default_input(run_root: Path) -> Path:
     return run_root / "artifacts" / "adata_annotation_evidence.h5ad"
 
 
-def main() -> None:
+def main() -> dict:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--input", default=None)
@@ -71,6 +71,7 @@ def main() -> None:
                 final_label="review_required",
                 confidence="low",
                 evidence_refs={
+                    "deg": cluster.marker_refs,
                     "markers": cluster.marker_refs,
                     "programs": cluster.nmf_refs,
                     "references": cluster.reference_refs,
@@ -83,6 +84,8 @@ def main() -> None:
                 reason="template only; subagent or analyst decision required",
             ).to_dict()
         )
+    cited = {ref for decision in templates for refs in decision["evidence_refs"].values() for ref in refs}
+    evidence_inputs = bound_evidence_files(bundle, cited)
     ensure_dir(output_dir)
     bundle_path = write_json(bundle.to_dict(), output_dir / "annotation_evidence_bundle.json")
     template_path = write_json(
@@ -103,6 +106,14 @@ def main() -> None:
         human_review_required=True,
         review_reason="Decision template requires subagent- or analyst-edited structured decisions before commit.",
     )
+    return {"inputs": [str(input_path.resolve()), *map(str, evidence_inputs)],
+            "outputs": [str(bundle_path.resolve()), str(template_path.resolve())],
+            "execution": {"status": "completed"},
+            "validation": {"status": "limited", "scope": "evidence_bundle_and_template_preparation"},
+            "interpretation": {"status": "not_assessed"},
+            "coverage": [{"scope": "prepared_review_units_not_decisions", "unit": "numeric_clusters",
+                          "total": len(bundle.clusters), "processed": len(templates)}],
+            "limitations": ["Templates are prepared; biological identities have not been adjudicated by this command."]}
 
 
 if __name__ == "__main__":

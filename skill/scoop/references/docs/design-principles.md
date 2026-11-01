@@ -8,6 +8,25 @@ SCOOP服务于生物学问题和可复用分析，不以框架完整、默认工
 - **先确认临床单位，再解释趋势。** 连通cell→sample/timepoint→patient→endpoint，先查配对和可用患者数；组织/PBMC、pCR/cCR/TRG、治疗方案分别保存。细胞/bin/ROI不增加独立患者。比例、UCell、来源pseudobulk和scSurvival风险回答不同问题，保留分母、范围、效应单位与终点方向；不因希望显著而混换定义。
 - **技术正确与生物学支持分别判断。** 收敛、非负、CPU/GPU一致不证明反卷积身份正确；marker与图谱匹配不证明功能；CCC不证明机制；同一初始化多seed不等于独立鲁棒性；拟合风险不等于预测验证。先检查参考可辨识性、患者覆盖、取样及组成，再决定能说什么。
 
+## 元信息与批次契约
+
+QC、整合和跨来源比较前先整理可核验的元信息表与映射：保留 exact cell/source/native ID，连通原始 dataset、sample、patient、library/capture、assay/平台、组织、condition/处理及时间点。每项记录出处、别名与冲突，未知明确为 unknown；sample 不冒充 patient，同名 barcode 不证明同细胞。非关键字段未知不阻断无关工作，只限制依赖该字段的方法或结论。
+
+整合以稳定的 `original_dataset_id` 为主要批次来源键：由原研究数据集 accession/发布标识或明确的原发布子集定义，保存别名与容器映射；同 dataset 的 processed data-view、文件与处理版本另列映射，不自动分裂为新 batch。GRIT 等合集容器应追到其中原始 dataset，不能自动作为一个 batch；study、文件、patient、sample 与技术 library/capture 是不同层级。有证据时再声明 assay/capture 等原 dataset 内的技术子批次；patient、condition 和目标身份不随意作为技术效应消除。来源与生物条件完全混杂时记录不可辨识范围，不以强制混合当作解决。
+
+分别登记每种方法的输入表达/latent 层、实际批次键与协变量、真实接口和参数、是否执行、输入/输出轴与 hash、适用性及核验：
+
+| 用途 | 批次处理的含义 |
+| --- | --- |
+| 整合、邻域与分群 | Harmony/scVI 等 latent 校正作用于其明确输出；保留未校正表示与 marker/来源检查，不推定原表达已校正。 |
+| 跨 dataset NMF | 在拟合前实际执行并验证该引擎/前处理支持的表达级批次接口，或明确的模型内批次处理；核对尺度、非负性、基因轴与真实输出。CP10k、std scaling、均衡 anchors 或名为 `corrected_h5ad` 的文件均不证明这一步已做。 |
+| cluster/subcluster/final-label marker DEG | 在聚类及其输入、测量范围经核验后，直接使用实际表达层做常规基因级差异检验；批次分层不是强制前置。按需检查来源/批次和测量差异；报告对比、分母、效应、实测基因与检验范围，细胞级证据不代表患者重复。 |
+| patient/condition DEG | 根据独立生物重复、配对、条件与技术批次设计建模；混杂不能识别时明确限制。 |
+
+生物一级大类与细亚群的审定顺序及主进程职责见[注释流程](../markers/annotation-workflow.md)。一级大类可由可靠聚类、常规 DEG 与组织 marker 审定，不以 NMF 为前置；细亚群正式分析和裁定须按该流程完成各项前置及证据。
+
+原 counts 只读，校正表达作为独立且有方法依据的派生视图；不得把 signed latent 或任意回归残差临时截零冒充可用表达，也不从 normalized 值反造 counts。方法自身定义的非负化（如官方校正流程的 clipping）可以使用，须如实记录其定义、执行和影响并保留原 counts。所有来源按同一测量可比性规则评估，不因合集身份永久降低证据等级；未测/未知结构 mask 不补零。空间和多模态另声明 reference、平台、section/FOV、assay 与配对单位的批次适用性，不对不同测量盲套同一个 Harmony 或改写原 counts。
+
 ## 实用执行
 
 - **不好用就绕开并记录。** CLI缺参数/后端、挂起或规模不适配时，直接使用真实API、项目适配或隔离依赖，优先复用managed环境；不为修框架停掉研究，也不试探性重装共享release。在已有日志/receipt记原因、实际算法与环境、输入/参数、产物与核验；区分调度变化、参数变化和算法更换，不冒充原生stage完成。生物学审阅、患者单位和源数据约束仍然保留。

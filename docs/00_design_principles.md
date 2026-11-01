@@ -4,6 +4,10 @@
 
 SCOOP（Single Cell Omics Operating Protocol）为 Agent 和分析人员执行 single cell omics 项目提供一套稳定路线，覆盖单细胞和空间组学中的常规交付任务。它不是完整的生信百科，而是把常规项目压缩成少数确定模块。每个模块要清楚说明：输入是什么、默认工具是什么、输出写到哪里、什么情况下调参、什么情况下需要人工 review。
 
+元信息对齐、原始 dataset 批次键，以及 latent/表达/统计三种批次处理的统一约定见
+[元信息与批次契约](../skill/scoop/references/docs/design-principles.md#元信息与批次契约)。
+各 stage 明确适用方法与实际执行；不以本规范更新冒称 runtime 默认已改变。
+
 ## 真正的简洁
 
 文本简短不等于项目简洁。真正的简洁来自概念边界清楚：
@@ -16,12 +20,14 @@ SCOOP（Single Cell Omics Operating Protocol）为 Agent 和分析人员执行 s
 - CCC 只产生候选通信，不证明机制；
 - DE 只做统计检验，不用 integrated expression。
 
+空间反卷积参考必须细到全组织所有已审阅的细胞亚群，不能只细分目标谱系、把其他谱系合并成大类。先用完整细分参考拟合，再按需要汇总权重展示；来源、父谱系、患者覆盖和未定/缺失亚群须有覆盖表。稀少或难分的群保留未定及合并敏感性，不通过自动标签转移补造亚群；粗粒度参考仅作为注明用途的试跑或敏感性分析。
+
 ## 默认方法唯一
 
 每类任务只设一个默认方法：
 
 - doublet：`scanpy.pp.scrublet`，逐样本运行；
-- batch correction：Harmony 2.0；
+- embedding batch correction：Harmony 2.0；
 - NMF：fast consensus NMF；
 - spatial deconvolution：RCTD-py；
 - low-resolution RCTD-py mode：`full`；

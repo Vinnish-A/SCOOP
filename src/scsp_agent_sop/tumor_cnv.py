@@ -70,7 +70,8 @@ def prepare_tumor_fastcnv_reference(
             raise ValueError("CNV reference requires reviewed annotation_confidence or reference_eligible_key")
         eligible = obs.annotation_confidence.astype(str).eq("high")
     if "annotation_status" in obs:
-        eligible &= obs.annotation_status.astype(str).eq("labeled")
+        # Structured annotation commits emit "accepted"; "labeled" is legacy.
+        eligible &= obs.annotation_status.astype(str).isin({"accepted", "labeled"})
     if "final_use" in obs:
         eligible &= obs.final_use.eq(True)
 
@@ -132,6 +133,11 @@ def run_tumor_fastcnv_workflow(
     config: FastCNVConfig | None = None,
     sample_name: str = "tumor_fastcnv",
 ) -> tuple[PooledFastCNVResult | None, TumorFastCNVPlan]:
+    if not adata.var_names.is_unique:
+        raise ValueError(
+            "CNV genomic positions require unique analysis feature names; "
+            "resolve duplicate symbols through an explicit locus/ENSG mapping before fitting"
+        )
     plan = prepare_tumor_fastcnv_reference(
         adata,
         major_lineage_key=major_lineage_key,

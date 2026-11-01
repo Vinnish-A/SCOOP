@@ -171,7 +171,7 @@ atlas:
 annotation:
   default_marker_method: wilcoxon
   fast_marker_method: fastde_cosg
-  marker_n_genes: 100
+  marker_n_genes: 100  # auxiliary specificity/preview; statistical DEG exports all input genes
   major_lineage_key: cell_type_lvl1
   decision:
     enabled: false
@@ -202,6 +202,9 @@ spatial:
   unit_type: spot
   rctd:
     adapter: api
+    preset: fast  # N_fit=50, N_epoch=4; standard uses 1000,8
+    threads: 4
+    seed: 271030
     device: auto
     batch_size: 512
     mode_low_resolution: full
@@ -210,6 +213,9 @@ spatial:
     umi_min_low_resolution: 100
     umi_min_bin: 20
     cell_type_key: cell_type_lvl3
+
+delivery:
+  scope: reviewed-annotation  # current-state explicitly permits an earlier checkpoint
 
 ccc:
   enabled: false

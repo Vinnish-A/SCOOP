@@ -4,16 +4,16 @@ from pathlib import Path
 import pandas as pd
 
 
-def run_markers_scanpy(adata, groupby: str = "cluster_identity", layer: str = "log1p_norm", method: str = "wilcoxon", n_genes: int = 100) -> pd.DataFrame:
+def run_markers_scanpy(adata, groupby: str = "cluster_identity", layer: str = "log1p_norm", method: str = "wilcoxon", n_genes: int | None = None) -> pd.DataFrame:
     import scanpy as sc
-    old = adata.X
-    if layer in adata.layers:
-        adata.X = adata.layers[layer].copy()
-    sc.tl.rank_genes_groups(adata, groupby=groupby, method=method, n_genes=n_genes, key_added="_markers_tmp")
+    if layer != "X" and layer not in adata.layers:
+        raise ValueError(f"Requested differential-expression layer is missing: {layer}")
+    sc.tl.rank_genes_groups(adata, groupby=groupby, layer=None if layer == "X" else layer,
+                           use_raw=False, method=method, n_genes=n_genes, key_added="_markers_tmp",
+                           tie_correct=True, pts=True)
     df = sc.get.rank_genes_groups_df(adata, group=None, key="_markers_tmp")
     if "_markers_tmp" in adata.uns:
         del adata.uns["_markers_tmp"]
-    adata.X = old
     return df
 
 

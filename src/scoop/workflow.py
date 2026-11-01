@@ -14,6 +14,7 @@ from typing import Any, Iterable
 from scsp_agent_sop.config import read_yaml, resolve_run_root
 
 from .io import atomic_json, sha256_file
+from .results import archive_receipt, result_payload
 
 RECEIPT_SCHEMA = "scoop.stage-receipt.v1"
 
@@ -141,7 +142,8 @@ def _artifact_records(root: Path) -> list[dict[str, Any]]:
 
 
 def run_command_module(stage: str, module_name: str, arguments: list[str]) -> int:
-    config_path = _config_argument(arguments)
+    help_only = any(value in {"-h", "--help"} for value in arguments)
+    config_path = None if help_only else _config_argument(arguments)
     run_root: Path | None = None
     receipt_path: Path | None = None
     started = time.monotonic()
@@ -156,6 +158,7 @@ def run_command_module(stage: str, module_name: str, arguments: list[str]) -> in
         config_hash = sha256_file(config_path)
         decision_log = run_root / "logs/decision_log.jsonl"
         decision_offset = decision_log.stat().st_size if decision_log.is_file() else 0
+        archive_receipt(receipt_path)
         atomic_json(
             receipt_path,
             {
@@ -172,8 +175,14 @@ def run_command_module(stage: str, module_name: str, arguments: list[str]) -> in
     sys.argv = [f"scoop {stage}", *arguments]
     try:
         module = importlib.import_module(module_name)
-        result = module.main()
-        return_code = int(result or 0)
+        try:
+            result = module.main()
+        except SystemExit as exc:
+            if help_only and exc.code in {None, 0}:
+                return 0
+            raise
+        assessment = result_payload(result, base=config_path.parent if config_path else Path.cwd(), route="managed") if isinstance(result, dict) else {}
+        return_code = int(assessment.get("exit_code", 0) if assessment else (result or 0))
         if return_code:
             raise RuntimeError(f"stage returned non-zero status: {return_code}")
     except BaseException as exc:
@@ -197,7 +206,6 @@ def run_command_module(stage: str, module_name: str, arguments: list[str]) -> in
         sys.argv = previous
 
     if receipt_path is not None and run_root is not None:
-        stage_root = run_root / STAGE_DIRECTORIES.get(stage, stage.split("-", 1)[0])
         review_required = stage in {"annotation-review", "atlas-report", "atlas-approval"}
         review_reasons = []
         decision_log = run_root / "logs/decision_log.jsonl"
@@ -209,14 +217,16 @@ def run_command_module(stage: str, module_name: str, arguments: list[str]) -> in
                     if entry.get("human_review_required"):
                         review_required = True
                         review_reasons.append(entry.get("review_reason") or entry["reason"])
-        status = "awaiting_review" if review_required else "committed"
+        status = "awaiting_review" if review_required else "executed"
         if stage in {"spatial", "ccc"} and not config.get(stage, {}).get("enabled", False):
             status = "skipped"
         elif "--dry-run" in arguments:
             status = "prepared"
-        outputs = _artifact_records(stage_root)
+        # A directory inventory can contain old files. Only declared outputs
+        # belong to this execution; persistence alone is not numerical validation.
+        outputs = list(assessment.get("outputs", []))
         artifact_names = {"qc": "adata_qc.h5ad", "core": "adata_core.h5ad", "programs": "adata_programs.h5ad"}
-        if stage in artifact_names and status in {"committed", "awaiting_review"}:
+        if stage in artifact_names and status in {"executed", "awaiting_review"}:
             target = run_root / "artifacts" / artifact_names[stage]
             for index, value in enumerate(arguments):
                 if value == "--output" and index + 1 < len(arguments):
@@ -227,18 +237,33 @@ def run_command_module(stage: str, module_name: str, arguments: list[str]) -> in
                 status = "failed"
                 review_reasons.append(f"Declared stage output is missing: {target}")
             else:
-                size = target.stat().st_size
-                outputs.append({"path": str(target), "bytes": size,
-                                "sha256": sha256_file(target) if size <= 64 * 1024**2 else None})
+                if not any(Path(record["path"]).resolve() == target.resolve() for record in outputs):
+                    outputs.append({"path": str(target), "bytes": target.stat().st_size,
+                                    "sha256": sha256_file(target)})
+        inputs = [{"path": str(config_path), "sha256": config_hash, "role": "configuration"}]
+        module_path = getattr(module, "__file__", None)
+        if module_path and Path(module_path).is_file():
+            inputs.append({"path": str(Path(module_path).resolve()), "sha256": sha256_file(module_path), "role": "code"})
+        inputs.extend(assessment.get("inputs", []))
+        execution = "not_run" if status in {"prepared", "skipped"} else "failed" if status == "failed" else "completed"
+        if assessment.get("execution", {}).get("status") == "failed":
+            status, execution = "failed", "failed"
         atomic_json(
             receipt_path,
             {
+                **assessment,
                 "schema_version": RECEIPT_SCHEMA,
                 "stage": stage,
                 "status": status,
                 "config": str(config_path),
                 "config_hash": config_hash,
                 "outputs": outputs,
+                "inputs": inputs,
+                "execution": {"status": execution},
+                "validation": assessment.get("validation", {"status": "not_assessed"}),
+                "interpretation": assessment.get("interpretation", {"status": "not_assessed"}),
+                "coverage": assessment.get("coverage", []),
+                "route": "managed",
                 "review_required": review_required,
                 "review_reason": "; ".join(review_reasons) if review_reasons else ("decision required" if review_required else None),
                 "started_at": started_at,

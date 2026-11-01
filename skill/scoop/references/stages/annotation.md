@@ -3,8 +3,10 @@
 
 Inputs:
 
-- `artifacts/adata_programs.h5ad`.
-- Final clusters and NMF programmes.
+- Credible clustering and conventional DEG with tissue marker evidence for broad review.
+- For formal fine-subtype review, the accepted biological parent and all evidence
+  required by the [annotation workflow](../markers/annotation-workflow.md),
+  including batch-handled parent NMF and within-parent clustering/DEG.
 
 Script:
 
@@ -18,11 +20,14 @@ OmicVerse fast marker option:
 scoop annotate evidence --config runs/<run_id>/config/run.yaml --use-omicverse-cosg
 ```
 
-The OmicVerse wrapper is used only to export marker evidence. Final labels are proposed by a subagent or analyst and must pass validation before commit.
+The OmicVerse wrapper only exports marker evidence. Delegates may assemble evidence
+and propose labels; the main agent personally reads the actual evidence and makes
+each final biological decision, which must pass validation before commit. Broad
+review does not require NMF; an incomplete fine review remains provisional.
 
 H5AD writes:
 
-- No final labels unless supplied by a subagent or analyst after review.
+- No final labels without the main agent's evidence-based adjudication and validation.
 
 Sidecar outputs:
 

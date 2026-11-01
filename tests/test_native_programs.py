@@ -2,7 +2,8 @@ import numpy as np
 import pytest
 from anndata import AnnData, read_h5ad
 
-from scsp_agent_sop.programs import run_fast_consensus_nmf, run_nmf_once
+from scsp_agent_sop.programs import run_fast_consensus_nmf, run_nmf_once, consensus_stability, NMFRunResult, choose_k
+import pandas as pd
 
 
 def test_replicate_seeds_have_independent_starts_and_report_budget():
@@ -31,3 +32,34 @@ def test_native_programs_deliver_declared_consensus_and_convergence(tmp_path):
     assert a.uns["nmf_method"]["output"] == "consensus_components_and_fixed_H_usage_refit"
     a.write_h5ad(tmp_path / "programs.h5ad")
     assert read_h5ad(tmp_path / "programs.h5ad").obsm["X_nmf_usage"].shape == (50, k)
+    assert summary.min_component_stability.le(summary.median_stability).all()
+    assert a.uns["nmf_method"]["discovery_features"] == 24
+
+
+def _run(H, seed):
+    H = np.asarray(H, dtype=float)
+    return NMFRunResult(k=len(H), seed=seed, error=1., W=np.ones((4, len(H))), H=H, n_iter=2, converged=True)
+
+
+def test_same_seed_duplicates_and_singletons_cannot_establish_stability():
+    first = _run([[1, 0, 0, 0], [1, 0, 0, 0], [0, 1, 0, 0]], 0)
+    second = _run([[1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], 1)
+    stability, consensus = consensus_stability([first, second], 3)
+    assert stability == 0 and consensus.shape == (3, 4)
+    assert np.isnan(consensus_stability([first], 3)[0])
+    with pytest.raises(ValueError, match="independently seeded"):
+        consensus_stability([first, first], 3)
+
+
+def test_component_permutations_match_across_independent_seeds():
+    a = _run(np.eye(3), 0)
+    b = _run(np.eye(3)[[2, 0, 1]], 1)
+    score, components = consensus_stability([a, b], 3)
+    assert score == 1
+    np.testing.assert_allclose(components, np.eye(3))
+
+
+def test_k_selection_does_not_hide_a_weak_component_under_high_median():
+    summary = pd.DataFrame({"k": [2, 3], "median_stability": [.99, .95],
+                            "min_component_stability": [.1, .9], "median_error": [1., .8]})
+    assert choose_k(summary, .7) == 3

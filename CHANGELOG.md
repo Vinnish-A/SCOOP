@@ -10,7 +10,26 @@
 - Record what was measured: add a hash-bound per-sample feature-measurement mask (`scoop.feature-measurement.v1`). QC reports MT/ribo/HB fractions as unassessed (NaN with `*_unassessed` flags) instead of 0 when a sample measured none of the genes, passes `qc.symbol_key`, and reads gene feature types from `qc.gene_feature_types`.
 - Write `log1p_norm` at `core.normalize_total_target_sum` on the vendored OmicVerse CPU backend, keeping its shiftlog matrix internal to HVG scaling and PCA. Size unloaded H5AD inputs from metadata instead of treating every path as backed, and honour `gpu_min_cells`. Coalesce scattered `read_rows` reads into bounded hyperslabs. Accept `accepted` in the scPoli atlas gate, resolve run roots beside configs outside `config/`, and write outputs with the process umask while keeping approval gates private.
 
+- Support Claude Code Skill installation with independent language selection and backups, sharing the existing SCOOP runtime.
+
 - Add a separate English Skill edition and a Skill-only language selector; default both installation routes to English while retaining explicit original-edition selection and existing runtime releases.
+
+- Correct Harmony 2 MOE compatibility to use the original diagonal ridge penalty and handle exactly empty soft clusters.
+
+- Clarify provenance-linked metadata alignment and original-dataset batch keys; distinguish latent integration, expression-level programme correction and batch-aware gene testing, with assay-specific spatial/multimodal handling. Activate the matching documentation-only Skill revision through its existing independent link; application code, runtime defaults, dependency environment and analytical models are unchanged.
+
+- Default annotation decisions to broad identity unless fine resolution is explicitly declared; accepting a legacy decision no longer implies that its subtype was resolved.
+- Expose semantic analysis commands in CLI help, add hash-bound project result registration and status inspection, and separate execution, validation, interpretation and measured coverage while preserving earlier receipts.
+- Require explicit reviewed-annotation delivery or a current-state export; retain unresolved review coverage, revoke stale accepted labels on rejected decisions, and keep broad/fine identity decisions separate. Connect registered cluster DEG to review templates and require its citation; export full tested-gene statistics, with COSG as an auxiliary specificity table.
+- Upgrade the locked RCTD backend to 0.4.0; preserve source masks and full native exposures before calibration, accept reviewed profile caches, retain original rows with NA weights, and resume valid fits after export failures. Report consumed fast/standard budgets and support a declared shared-gene comparison.
+- Fix the legacy core wrapper's extra positional argument to the Leiden sweep.
+- Measure NMF stability through one-to-one matches across independent seeds, report weak individual components and discovery feature coverage, and treat single-seed stability as unassessed. Bind annotation-review bundles/templates and their referenced evidence as declared artifacts.
+
+- Accept structured annotation status `accepted` alongside legacy `labeled` for reviewed CNV baselines, and reject duplicate analysis feature names before genomic fitting instead of silently taking the first symbol column.
+- Add a project-wide multimodal preparation route covering native assay semantics, exact/estimated pairing, reusable checkpoints and missing ATAC/ChIP, protein, bulk, perturbation and clinical stages.
+- Require integrated-cluster DEG for integrated annotation; document RCTD version-specific calibration validation and complete reference/exposure checks while retaining the fast backend.
+- Preserve nonuniform graph weights in NetworKit's explicit COO triplet interface and bind Leiden checkpoints to the graph-construction policy, rejecting legacy results produced by a different builder.
+
 
 - Restore the AnnData/SciPy sparse-index compatibility bound and test real backed slicing during installation.
 - Share selective read-only H5AD access across metadata/benchmark readers and add exact-count QC inheritance for retained lineage subsets.

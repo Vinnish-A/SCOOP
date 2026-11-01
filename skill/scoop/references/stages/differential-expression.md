@@ -1,9 +1,31 @@
-# Pseudobulk DE
+# Gene-level differential expression
 
 For patient-level abundance, scSurvival, proportion/UCell, survival or response,
 read [outcome association](outcome-association.md) instead of treating the question
 as gene-level condition DE. The two worked cases include actual output tables.
 
+
+## Cluster annotation markers
+
+Use the [metadata and batch contract](../docs/design-principles.md#元信息与批次契约).
+After verifying the clustering, input expression and measurement scope, perform
+ordinary gene-level cluster, subcluster and merged final-label comparisons on the
+actual expression layer. Batch-stratified tests are optional diagnostics for a
+specific source or measurement concern, not a prerequisite for annotation.
+Include every source, including collection-derived datasets, when its assay and
+gene observability support the contrast. Record actual denominators, effects,
+source composition and the tested-gene/BH universe; missing contrasts and
+unmeasured genes remain unassessed. Preserve the semantics of counts and
+normalized-only inputs; do not invent counts. Interpret source confounding and
+measurement differences explicitly. These cell-level contrasts are descriptive
+annotation evidence, not independent patient or condition inference.
+
+## Patient/condition DE
+
+Use genuine biological replicates and a declared donor/sample/technical-batch
+and condition design. Preserve paired patients when known; an unresolved sample
+is not an invented donor, and a fully confounded batch/condition effect is not
+identifiable. Cell-level marker P values do not provide patient-level replication.
 
 Inputs:
 

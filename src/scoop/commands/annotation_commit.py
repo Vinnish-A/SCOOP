@@ -10,9 +10,9 @@ import anndata as ad
 
 from scsp_agent_sop.annotation_decision.committer import commit_annotation_decisions
 from scsp_agent_sop.annotation_decision.decision_schema import decisions_from_json
-from scsp_agent_sop.annotation_decision.evidence_bundle import AnnotationEvidenceBundle, build_evidence_bundle
+from scsp_agent_sop.annotation_decision.evidence_bundle import AnnotationEvidenceBundle, build_evidence_bundle, bound_evidence_files
 from scsp_agent_sop.config import deep_get, read_yaml, resolve_run_root
-from scsp_agent_sop.storage import ensure_dir, init_file_registry
+from scsp_agent_sop.storage import ensure_dir, init_file_registry, write_h5ad_atomic
 
 
 def _default_input(run_root: Path) -> Path:
@@ -38,7 +38,7 @@ def _load_or_build_bundle(
     )
 
 
-def main() -> None:
+def main() -> dict:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--input", default=None)
@@ -65,10 +65,27 @@ def main() -> None:
     )
     evidence_bundle = _load_or_build_bundle(bundle_path, adata, cfg, run_root, cluster_key)
     decisions = decisions_from_json(decisions_path.read_text(encoding="utf-8"))
+    inputs = [str(input_path.resolve()), str(decisions_path.resolve())]
+    if bundle_path.is_file():
+        inputs.append(str(bundle_path.resolve()))
+    cited = {ref for decision in decisions for refs in decision.evidence_refs.values() for ref in refs}
+    inputs.extend(str(path) for path in bound_evidence_files(evidence_bundle, cited))
     commit_annotation_decisions(adata, decisions, evidence_bundle, run_root=run_root, output_dir=output_dir)
-
     ensure_dir(output_path.parent)
-    adata.write_h5ad(output_path)
+    write_h5ad_atomic(adata, output_path)
+    coverage = dict(adata.uns["annotation_review"])
+    return {"inputs": inputs,
+            "outputs": [str(output_path.resolve()), str((output_dir / "annotation_decisions.tsv").resolve()),
+                        str((output_dir / "annotation_validation.tsv").resolve())],
+            "execution": {"status": "completed"},
+            "validation": {"status": "passed" if coverage["unreviewed"] == 0 else "limited",
+                           "scope": "decision_schema_and_observation_review_coverage",
+                           "checks": [{"name": "decision_to_observation_mapping", "status": "passed"}]},
+            "interpretation": {"status": "not_assessed"},
+            "coverage": [{"scope": "annotation_review", "unit": "observation_views",
+                          "total": int(adata.n_obs), "processed": int(coverage["reviewed"])}],
+            "review_counts": coverage,
+            "limitations": ["Review coverage includes explicit unresolved decisions and does not establish all fine identities."]}
 
 
 if __name__ == "__main__":

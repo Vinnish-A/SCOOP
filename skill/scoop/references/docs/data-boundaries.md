@@ -42,6 +42,23 @@ parent cells and exact raw counts before copying decisions. It records parent SH
 and inherited scope, without claiming new QC/doublet estimation. A feature-filtered
 object is not an exact full-count subset; recover the source gene axis first.
 
+## Observability, positive evidence and input versions
+
+An observed-positive gene/sample table is a lower bound on detection, not the
+original feature-measurement mask. Verified protocol, capture-library identity,
+integer processed values and demonstrated UMI units are separate facts. Where
+zero observability remains unresolved, coherent native positive genes can still
+support an analyst-reviewed broad RNA phenotype with explicit limitations;
+do not make every such cell Unknown. Do not inherit formal DEG, fine subtype,
+functional state or reference eligibility from neighbouring cells. Missing or
+filtered genes remain unavailable for negative-marker claims and formal tests.
+
+Reconcile pre-QC candidates, frozen retained rows and assay-specific assessment
+denominators by exact UID. A count difference is not evidence of duplicate cells
+or a reason to restore excluded rows. An exact barcode/UID bridge also does not
+prove identical expression content: preserve raw/restored/provider/corrected
+count versions and identify which one each reused result actually consumed.
+
 ## Persistence
 
 Keep counts and feature-measurement meaning intact. Repair field types at the

@@ -50,6 +50,10 @@ obs_keep:
     - cell_state
     - annotation_confidence
     - annotation_status
+    - annotation_identity_scope
+    - broad_annotation_status
+    - fine_annotation_status
+    - malignancy_status
     - annotation_source
     - annotation_version
     - scvi_curated_cell_type

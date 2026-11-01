@@ -17,6 +17,7 @@ from .doctor import emit as emit_doctor
 from .io import atomic_json
 from .release import rollback as rollback_release
 from .release import status as release_status
+from .results import inspect_run, register_result
 from .workflow import WORKFLOWS, run_command_module, workflow_plan
 
 COMMANDS: dict[tuple[str, ...], tuple[str, str]] = {
@@ -141,6 +142,40 @@ def _cmd_runtime(args: argparse.Namespace) -> int:
     return 0 if payload["ok"] else 1
 
 
+def _result_run_root(args: argparse.Namespace) -> Path:
+    if getattr(args, "run_root", None):
+        return Path(args.run_root).expanduser().resolve()
+    from scsp_agent_sop.config import read_yaml, resolve_run_root
+
+    config = Path(args.config).resolve()
+    return resolve_run_root(config, read_yaml(config)).resolve()
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    payload = inspect_run(_result_run_root(args), verify=args.verify)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"Run: {payload['run_root']}")
+        for stage in payload["stages"]:
+            print(f"{stage['stage']}: execution={stage['execution']['status']}  "
+                  f"validation={stage['validation']['status']}  "
+                  f"interpretation={stage['interpretation']['status']}  integrity={stage['integrity']}")
+            for row in stage.get("coverage") or []:
+                print(f"  {row['scope']}: {row['processed']}/{row['total']} {row['unit']}")
+            for reason in (stage.get("limitations") or []) + (stage.get("next_actions") or []):
+                print(f"  {reason}")
+        if not payload["stages"]:
+            print("No recorded stage results. Existing files alone do not establish completed analysis.")
+    return int(bool(payload["stale_or_missing_stages"]) or any(
+        s["execution"]["status"] == "failed" or s["validation"]["status"] == "failed" for s in payload["stages"]))
+
+
+def _cmd_register_result(args: argparse.Namespace) -> int:
+    print(register_result(_result_run_root(args), Path(args.manifest)))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="scoop", description="Single Cell Omics Operating Protocol")
     parser.add_argument("--version", action="version", version=f"SCOOP {__version__}")
@@ -162,6 +197,21 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--output")
     plan.set_defaults(func=_cmd_plan)
 
+    status = commands.add_parser("status", help="show execution, validation, interpretation and remaining work")
+    selection = status.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--config")
+    selection.add_argument("--run-root")
+    status.add_argument("--verify", action="store_true", help="verify declared artifact hashes")
+    status.add_argument("--json", action="store_true")
+    status.set_defaults(func=_cmd_status)
+
+    record = commands.add_parser("register-result", help="register verified project-adapter artifacts and explicit limits")
+    selection = record.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--config")
+    selection.add_argument("--run-root")
+    record.add_argument("--manifest", required=True)
+    record.set_defaults(func=_cmd_register_result)
+
     atlas = commands.add_parser("atlas", help="manage the scVI annotation approval gate")
     atlas_actions = atlas.add_subparsers(dest="atlas_action", required=True)
     approve_parser = atlas_actions.add_parser("approve")
@@ -178,6 +228,19 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser = atlas_actions.add_parser("verify-gate")
     verify_parser.add_argument("--gate", required=True)
     verify_parser.set_defaults(func=_cmd_atlas)
+
+    # Real stage parsers remain lazy and are dispatched by _route. Register their
+    # names here as well so --help exposes the same commands that actually run.
+    for action in ("integrate", "annotate", "report", "scpoli", "validate"):
+        atlas_actions.add_parser(action, help=f"run atlas {action}")
+    for name in ("validate", "qc", "core", "programs", "spatial", "ccc", "deliver"):
+        commands.add_parser(name, help=f"run {name} stage")
+    for name, actions in {"annotate": ("evidence", "tumor-cnv", "review", "commit"),
+                          "de": ("prepare", "run"), "abundance": ("compare",)}.items():
+        group = commands.add_parser(name, help=f"{name} stages")
+        sub = group.add_subparsers(dest=f"{name}_action", required=True)
+        for action in actions:
+            sub.add_parser(action, help=f"run {name} {action}")
 
     runtime = commands.add_parser("runtime", help="inspect or roll back the managed release")
     runtime_actions = runtime.add_subparsers(dest="runtime_action", required=True)

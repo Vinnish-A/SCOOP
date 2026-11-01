@@ -4,7 +4,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 
-from scsp_agent_sop.tumor_cnv import prepare_tumor_fastcnv_reference
+from scsp_agent_sop.tumor_cnv import prepare_tumor_fastcnv_reference, run_tumor_fastcnv_workflow
 
 
 def test_prepare_tumor_fastcnv_reference_marks_normal_pools() -> None:
@@ -52,3 +52,26 @@ def test_unresolved_low_confidence_and_filtered_cells_are_never_reference():
     del obj.obs['annotation_confidence']
     with pytest.raises(ValueError, match='reviewed'):
         prepare_tumor_fastcnv_reference(obj)
+
+
+def test_committed_and_legacy_statuses_respect_explicit_reference_review():
+    obs = pd.DataFrame({
+        'sample_id': ['s'] * 5,
+        'cell_type_lvl1': ['T'] * 5,
+        'annotation_status': ['accepted', 'accepted', 'labeled', 'review_required', 'unlabeled'],
+        'reviewed_reference': [True, False, True, True, True],
+    }, index=[f'c{i}' for i in range(5)])
+    obj = ad.AnnData(np.ones((5, 3)), obs=obs)
+    plan = prepare_tumor_fastcnv_reference(
+        obj, reference_eligible_key='reviewed_reference', min_reference_cells=2,
+    )
+    assert plan.n_reference_cells == 2
+    assert obj.obs.fastcnv_reference_pool.eq('normal_nonparenchymal').tolist() == [True, False, True, False, False]
+
+
+def test_duplicate_symbols_cannot_silently_select_a_genomic_column(tmp_path):
+    import pytest
+    obj = ad.AnnData(np.array([[1, 100, 2], [3, 200, 4]]),
+        var=pd.DataFrame(index=['ATRIP', 'ATRIP', 'G2']))
+    with pytest.raises(ValueError, match='CNV genomic positions require unique'):
+        run_tumor_fastcnv_workflow(obj, pd.DataFrame(), output_dir=tmp_path)

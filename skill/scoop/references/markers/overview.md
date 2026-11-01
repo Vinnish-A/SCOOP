@@ -27,7 +27,7 @@
 
 | 文件 | 作用 |
 |---|---|
-| `annotation_workflow.md` | 项目级注释流程：DEG、cNMF、FastCNVpy、subagent 决策、最终导出 |
+| `annotation_workflow.md` | 项目级注释流程：DEG、cNMF、FastCNVpy、主进程审定及子进程证据准备、最终导出 |
 | `naming_strategy.md` | 通用命名策略：属 + 种差 + 状态后缀 + 证据等级 |
 | `major_cell_types.md` | 大群注释 marker 与排除项 |
 | `T.md` | T 细胞历史表型、marker 与 2025 modular nomenclature 决策规则 |
@@ -72,7 +72,7 @@
 
 ### 3.4 不确定就是输出不确定
 
-证据不足时输出：
+缺少证据时记录 `evidence_pending` 工作进度，主动检索来源、组织 marker 和文献或补做必要分析；记录不可测或暂不可执行的原因，继续可做工作，不提交最终类型。以下不确定名称仅用于证据充分收集并审阅后仍有竞争或混杂：
 
 ```text
 Unknown_<broad_type>

@@ -41,7 +41,7 @@ Every stage writes an atomic JSON receipt containing:
 schema_version:
 run_id:
 stage:
-status: planned | running | committed | failed | awaiting_review | invalidated
+status: running | executed | failed | awaiting_review | prepared | skipped
 inputs:
 input_hashes:
 config_hash:
@@ -58,9 +58,38 @@ finished_at:
 elapsed_seconds:
 ```
 
-A committed receipt is reusable only when input, configuration, code and output
-hashes still match. Failed work remains inspectable. Never erase it to simulate
-a clean retry.
+`executed` means the command returned and its declared artifacts were recorded.
+Read `execution`, `validation`, `interpretation` and measured `coverage`
+independently. Legacy `committed` receipts imply none of the missing assessments.
+Old receipts are archived under `state/stages/history/` before another attempt;
+directory inventories do not become outputs of the new attempt.
+
+Use `scoop status --run-root RUN --verify` to inspect declared artifact hashes,
+missing/stale results and unassessed work. Hash integrity verifies files, not
+biological correctness. There is no universal green “all analysis complete”.
+Bind relevant upstream decisions/receipts as inputs when their replacement must
+invalidate a dependent result; undeclared dependencies cannot be detected.
+
+Project adapters can use the same result contract:
+
+```json
+{
+  "stage": "spatial",
+  "inputs": ["counts.h5ad", "reference_profiles.npz", "review.json"],
+  "outputs": ["weights.parquet", "checks.json"],
+  "execution": {"status": "completed"},
+  "validation": {"status": "limited", "scope": "numerical_and_axis_checks"},
+  "interpretation": {"status": "not_assessed"},
+  "coverage": [{"scope": "fitted_spots", "unit": "observation_views", "total": 100, "processed": 95}],
+  "limitations": ["Related fine components remain unresolved"]
+}
+```
+
+Register with `scoop register-result --run-root RUN --manifest result.json`.
+Relative artifact paths resolve against the manifest. Completed registrations
+require actual outputs; `validation.status=passed` requires bound inputs and a
+nonempty list of passed `checks`. These are explicit analyst declarations, not
+independent adjudication by the registrar.
 
 ## Gates
 
@@ -70,7 +99,10 @@ a clean retry.
 - Malignant labels require joint biological evidence/review; CNV neutrality does
   not establish normality.
 - scPoli requires a current approved annotation gate bound to exact artifacts.
-- Delivery requires complete, validated ancestors, managed or explicitly adapted.
+- Reviewed annotation delivery requires per-observation review coverage and a
+  committed input. Explicitly unresolved reviewed cells remain deliverable.
+  `scoop deliver --scope current-state` exports an earlier checkpoint deliberately;
+  the default cannot silently fall back to QC/programme/evidence files.
 
 Review pauses affected decisions/dependents, not independent work. Tool bypass
 cannot replace missing biological evidence or supervision approval.

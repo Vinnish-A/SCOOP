@@ -3,9 +3,27 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+
+def bound_evidence_files(bundle, cited_refs) -> list[Path]:
+    """Verify referenced registry artifacts before changing annotation outputs."""
+    from scsp_agent_sop.storage import sha256_file
+
+    paths = []
+    for category in bundle.file_registry.values():
+        if not isinstance(category, Mapping):
+            continue
+        for key, record in category.items():
+            if key in cited_refs and isinstance(record, Mapping) and record.get("path"):
+                path = Path(record["path"]).resolve()
+                if not path.is_file() or (record.get("sha256") and sha256_file(path) != record["sha256"]):
+                    raise ValueError(f"Cited annotation evidence is missing or changed: {path}")
+                paths.append(path)
+    return paths
 
 
 @dataclass(frozen=True)
@@ -110,6 +128,9 @@ def build_evidence_bundle(
     if cluster_key not in adata.obs:
         raise KeyError(f"cluster_key {cluster_key!r} is not present in adata.obs")
     registry = dict(file_registry or adata.uns.get("file_registry", {}))
+    if not marker_refs:
+        marker_refs = tuple(str(key) for key, record in registry.get("tables", {}).items()
+                            if isinstance(record, Mapping) and str(record.get("schema", "")).startswith("cluster_markers"))
     neighbours = _cluster_neighbours(adata, cluster_key)
     clusters = []
     for cluster_id, indices in adata.obs.groupby(cluster_key, observed=True).indices.items():

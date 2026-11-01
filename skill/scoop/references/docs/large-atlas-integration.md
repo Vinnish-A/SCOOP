@@ -1,5 +1,10 @@
 # Large-atlas integration and reviewed supervision
 
+Use the [metadata and batch contract](design-principles.md#元信息与批次契约)
+for original-dataset batch keys and explicit technical covariates. Keep collection,
+study, library, sample and patient levels distinct; this latent integration does
+not by itself correct expression for NMF or control batch in gene-level tests.
+
 Use scVI for unsupervised representations, then review identities before any
 scPoli supervision. QC follows [QC](../stages/qc.md); cell labels follow the
 [annotation workflow](../markers/annotation-workflow.md). Integrated expression

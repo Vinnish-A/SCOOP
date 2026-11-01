@@ -135,6 +135,7 @@ def prune_h5ad(adata, schema: Mapping[str, Any]) -> None:
     obs/var/obsm/obsp/layers/uns.
     """
     obs_keep = [c for c in flatten_keep_schema(schema, "obs_keep") if c in adata.obs]
+    obs_keep.extend(c for c in ("annotation_reviewed", "annotation_identity_scope", "broad_annotation_status", "fine_annotation_status") if c in adata.obs)
     var_keep = [c for c in schema.get("var_keep", []) if c in adata.var]
     adata.obs.drop(columns=[c for c in adata.obs.columns if c not in obs_keep], inplace=True)
     adata.var.drop(columns=[c for c in adata.var.columns if c not in var_keep], inplace=True)
@@ -142,6 +143,7 @@ def prune_h5ad(adata, schema: Mapping[str, Any]) -> None:
     prune_mapping(adata.obsm, schema.get("obsm_keep", []))
     prune_mapping(adata.obsp, schema.get("obsp_keep", []))
     uns_keep = set(schema.get("uns_keep", []))
+    uns_keep.update({"annotation_review", "delivery_scope"})
     # Graph descriptors are executable metadata. Keep descriptors whose matrices
     # survive; old Scanpy-prefixed graphs may have canonical SCOOP copies.
     for name, descriptor in adata.uns.items():

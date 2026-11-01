@@ -158,7 +158,7 @@ atlas:
 annotation:
   default_marker_method: wilcoxon
   fast_marker_method: fastde_cosg
-  marker_n_genes: 100
+  marker_n_genes: 100  # auxiliary specificity/preview; statistical DEG exports all input genes
   major_lineage_key: cell_type_lvl1
   decision:
     enabled: false
@@ -186,6 +186,10 @@ spatial:
   spatial_h5ad: .scoop_local/data/h5ad/spatial_views/spot.h5ad
   reference_h5ad: .scoop_local/data/h5ad/canonical/adata_annotated.h5ad
   rctd:
+    adapter: api
+    preset: fast
+    threads: 4
+    seed: 271030
     mode_low_resolution: full
     mode_sparse_sensitivity: multi
     expected_cells_per_unit: null
@@ -193,6 +197,9 @@ spatial:
     umi_min_bin: 20
     cell_type_key: cell_type_lvl3
     command_template: "rctd-py --spatial {spatial_h5ad} --reference {reference_h5ad} --cell-type-key {cell_type_key} --mode {mode} --output {output_h5ad}"
+
+delivery:
+  scope: reviewed-annotation
 
 ccc:
   enabled: false

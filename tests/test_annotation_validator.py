@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from anndata import AnnData
 
 from scsp_agent_sop.annotation_decision.committer import commit_annotation_decisions
@@ -30,6 +31,7 @@ def _decision(**overrides) -> AnnotationDecision:
         "reason": "synthetic",
     }
     data.update(overrides)
+    data["evidence_refs"] = {"deg": ("manual:synthetic_cluster_DEG_fixture",), **data["evidence_refs"]}
     return AnnotationDecision.from_dict(data)
 
 
@@ -87,3 +89,65 @@ def test_committer_writes_expected_obs_fields(tmp_path) -> None:
     assert set(adata.obs.loc[mask, "annotation_status"]) == {"accepted"}
     assert (tmp_path / "tables" / "annotation_decisions.tsv").exists()
     assert (tmp_path / "logs" / "decision_log.jsonl").exists()
+    assert adata.uns["annotation_review"]["reviewed"] == 2
+    assert adata.uns["annotation_review"]["unreviewed"] == 2
+
+
+def test_rejected_replacement_revokes_old_accepted_reference_status(tmp_path):
+    adata, bundle = _tumor_bundle(False)
+    adata.obs["annotation_status"] = pd.Categorical(["accepted"] * 4)
+    adata.obs["cell_type_lvl3"] = pd.Categorical(["old"] * 4)
+    commit_annotation_decisions(adata, [_decision()], bundle, run_root=tmp_path, output_dir=tmp_path / "tables")
+    assert adata.obs.annotation_status.tolist() == ["review_required", "review_required", "accepted", "accepted"]
+    assert adata.obs.annotation_reviewed.tolist() == [True, True, False, False]
+    assert adata.uns["annotation_review"]["accepted"] == 0
+
+
+def test_overlapping_decisions_fail_before_obs_mutation(tmp_path):
+    adata, bundle = _tumor_bundle(True)
+    before = adata.obs.copy(deep=True)
+    with pytest.raises(ValueError, match="overlap"):
+        commit_annotation_decisions(adata, [_decision(), _decision()], bundle, run_root=tmp_path, output_dir=tmp_path / "tables")
+    pd.testing.assert_frame_equal(before, adata.obs)
+
+
+def test_broad_identity_does_not_accept_fine_identity_or_assign_normality(tmp_path):
+    adata, bundle = _tumor_bundle(False)
+    decision = _decision(parent_label="Glial_RNA", canonical_label="Glial_RNA", final_label="Glial_Unresolved", identity_scope="broad")
+    commit_annotation_decisions(adata, [decision], bundle, run_root=tmp_path, output_dir=tmp_path / "tables")
+    assert adata.obs.broad_annotation_status.tolist()[:2] == ["accepted"] * 2
+    assert adata.obs.fine_annotation_status.tolist()[:2] == ["review_required"] * 2
+    assert "malignancy_status" not in adata.obs
+    assert adata.uns["annotation_review"]["fine_accepted"] == 0
+
+
+@pytest.mark.parametrize("scope,expected_fine", [(None, "review_required"), ("fine", "accepted")])
+def test_fine_acceptance_requires_explicit_scope(tmp_path, scope, expected_fine):
+    adata, bundle = _tumor_bundle(False)
+    fields = dict(parent_label="T", canonical_label="T", final_label="T_cell")
+    if scope is not None:
+        fields["identity_scope"] = scope
+    decision = _decision(**fields)
+    commit_annotation_decisions(adata, [decision], bundle, run_root=tmp_path, output_dir=tmp_path / "tables")
+    assert adata.obs.annotation_status.tolist()[:2] == ["accepted"] * 2
+    assert adata.obs.broad_annotation_status.tolist()[:2] == ["accepted"] * 2
+    assert adata.obs.fine_annotation_status.tolist()[:2] == [expected_fine] * 2
+
+
+def test_marker_scores_without_differential_evidence_require_review():
+    _, bundle = _tumor_bundle(False)
+    data = _decision(parent_label="Mast", canonical_label="Mast", final_label="Mast").to_dict()
+    data["evidence_refs"] = {"scores": ["manual:KIT_mean_score"]}
+    result = validate_annotation_decision(AnnotationDecision.from_dict(data), bundle)
+    assert not result.accepted
+    assert any("differential-gene" in reason for reason in result.reasons)
+
+
+def test_explicit_unresolved_decision_records_candidate_without_accepting_it(tmp_path):
+    adata, bundle = _tumor_bundle(False)
+    decision = _decision(parent_label="Lymphoid", canonical_label="B_RNA", final_label="B_lineage_Unresolved",
+                         identity_scope="unresolved", confidence="low", review_required=True)
+    commit_annotation_decisions(adata, [decision], bundle, run_root=tmp_path, output_dir=tmp_path / "tables")
+    assert adata.obs.cell_type_lvl3.tolist()[:2] == ["B_lineage_Unresolved"] * 2
+    assert adata.obs.annotation_status.tolist()[:2] == ["review_required"] * 2
+    assert adata.uns["annotation_review"]["accepted"] == 0

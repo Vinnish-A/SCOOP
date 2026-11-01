@@ -63,7 +63,7 @@ FastCore 额外输出：
 - H5AD `obs`：`cell_type_lvl1/2/3`、`cell_state`、confidence；
 - 外部表：cluster markers、annotation evidence bundle、decision template、validation table、merge/split log。
 
-不做：让 marker 统计脚本、reference model 或 Python 规则自动决定细胞类型；让 subagent 直接写 H5AD；单独依赖一个 marker database、reference model、GPT 或 CellVote 决定标签。细胞类型命名由 subagent/人工结合模型世界知识和项目背景提出，但必须通过 schema、validator 和 committer。
+不做：让 marker 统计脚本、reference model 或 Python 规则自动决定细胞类型；让 subagent 直接写 H5AD；单独依赖一个 marker database、reference model、GPT 或 CellVote 决定标签。子进程可整理证据并提出候选；主进程须亲自读取实际证据并裁定最终细胞类型，再通过 schema、validator 和 committer。
 
 ### 04b_tumor_fastcnvpy
 

@@ -60,9 +60,8 @@ def build_phi_moe(obs, vars_use: str | Iterable[str]) -> tuple[np.ndarray, list[
 def build_fixed_lamb(lamb: float | int | Iterable[float], phi_n: list[int]) -> np.ndarray:
     """Build the cNMF/Harmony fixed-lambda vector.
 
-    cNMF 1.7.x passes this vector directly into ``gram + lamb``. NumPy then
-    broadcasts the vector across Gram-matrix columns. FastCNMF keeps that
-    behavior for legacy-compatible outputs.
+    The legacy Harmony implementation passes these values as a diagonal
+    ridge matrix to cNMF, with the intercept unpenalized.
     """
 
     if isinstance(lamb, (float, int)):
@@ -88,7 +87,7 @@ def normalize_lamb_addend(lamb: np.ndarray | Iterable[float]) -> np.ndarray:
 
     arr = np.asarray(lamb, dtype=np.float64)
     if arr.ndim == 1:
-        return arr
+        return np.diag(arr)
     if arr.ndim == 2 and arr.shape[0] == arr.shape[1]:
         return arr
     raise ValueError(f"lamb must be a vector or square matrix, got shape {arr.shape}")
@@ -109,6 +108,8 @@ def moe_correct_ridge_fast(
 
     z_corr = z_orig.copy()
     for cluster_i in range(r.shape[0]):
+        if not np.any(r[cluster_i, :]):
+            continue
         phi_rk = phi_moe * r[cluster_i, :]
         gram = phi_rk @ phi_moe.T + lamb_addend
         weights = np.linalg.solve(gram, phi_rk @ z_orig.T)
@@ -145,7 +146,12 @@ def moe_correct_ridge_batched(
     if r.shape[0] != n_cells:
         raise ValueError(f"R has {r.shape[0]} cells but X has {n_cells}")
 
+    # An exactly empty cluster contributes zero; its unpenalized intercept
+    # otherwise makes the ridge system singular. Keep every nonempty cluster.
+    r = r[:, np.any(r != 0, axis=0)]
     n_clusters = r.shape[1]
+    if n_clusters == 0:
+        return np.maximum(x, 0.0)
     # b_all[k, p, g] = sum_n R[n,k] * Phi[p,n] * X[n,g]
     b_all = np.empty((n_clusters, n_features, n_genes), dtype=np.float64)
     for p in range(n_features):

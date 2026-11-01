@@ -36,6 +36,34 @@ imaging spatial route. Panel mitochondrial percentages are descriptive only;
 missing targets are recorded as missing rather than zero. Native counts and
 source observations are retained by QC; the spatial core uses `final_use`.
 
+## Coordinate, geometry and panel provenance
+
+Record coordinate units and acquisition frames separately. Trace native cell
+centroids through the author export code or an exact ID/value bridge to the
+original vendor fields; a filename, plausible range or downstream distance
+caption does not establish the unit. Preserve axis swaps and transforms explicitly.
+A merged FOV may concatenate several acquisition regions without recording their
+registration. Matching coordinates does not establish a shared physical frame;
+retain region membership or restrict distance claims until that bridge is known.
+
+Recover missing geometry with complete sample/capture-qualified cell IDs and
+available count/control totals. A matching sample title or a few matching bare
+barcodes cannot justify inheritance when the released segmentation axis differs.
+Keep all unmatched rows and distinguish source-view overlap, same tissue/patient,
+and independent observations before adding totals.
+
+Centroids, display circles/radii, simplified boundary polygons and segmentation
+masks are different objects. Do not use a plotting radius as measured cell area,
+or claim a true segmentation boundary from centroid-only metadata. Native vendor
+cell/nucleus areas may support QC even when boundary masks remain unavailable.
+
+Read custom panel definitions as well as the expression feature axis. Separate
+host genes, viral targets, patient-specific receptor-clonotype probes and controls;
+vendor "Gene Expression" may include non-host custom targets. Keep the original
+feature order and any documented name conversion. Declare which targets enter
+host-gene programmes, panel coverage and normalization rather than counting every
+RNA target as a human gene or treating an unmeasured target as zero.
+
 ## Features and normalization
 
 The spatial core is a simple baseline, separate from RNA FastCore/Scanpy. It

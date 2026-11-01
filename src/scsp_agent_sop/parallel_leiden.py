@@ -14,6 +14,7 @@ import numpy as np
 from scipy import sparse
 
 _GRAPH = None
+GRAPH_BUILD_POLICY = "upper-triangle-summed-no-loops-float64-uint64-coo-v2"
 
 
 def _initialize(graph_path: str, threads: int) -> None:
@@ -26,7 +27,16 @@ def _initialize(graph_path: str, threads: int) -> None:
     nk.setNumberOfThreads(threads)
     matrix = sparse.load_npz(graph_path)
     upper = sparse.triu(matrix, k=1, format="coo")
-    _GRAPH = nk.GraphFromCoo(upper, n=matrix.shape[0], weighted=True, directed=False)
+    upper.sum_duplicates()
+    # NetworKit11.2.2's scipy-COO overload discards its data and inserts unit
+    # edges, even with weighted=True. The explicit triplet overload preserves
+    # weights; use its native float64/uint64 array types rather than relying on
+    # unchecked conversions. The upper triangle keeps the existing undirected
+    # and no-self-loop policy; n also preserves isolated observations.
+    _GRAPH = nk.GraphFromCoo(
+        (upper.data.astype(np.float64), (upper.row.astype(np.uint64), upper.col.astype(np.uint64))),
+        n=matrix.shape[0], weighted=True, directed=False,
+    )
 
 
 def _cluster(resolution: float, seed: int, iterations: int) -> tuple[np.ndarray, dict]:
@@ -89,7 +99,10 @@ def run_jobs(adjacency, jobs, config):
         temporary = graph_path.with_suffix(".tmp.npz")
         sparse.save_npz(temporary, matrix, compressed=False)
         temporary.replace(graph_path)
-    identity = dict(graph_sha256=graph_hash, iterations=iterations, threads=threads, networkit_version=nk.__version__)
+    identity = dict(
+        graph_sha256=graph_hash, iterations=iterations, threads=threads,
+        networkit_version=nk.__version__, graph_build_policy=GRAPH_BUILD_POLICY,
+    )
     completed = 0
     pending = []
     for resolution, seed in jobs:

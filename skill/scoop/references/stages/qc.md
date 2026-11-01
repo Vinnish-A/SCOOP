@@ -45,3 +45,10 @@ Independent libraries use bounded process workers (`qc.scrublet.workers: auto`,
 state. Use the capture-library key; donors and lineages are not capture libraries.
 For exact retained subsets, `--inherit-from parent_qc.h5ad` verifies counts and
 axes before inheriting original-library decisions; see [data boundaries](../docs/data-boundaries.md).
+
+
+## Reused QC and lineage-aware reference admission
+
+Resolve effective QC from actual executed capture/library receipts and exact-UID outputs. A stale summary such as `not_run` is not evidence that an available completed assessment never ran; retain that provenance discrepancy rather than rerunning valid QC or recoding unknown calls as singlets.
+
+A universal detected-gene cutoff can remove an entire genuinely low-RNA lineage, such as erythroid RNA. Review native count depth, available-axis gene complexity, source singlet/QC evidence and independent multi-gene lineage support together. Any lineage-specific exception is an explicit analysis/reference admission rule with denominators and uncertainty; it does not establish intact cells, normality or an automatically changed whole-model mask.

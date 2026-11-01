@@ -153,7 +153,9 @@ CRC_MalignantEpi_iCMS2_TAProliferative + CRC_MalignantEpi_iCMS2_TAProliferative_
 
 ## 6. 不确定命名
 
-### 6.1 真实身份明确，精细表型不明确
+### 6.1 真实身份明确，充分证据经审阅后精细表型仍混杂
+
+如证据尚未收齐，记录 `evidence_pending` 并主动补证，不使用以下 unresolved 名称作为缺证的最终身份；该词是工作状态，不新增运行时 schema 枚举。
 
 ```text
 T_CD4_Unresolved

@@ -36,7 +36,40 @@ broad cell types -> candidate compartment -> CNV/SNV/reference/context review ->
 epithelial/parenchymal/glial/neural crest-derived tumor cells
 ```
 
-免疫、内皮、成纤维、周细胞通常作为 CNV-neutral reference，但需要排除 doublet 和低质量细胞。
+免疫、内皮、成纤维、周细胞可作为正常参考候选，但须审阅完整身份、混合来源、技术质量及组织背景；旧标签或 CNV-low 不能直接赋予参考资格。
+
+### 2.4 实际参考、量纲与 checkpoint
+
+同时记录 requested 与 effective reference UID/数量、每 sample 的两套分母、
+minimum-reference 参数、被排除参考及原因，以及实际参与 gene selection、
+baseline scaling 和 threshold 的 sample scope。外层传入 allowlist 不等于后端
+全部采用；少量参考的 sample 可能被默认 minimum 排除，甚至改变选基因范围。
+检查后端实际 selection/返回结构，保留未采用参考在完整 query 中的原位置。
+说明 baseline 按细胞还是按 sample 加权，不能用传入参考总数替代实际分母。
+
+Checkpoint identity 绑定 count content/UID/gene-order、sample key、reference
+label 与实际 UID hash、minimum、实际选基因 sample、gene metadata/build/arm
+政策、后端版本/源码和实际参数。配置对象之外的有效参数同样必须绑定。
+输入或基线改变时新建 receipt；旧连续结果保留，不能冒称同一 fit。
+
+逐UID桥接成功仍须区分旧/新counts内容及其共同基因比较范围。旧输入版本的
+连续profile可作注明版本的支持，不能改称当前原生counts重算，也不能向同群
+未覆盖细胞复制。candidate与reference角色可能相交，不能用candidate=False
+替代实际reference成员清单。新QC影响多少patient×mode应按真实参考差集核对，
+不能据此整体推翻其它有效fit。已有CNV证据的审阅状态与最终恶性assignment
+分开记录：支持不足时保留未决，而非一概写成未检查或直接宣告正常/恶性。
+
+区分完整 native depth 与已声明 gene projection 后的 row sum。发现差额先对
+省略原列稀疏值和选择政策核验；既不直接宣称 UID 错位，也不放宽检查掩盖
+未知差额。分别报告 input columns、genomic common genes、expression-selected
+genes、final feature positions、unique symbols 和重复位置政策。不要静默去重
+后沿用旧方法名或量纲。
+
+连续 window 直接差异要求 chromosome arm 与 ordered gene list 都一致；相同
+window 名称不足以对齐。另行报告 raw-arm 与 thresholded/trimmed-arm 比较、
+每 arm 基因覆盖和低覆盖限制；未测 arm 保持 NA。阈值摘要对参考敏感时不能
+据此翻转正常/恶性身份。连续 RNA-CNV 敏感性参考资格不自动扩展为空间参考、
+最终正常身份或 DNA 证据。分别记录输入准备、算法、导出和核验时间/资源。
 
 ### 2.2 当正常与肿瘤分得开
 
@@ -81,10 +114,14 @@ malignant-probable:
 normal:
   required: coherent normal lineage plus matched-normal-reference and tissue/context support; CNV neutrality alone is insufficient
 ambiguous:
-  triggered_by: insufficient/conflicting joint evidence, including unresolved QC or mixed-origin risks; weak CNV alone is insufficient
+  triggered_by: adequate reviewed joint evidence remains conflicting or mixed; weak CNV alone is insufficient
 not_applicable:
   used_for: immune, stromal, endothelial, mural cells unless tumor lineage is expected
 ```
+
+Missing evidence is `evidence_pending` workflow progress: actively retrieve or
+generate it, document inaccessible evidence and do not submit a final identity or
+malignancy decision. This is not a new runtime annotation-schema enum.
 
 ---
 
@@ -123,3 +160,12 @@ tumor_status_record:
   next_skill: tumor-BRCA.md | tumor-CRC.md | tumor-GBM.md | normal tissue annotation
   confidence: high | medium | low
 ```
+
+
+### Genomic axes, reference execution and algorithm semantics
+
+CNV needs an unambiguous positional axis. Resolve duplicated symbols with verified native stable gene IDs and a build-compatible canonical position table; neither taking the first symbol column nor summing different unknown loci is defensible. Preserve unlocated native feature IDs/counts and the crosswalk. Keep original annotation-version uncertainty explicit when matching versionless stable IDs.
+
+Save requested and actually effective reference UIDs/role labels per sample. A wrapper status contract must accept the status emitted by the real annotation committer; do not rewrite source statuses to manufacture eligibility. The immutable managed release may lag a tested canonical fix, in which case use a recorded validated project adapter. A pooled T/myeloid fit can weight role-specific factors differently from a single merged role, so do not silently change the roles.
+
+Inspect the executed engine: FastCNV can center log2 counts on its expression-selected genomic projection rather than full-library CP10k. Export native depth, genomic counts, unique-selected counts and repeated selected-position counts separately. Ordered selected positions may contain intentional upstream-compatible repeats; they are not the same number of independent genes. Window names alone do not establish comparable ordered genes between legacy and current fits. RNA-CNV evidence and reference sensitivity remain distinct from normal/malignant assignment.

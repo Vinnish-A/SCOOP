@@ -17,6 +17,7 @@ import math
 from pathlib import Path
 
 import anndata as ad
+import pandas as pd
 
 from scsp_agent_sop.config import deep_get, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
@@ -30,7 +31,7 @@ from scsp_agent_sop.programs import (
 from scsp_agent_sop.storage import write_h5ad_atomic, ensure_dir, init_file_registry, register_file, write_table
 
 
-def main() -> None:
+def main() -> dict:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--input", default=None)
@@ -54,6 +55,7 @@ def main() -> None:
     summary, weights, usage = run_fast_consensus_nmf(
         adata,
         layer=deep_get(cfg, "programs.layer", "log1p_norm"),
+        hvg_key=deep_get(cfg, "programs.hvg_key", "highly_variable_biology"),
         k_grid=deep_get(cfg, "programs.k_grid", [5, 8, 10, 12, 15]),
         seeds=seeds,
         max_iter=max_iter,
@@ -63,14 +65,18 @@ def main() -> None:
     summary_path = write_table(summary, run_root / "programs" / "tables" / "nmf_k_sweep.tsv")
     weights_path = write_table(weights, run_root / "programs" / "tables" / "nmf_gene_weights.parquet")
     usage_path = write_table(usage, run_root / "programs" / "tables" / "nmf_usage.parquet")
+    stability_path = write_table(pd.DataFrame(adata.uns["nmf_component_evidence"]), run_root / "programs/tables/nmf_component_stability.tsv")
     register_file(adata, key="nmf_k_sweep", path=summary_path, schema="nmf_k_sweep.v1")
     register_file(adata, key="nmf_gene_weights", path=weights_path, schema="nmf_gene_weights.v1")
     register_file(adata, key="nmf_usage", path=usage_path, schema="nmf_usage.v1")
+    register_file(adata, key="nmf_component_stability", path=stability_path, schema="nmf_component_stability.v2")
 
     selected_k = int(summary.loc[summary["selected"], "k"].iloc[0])
-    min_stability = float(summary["median_stability"].min())
+    min_stability = float(summary.loc[summary.selected, "min_component_stability"].iloc[0])
     convergence_fraction = float(summary.loc[summary.selected, "converged_fraction"].iloc[0])
-    review_required = not math.isfinite(min_stability) or min_stability < 0.70 or convergence_fraction < 1.0
+    threshold = float(deep_get(cfg, "programs.stability_threshold", 0.70))
+    review_required = (not math.isfinite(min_stability) or min_stability < threshold or convergence_fraction < 1.0
+                       or not adata.uns["nmf_method"]["usage_refit_converged"])
     fallback_used = False
     fallback_reason = None
     if args.validate_with_omicverse_cnmf or deep_get(cfg, "programs.validate_with_omicverse_cnmf", False):
@@ -113,6 +119,15 @@ def main() -> None:
         if review_required
         else None,
     )
+    return {"inputs": [str(input_path.resolve())],
+            "outputs": [str(output.resolve()), str(summary_path.resolve()), str(weights_path.resolve()), str(usage_path.resolve()), str(stability_path.resolve())],
+            "execution": {"status": "completed"},
+            "validation": {"status": "limited" if review_required else "passed", "scope": "cross_seed_component_stability_and_fit_termination",
+                           "checks": [{"name": "selected_components_cross_seed_stability_and_convergence", "status": "limited" if review_required else "passed"}]},
+            "interpretation": {"status": "not_assessed"},
+            "coverage": [{"scope": "programme_usage", "unit": "observation_views", "total": adata.n_obs, "processed": adata.n_obs}],
+            "limitations": ["Discovery feature coverage differs from whole-input projection; programme usage does not assign identity."],
+            "programme_method": dict(adata.uns["nmf_method"])}
 
 
 if __name__ == "__main__":

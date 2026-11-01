@@ -26,12 +26,15 @@ class AnnotationDecision:
     conflicts: tuple[str, ...]
     review_required: bool
     reason: str
+    identity_scope: str = "broad"
 
     def __post_init__(self) -> None:
         if self.confidence not in ALLOWED_CONFIDENCE:
             raise ValueError(f"confidence must be one of {ALLOWED_CONFIDENCE}: {self.confidence!r}")
         if not str(self.final_label).strip():
             raise ValueError("final_label must not be empty")
+        if self.identity_scope not in {"broad", "fine", "unresolved"}:
+            raise ValueError("identity_scope must be broad, fine or unresolved")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

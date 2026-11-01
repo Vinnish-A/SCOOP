@@ -15,7 +15,7 @@ The target architecture has four layers:
 3. **Evidence & Skill Layer**: curated marker/state/tumor/naming rules, versioned as retrievable skills.
 4. **Annotation Handoff Layer**: schema-bound evidence packaging, validation, and commit into H5AD.
 
-The subagent/AI layer is where biological naming happens: it uses world knowledge, project context, and exported evidence to propose labels. It must not directly mutate H5AD. It may only return structured annotation decisions that pass deterministic validators.
+Delegated agents may use world knowledge, project context and exported evidence to propose labels, without directly mutating H5AD. The main agent personally reads the actual evidence and adjudicates biological names according to the annotation workflow; only reviewed structured decisions proceed to deterministic validators.
 
 MCP is a future control-plane interface. Large matrices and long tables must stay in run artifacts; MCP tools should pass paths, manifests, and registry references, not matrix payloads.
 
@@ -547,7 +547,7 @@ Add:
 Behavior:
 
 - `04c` builds an evidence bundle and writes a blank decision template JSON/TSV for a subagent or analyst. It must not call an LLM or infer labels.
-- `04d` reads subagent/analyst-edited decisions, validates them, commits accepted fields into H5AD, writes audit tables, and logs decisions.
+- `04d` reads main-agent-adjudicated structured decisions, validates them, commits accepted fields into H5AD, writes audit tables, and logs decisions. Validation alone does not replace biological review.
 
 Tests:
 

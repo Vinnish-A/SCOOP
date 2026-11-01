@@ -23,7 +23,7 @@ from scsp_agent_sop.annotation import (
 )
 from scsp_agent_sop.config import deep_get, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
-from scsp_agent_sop.storage import ensure_dir, init_file_registry, register_file, write_table
+from scsp_agent_sop.storage import ensure_dir, init_file_registry, register_file, write_table, write_h5ad_atomic
 
 
 def main():
@@ -44,33 +44,23 @@ def main():
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
 
     groupby = args.cluster_key or deep_get(cfg, "annotation.decision.cluster_key", "cluster_identity")
-    if args.use_fastde_cosg:
-        markers = run_markers_fastde(
+    method = deep_get(cfg, "annotation.default_marker_method", "wilcoxon")
+    if method not in {"wilcoxon", "t-test", "t-test_overestim_var"}:
+        raise ValueError("annotation.default_marker_method must supply gene-level statistical tests; COSG is an optional specificity table")
+    markers = run_markers_scanpy(adata, groupby=groupby, layer=args.layer, method=method, n_genes=adata.n_vars)
+    extra_outputs = []
+    if args.use_fastde_cosg or args.use_omicverse_cosg:
+        runner = run_markers_fastde if args.use_fastde_cosg else run_markers_omicverse
+        specificity = runner(
             adata,
             groupby=groupby,
             layer=args.layer,
             method="cosg",
             n_genes=deep_get(cfg, "annotation.marker_n_genes", 100),
         )
-        method = "fastde_cosg"
-    elif args.use_omicverse_cosg:
-        markers = run_markers_omicverse(
-            adata,
-            groupby=groupby,
-            layer=args.layer,
-            method="cosg",
-            n_genes=deep_get(cfg, "annotation.marker_n_genes", 100),
-        )
-        method = "omicverse_cosg"
-    else:
-        markers = run_markers_scanpy(
-            adata,
-            groupby=groupby,
-            layer=args.layer,
-            method=deep_get(cfg, "annotation.default_marker_method", "wilcoxon"),
-            n_genes=deep_get(cfg, "annotation.marker_n_genes", 100),
-        )
-        method = "scanpy"
+        path = write_table(specificity, run_root / "annotation/tables/cluster_specificity_scores.parquet")
+        register_file(adata, key="cluster_specificity_scores", path=path, schema="cluster_specificity_scores.v1")
+        extra_outputs.append(str(path.resolve()))
     marker_path = write_table(markers, run_root / "annotation" / "tables" / "cluster_markers.parquet")
     group_column = next((name for name in ("group", "cluster", "cell_type") if name in markers.columns), None)
     gene_column = next((name for name in ("names", "gene", "feature") if name in markers.columns), None)
@@ -83,7 +73,7 @@ def main():
     register_file(adata, key="annotation_evidence_template", path=evidence_path, schema="annotation_evidence.v1")
 
     ensure_dir(output.parent)
-    adata.write_h5ad(output)
+    write_h5ad_atomic(adata, output)
     log_decision(
         run_root,
         module="annotation",
@@ -91,6 +81,15 @@ def main():
         reason="Marker table and evidence template exported; no biological labels were assigned.",
         parameters={"marker_method": method},
     )
+    return {"inputs": [str(input_path.resolve())],
+            "outputs": [str(output.resolve()), str(marker_path.resolve()), str(evidence_path.resolve()), *extra_outputs],
+            "execution": {"status": "completed"},
+            "validation": {"status": "not_assessed", "scope": "exported_gene_evidence_not_biological_adjudication"},
+            "interpretation": {"status": "not_assessed"},
+            "gene_evidence": {"method": method, "cluster_key": groupby, "layer": args.layer,
+                              "requested_genes_per_group": adata.n_vars, "exported_gene_rows": len(markers)},
+            "coverage": [{"scope": "cluster_gene_evidence", "unit": "observation_views",
+                          "total": adata.n_obs, "processed": adata.n_obs}]}
 
 
 if __name__ == "__main__":

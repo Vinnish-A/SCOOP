@@ -36,6 +36,12 @@ def validate_annotation_decision(
     del skills
     reasons: list[str] = []
     forced_review = False
+    if decision.identity_scope == "unresolved":
+        reasons.append("identity explicitly unresolved")
+        forced_review = True
+    if decision.cluster_key != evidence_bundle.cluster_key or decision.run_id != evidence_bundle.run_id:
+        return ValidationResult(decision.cluster_id, False, False, True, decision.confidence,
+                                ("decision run/cluster axis differs from evidence bundle",), True)
     cluster = evidence_bundle.cluster_by_id().get(str(decision.cluster_id))
     if cluster is None:
         return ValidationResult(decision.cluster_id, False, False, True, decision.confidence, ("cluster not found in evidence bundle",), True)
@@ -46,6 +52,11 @@ def validate_annotation_decision(
     unknown_refs = _unknown_evidence_refs(decision, evidence_bundle, cluster)
     if unknown_refs:
         reasons.append(f"unknown evidence refs: {', '.join(unknown_refs)}")
+        forced_review = True
+    gene_refs = decision.evidence_refs.get("deg", ())
+    marker_refs = set(decision.evidence_refs.get("markers", ())) & set(cluster.marker_refs)
+    if not gene_refs and not marker_refs:
+        reasons.append("cluster differential-gene evidence is not cited; marker scores or transferred labels alone cannot qualify identity")
         forced_review = True
     label_text = " ".join(
         str(value or "") for value in (decision.parent_label, decision.canonical_label, decision.final_label)

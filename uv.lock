@@ -2851,18 +2851,19 @@ wheels = [
 
 [[package]]
 name = "rctd-py"
-version = "0.3.9"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anndata" },
     { name = "click" },
+    { name = "natsort" },
     { name = "numpy" },
     { name = "scipy" },
     { name = "torch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/16/24/d7fd4c14481677aee593732e8e4318ee7edd7e766efc9a6b42130b4eef28/rctd_py-0.3.9.tar.gz", hash = "sha256:474ae41b559fa6f4361bda1dcd820f1ab994fafc235f812695d4e0058f549abb", size = 524754, upload-time = "2026-10-02T10:08:44.288Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ee/44/81895e674c9628d098c4b5f85e0dc252bfeb3ce583364854c014823cd493/rctd_py-0.4.0.tar.gz", hash = "sha256:de1c27feb65160e4444fab111870962189c1ea4c0fb5eaec1e5aed9888304955", size = 595978, upload-time = "2026-10-19T13:41:21.251Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/62/ef/551739c4437c638c3c88c737632e27783a131017821982c70b6366264c42/rctd_py-0.3.9-py3-none-any.whl", hash = "sha256:353e7fc948f6f3928476c4a053d2a936785a1ca328ef8cbf687ec60507f20600", size = 70550, upload-time = "2026-10-02T10:08:43.363Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/b4/dddad268bbb1eea7dc41281d88c12e46dd8d68f33bde47f0b1f0b7ce2223/rctd_py-0.4.0-py3-none-any.whl", hash = "sha256:e1600455f2e4c39018f3252482db498f389c67538f4807430553171a241c50dd", size = 67271, upload-time = "2026-10-19T13:41:19.974Z" },
 ]
 
 [[package]]
@@ -3214,7 +3215,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.0,<3" },
     { name = "pyarrow", specifier = ">=14.0" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rctd-py", marker = "extra == 'runtime'", specifier = "==0.3.9" },
+    { name = "rctd-py", marker = "extra == 'runtime'", specifier = "==0.4.0" },
     { name = "scanpy", specifier = ">=1.10,<1.12" },
     { name = "scarches", marker = "extra == 'runtime'", specifier = "==0.6.1" },
     { name = "scikit-learn", specifier = ">=1.3" },
