@@ -264,8 +264,10 @@ def score_programs(adata, organism: str = "human", layer: str = "log1p_norm", me
 
     With ``measurement`` (a checked ``FeatureMeasurement``), set and control
     genes come only from genes measured in every sample, so every cell is
-    scored on one gene set and none on structural zeros. Set genes dropped
-    this way are counted in ``uns["program_score_genes"]``.
+    scored on one gene set and none on structural zeros. A set with no usable
+    gene is NaN (unassessed). ``uns["program_score_genes"]`` counts each set's
+    genes on the axis and used whenever a measurement is declared or a set is
+    unassessed.
     """
     import scanpy as sc
     old = adata.X
@@ -280,30 +282,29 @@ def score_programs(adata, organism: str = "human", layer: str = "log1p_norm", me
     genes = set(map(str, adata.var_names))
     ribo_genes = list(adata.var_names[adata.var.get("ribo_gene", False).to_numpy(bool)]) if "ribo_gene" in adata.var else []
     pool = {}
+    on_axis = genes
     if measurement is not None:
         universe = adata.var_names[measurement.measured_in_all(adata.obs[measurement.sample_key])]
         pool = {"gene_pool": list(universe)}
-        on_axis, genes = genes, set(map(str, universe))
-        adata.uns["program_score_genes"] = {
-            name: {"n_on_axis": sum(g in on_axis for g in gene_set), "n_used": sum(g in genes for g in gene_set)}
-            for name, gene_set in (("stress_score", stress), ("ribo_score", ribo_genes),
-                                   ("cell_cycle_s_score", cycle_s), ("cell_cycle_g2m_score", cycle_g2m))
-        }
-        ribo_genes = [g for g in ribo_genes if g in genes]
-    sc.tl.score_genes(adata, [g for g in stress if g in genes], score_name="stress_score", **pool)
-    if ribo_genes:
-        sc.tl.score_genes(adata, ribo_genes, score_name="ribo_score", **pool)
-    else:
-        adata.obs["ribo_score"] = 0.0
-    sc.tl.score_genes_cell_cycle(
-        adata,
-        s_genes=[g for g in cycle_s if g in genes],
-        g2m_genes=[g for g in cycle_g2m if g in genes],
-        **pool,
-    )
+        genes = set(map(str, universe))
+    gene_sets = {"stress_score": stress, "ribo_score": ribo_genes, "cell_cycle_s_score": cycle_s, "cell_cycle_g2m_score": cycle_g2m}
+    used = {name: [g for g in gene_set if g in genes] for name, gene_set in gene_sets.items()}
+    if measurement is not None or not all(used.values()):
+        adata.uns["program_score_genes"] = {name: {"n_on_axis": sum(g in on_axis for g in gene_set), "n_used": len(used[name])}
+                                            for name, gene_set in gene_sets.items()}
+    # A set with no measured gene (a targeted panel, a masked axis) is unassessed: NaN, never a zero score.
+    for name in ("stress_score", "ribo_score"):
+        if used[name]:
+            sc.tl.score_genes(adata, used[name], score_name=name, **pool)
+        else:
+            adata.obs[name] = np.nan
     # Rescoring must replace, not duplicate, the previous cell-cycle columns.
-    adata.obs.drop(columns=["cell_cycle_s_score", "cell_cycle_g2m_score"], errors="ignore", inplace=True)
-    adata.obs.rename(columns={"S_score": "cell_cycle_s_score", "G2M_score": "cell_cycle_g2m_score"}, inplace=True)
+    adata.obs.drop(columns=["cell_cycle_s_score", "cell_cycle_g2m_score", "phase"], errors="ignore", inplace=True)
+    if used["cell_cycle_s_score"] and used["cell_cycle_g2m_score"]:
+        sc.tl.score_genes_cell_cycle(adata, s_genes=used["cell_cycle_s_score"], g2m_genes=used["cell_cycle_g2m_score"], **pool)
+        adata.obs.rename(columns={"S_score": "cell_cycle_s_score", "G2M_score": "cell_cycle_g2m_score"}, inplace=True)
+    else:
+        adata.obs["cell_cycle_s_score"] = adata.obs["cell_cycle_g2m_score"] = np.nan
     adata.obs["proliferation_score"] = adata.obs[["cell_cycle_s_score", "cell_cycle_g2m_score"]].max(axis=1)
     adata.X = old
 
@@ -313,6 +314,9 @@ def robust_z_by_sample(adata, cols: Sequence[str], sample_key: str = "sample_id"
         out = np.zeros(adata.n_obs, dtype=float)
         for _, idx in adata.obs.groupby(sample_key).indices.items():
             x = adata.obs.iloc[list(idx)][col].to_numpy(float)
+            if np.isnan(x).all():  # an unassessed score stays unassessed
+                out[list(idx)] = np.nan
+                continue
             med = np.nanmedian(x)
             mad = max(1.4826 * np.nanmedian(np.abs(x - med)), 1e-9)
             out[list(idx)] = (x - med) / mad

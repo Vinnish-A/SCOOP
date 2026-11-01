@@ -115,9 +115,20 @@ Each theme covers many logged symptoms. The IDs are SPI1 issue-log rows.
 - **Configuration.** One packaged source for each YAML, with byte-identical copies enforced by a test. The scVI
   covariates default to none.
 
-Validation: the full repository suite passes on the integrated tree (301 tests), using
-`PYTHONPATH=src <runtime env>/bin/python -m pytest tests`. Each repair carries a regression test; the engine tests
-were also confirmed to fail on the earlier code. Behaviour changes users will see:
+Validation:
+
+- The full repository suite passes on the integrated tree (302 tests), run as
+  `PYTHONPATH=src <runtime env>/bin/python -m pytest tests`. Each themed commit's staged tree passed the suite on its own.
+- Each repair carries a regression test; the engine tests were also confirmed to fail on the earlier code.
+- A wheel built from the committed tree contains the new modules and the packaged YAMLs, and its CLI starts.
+- A CLI smoke run on synthetic counts ran validate, qc, core, programs, annotate evidence/review/commit and
+  deliver. It used `obs-parquet` and kept decisions outside the review folder.
+  - Commit found the review's bundle by hash. Deliver read the sidecar the commit receipt declared.
+  - `status --verify` reported nothing stale after an unrelated config edit, and only qc, core and validate after
+    a QC edit.
+  - The run exposed the crash on unscorable programme gene sets, which is now fixed.
+
+Behaviour changes users will see:
 
 - RCTD fits refit once, because the fit identity changed.
 - Production spatial runs refuse references without committed review.

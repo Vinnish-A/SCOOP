@@ -146,3 +146,16 @@ def test_size_factor_key_normalises_a_gene_subset_by_full_library_size():
     subset.obs["log10_total"] = np.log10(subset.obs.total_counts)
     with pytest.raises(ValueError, match="no smaller than"):
         normalize_log1p(subset, size_factor_key="log10_total")
+
+
+def test_a_gene_set_absent_from_the_axis_is_unassessed_not_a_crash_or_zero():
+    from scsp_agent_sop.core import robust_z_by_sample
+
+    a = _rna()  # a panel without stress, cell-cycle or ribosomal genes
+    normalize_log1p(a)
+    score_programs(a)
+    for column in ("stress_score", "ribo_score", "cell_cycle_s_score", "cell_cycle_g2m_score", "proliferation_score"):
+        assert a.obs[column].isna().all()
+    assert a.uns["program_score_genes"]["stress_score"] == {"n_on_axis": 0, "n_used": 0}
+    robust_z_by_sample(a, ["stress_score"], sample_key="sample_id")
+    assert a.obs.stress_score_z_sample.isna().all()
