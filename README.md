@@ -76,10 +76,9 @@ and validation rules.
 
 ## Quick start
 
-Installation defaults to the English Skill. Use `--skill-language zh` with the
-full installer to select the original edition. To switch only the Skill language
-without rebuilding the runtime, use `python scripts/install_skill.py --language en`
-or `--language zh`; see [Skill editions](skill/README.md).
+The installer builds the runtime release. Each release carries both editions of
+the operating guide, which agents read through VEngine; SCOOP is not a separate
+agent Skill (see [the operating guide](skill/README.md)).
 
 ```bash
 python scripts/install_scoop.py
@@ -124,7 +123,7 @@ configs/        default configuration and schemas
 docs/           design notes and module documentation
 markers/        curated marker skills
 scripts/        release helpers and explicit benchmark utilities
-skill/          the SCOOP Skill, references, schemas, and report assets
+skill/          the operating guide (two editions) read through VEngine, with schemas and report assets
 src/            SCOOP and Fast engine code
 tests/          regression and validation tests
 ```

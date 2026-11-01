@@ -50,7 +50,6 @@ def rollback() -> Path:
     home = resolve_home()
     current_release = Path(str(result["release"])).resolve()
     _atomic_symlink(target, home / "current")
-    _atomic_symlink(target / "skill", home / "skills" / "scoop" / "current")
     activation_path = home / "state" / "activation.json"
     activation_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = activation_path.with_name(f".{activation_path.name}.tmp")

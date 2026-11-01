@@ -102,3 +102,21 @@ def test_release_code_and_rollback_share_dependencies_without_mutating_them(tmp_
     INSTALLER._atomic_symlink(releases[0], home / "current")
     assert launch() == "first"
     assert list((environment / "bin").iterdir()) == [environment / "bin/python"]
+
+
+def test_release_identity_covers_both_guide_editions(tmp_path):
+    guides = {}
+    for edition in ("en", "zh"):
+        guide = tmp_path / edition / "scoop"
+        guide.mkdir(parents=True)
+        (guide / "SKILL.md").write_text("same text")
+        guides[edition] = guide
+    artifacts = []
+    for name in ("app.whl", "uv.lock", "requirements-runtime.lock"):
+        (tmp_path / name).write_text(name)
+        artifacts.append(tmp_path / name)
+    original = INSTALLER._content_id(guides, *artifacts)
+    (guides["zh"] / "SKILL.md").write_text("edited original edition")
+    assert INSTALLER._content_id(guides, *artifacts) != original
+    assert set(INSTALLER.GUIDES) == {"en", "zh"}
+    assert all((guide / "SKILL.md").is_file() for guide in INSTALLER.GUIDES.values())

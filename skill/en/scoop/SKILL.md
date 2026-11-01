@@ -83,7 +83,9 @@ SCOOP is the foundation layer of the V system:
 
 Finish or verify the routes a chain needs here, then hand over its objects, keys and statuses. Register a chain's
 result tables with `scoop register-result`. Log a stage SCOOP lacks, and promote it once projects reuse it. SCOOP
-depends on none of these Skills, so everything above also works without them.
+depends on none of these Skills, so everything above also works without them. This guide ships with each
+runtime release (`${SCOOP_HOME:-~/.scoop}/current/skill/en/`) and is read through VEngine; it is not
+installed as a separate agent Skill.
 
 ## Biological decisions
 

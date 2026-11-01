@@ -137,17 +137,15 @@ def _files(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*") if path.is_file() and "__pycache__" not in path.parts)
 
 
-def _content_id(skill: Path, wheel: Path, lock: Path, requirements: Path) -> str:
+def _content_id(guides: dict[str, Path], wheel: Path, lock: Path, requirements: Path) -> str:
     digest = hashlib.sha256(Path(__file__).read_bytes())
-    for base, paths in (
-        (skill, _files(skill)),
-        (wheel.parent, [wheel]),
-        (lock.parent, [lock]),
-        (requirements.parent, [requirements]),
-    ):
-        for path in paths:
-            digest.update(path.relative_to(base).as_posix().encode())
-            digest.update(_sha256(path).encode())
+    # Guide files are named as the release lays them out: skill/<edition>/...
+    named = [(f"skill/{edition}/{path.relative_to(guide).as_posix()}", path)
+             for edition, guide in sorted(guides.items()) for path in _files(guide)]
+    named += [(path.name, path) for path in (wheel, lock, requirements)]
+    for name, path in named:
+        digest.update(name.encode())
+        digest.update(_sha256(path).encode())
     return digest.hexdigest()[:20]
 
 
@@ -253,24 +251,23 @@ if not hasattr(ov, "pp") or not hasattr(ov, "single"):
         raise RuntimeError(f"candidate unified runtime import smoke failed:\n{detail}")
 
 
-def install(home: Path, *, register_skill: bool = True, skill_language: str = "en") -> Path:
+# The operating guide ships in every release as skill/<edition>/, where VEngine reads the guide that
+# matches the active runtime; SCOOP is not registered as a separate agent Skill.
+GUIDES = {"en": ROOT / "skill" / "en" / "scoop", "zh": ROOT / "skill" / "scoop"}
+
+
+def install(home: Path) -> Path:
     if not home.is_absolute():
         raise ValueError("installation home must be absolute")
     home.mkdir(parents=True, exist_ok=True)
     (home / "releases").mkdir(exist_ok=True)
     (home / "envs").mkdir(exist_ok=True)
-    if skill_language not in ("en", "zh"):
-        raise ValueError("skill_language must be en or zh")
-    skill_source = ROOT / "skill" / "en" / "scoop" if skill_language == "en" else ROOT / "skill" / "scoop"
-    if not (skill_source / "SKILL.md").is_file():
-        raise FileNotFoundError(skill_source / "SKILL.md")
+    for guide in GUIDES.values():
+        if not (guide / "SKILL.md").is_file():
+            raise FileNotFoundError(guide / "SKILL.md")
     lock = ROOT / "uv.lock"
     if not lock.is_file():
         raise FileNotFoundError("uv.lock; run uv lock before installation")
-
-    codex_link = Path.home() / ".codex" / "skills" / "scoop"
-    if register_skill and codex_link.exists() and not codex_link.is_symlink():
-        raise RuntimeError(f"refusing to replace non-symlink Codex Skill path: {codex_link}")
 
     with tempfile.TemporaryDirectory(prefix="scoop-build-") as temporary_name:
         temporary = Path(temporary_name)
@@ -301,7 +298,7 @@ def install(home: Path, *, register_skill: bool = True, skill_language: str = "e
         requirements.write_text(export_process.stdout, encoding="utf-8")
         python_executable, python_identity = _python_identity()
         dependency_id = _dependency_identity(requirements, python_identity)
-        content_id = _content_id(skill_source, wheel, lock, requirements)
+        content_id = _content_id(GUIDES, wheel, lock, requirements)
         release = home / "releases" / content_id
         environment = home / "envs" / f"{RUNTIME_NAME}-{dependency_id}"
         current = home / "current"
@@ -309,7 +306,8 @@ def install(home: Path, *, register_skill: bool = True, skill_language: str = "e
         if not release.exists():
             staging = home / f".release-{content_id}-{uuid.uuid4().hex}"
             staging.mkdir()
-            shutil.copytree(skill_source, staging / "skill")
+            for edition, guide in GUIDES.items():
+                shutil.copytree(guide, staging / "skill" / edition)
             shutil.copy2(wheel, staging / wheel.name)
             shutil.copy2(lock, staging / "uv.lock")
             shutil.copy2(requirements, staging / requirements.name)
@@ -387,11 +385,7 @@ def install(home: Path, *, register_skill: bool = True, skill_language: str = "e
         if unavailable:
             raise RuntimeError(f"candidate unified runtime lacks capabilities: {', '.join(unavailable)}")
         _atomic_symlink(release, current)
-        _atomic_symlink(release / "skill", home / "skills" / "scoop" / "current")
         _write_launcher(home)
-        if register_skill:
-            codex_link.parent.mkdir(parents=True, exist_ok=True)
-            _atomic_symlink(home / "skills" / "scoop" / "current", codex_link)
         activation = home / "state" / "activation.json"
         activation.parent.mkdir(parents=True, exist_ok=True)
         activation_temp = activation.with_name(f".{activation.name}.{uuid.uuid4().hex}.tmp")
@@ -407,16 +401,8 @@ def install(home: Path, *, register_skill: bool = True, skill_language: str = "e
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--home", default=os.environ.get("SCOOP_HOME", str(Path.home() / ".scoop")))
-    parser.add_argument(
-        "--no-skill-link",
-        action="store_true",
-        help="Install an isolated runtime without changing the global Skill link",
-    )
-    parser.add_argument("--skill-language", choices=("en", "zh"), default="en",
-                        help="Skill language: en (default) or zh (original edition)")
     args = parser.parse_args()
-    print(install(Path(args.home).expanduser().resolve(), register_skill=not args.no_skill_link,
-                  skill_language=args.skill_language))
+    print(install(Path(args.home).expanduser().resolve()))
     return 0
 
 
