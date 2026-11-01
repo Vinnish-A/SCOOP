@@ -153,7 +153,7 @@ def _run_consensus_lite_k(job: dict) -> dict:
     median_spectra = l2_spectra.groupby(kmeans_cluster_labels).median()
     median_spectra = (median_spectra.T / median_spectra.sum(1)).T
 
-    rf_usages = obj.refit_usage(norm_counts_x, median_spectra)
+    rf_usages = obj.refit_usage(norm_counts_x, median_spectra.astype(norm_counts_x.dtype))
     rf_usages = pd.DataFrame(rf_usages, index=norm_counts_obs, columns=median_spectra.index)
 
     norm_usages = rf_usages.div(rf_usages.sum(axis=1), axis=0)

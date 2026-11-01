@@ -124,6 +124,7 @@ def _run_one_job(job: dict) -> dict:
         kwargs["random_state"] = job["seed"]
         kwargs["n_components"] = job["k"]
         usages, spectra, n_iter = non_negative_factorization(_X, **kwargs)
+        reconstruction_err = _frobenius_error(_X, usages, spectra, _squared_norm(_X))
         del usages
     elif _BACKEND == "minibatch":
         from sklearn.decomposition import MiniBatchNMF
@@ -143,8 +144,9 @@ def _run_one_job(job: dict) -> dict:
         model.fit_transform(_X)
         spectra = model.components_
         n_iter = getattr(model, "n_iter_", kwargs.get("max_iter", 0))
+        reconstruction_err = float(model.reconstruction_err_)
     elif _BACKEND == "cupy-mu":
-        spectra, n_iter = _run_cupy_mu_job(job, kwargs)
+        spectra, n_iter, reconstruction_err = _run_cupy_mu_job(job, kwargs)
     else:
         raise ValueError(f"unsupported factorize backend: {_BACKEND}")
     spectra_df = pd.DataFrame(
@@ -161,6 +163,7 @@ def _run_one_job(job: dict) -> dict:
         "iteration": job["iteration"],
         "seed": job["seed"],
         "n_iter": int(n_iter),
+        "reconstruction_err": float(reconstruction_err),
         "elapsed_seconds": float(elapsed),
         "backend": _BACKEND,
         "output": str(output),
@@ -168,7 +171,20 @@ def _run_one_job(job: dict) -> dict:
     }
 
 
-def _run_cupy_mu_job(job: dict, kwargs: dict) -> tuple[np.ndarray, int]:
+def _squared_norm(x) -> float:
+    from scipy import sparse
+
+    return float(x.multiply(x).sum()) if sparse.issparse(x) else float(np.vdot(x, x))
+
+
+def _frobenius_error(x, w, h, squared_norm_x: float) -> float:
+    """||X - WH||_F without an n x g temporary (sklearn's sparse identity)."""
+
+    squared = squared_norm_x - 2.0 * float(((x @ h.T) * w).sum()) + float(((w.T @ w) * (h @ h.T)).sum())
+    return float(np.sqrt(max(squared, 0.0)))
+
+
+def _run_cupy_mu_job(job: dict, kwargs: dict) -> tuple[np.ndarray, int, float]:
     if kwargs.get("beta_loss", "frobenius") != "frobenius":
         raise ValueError("cupy-mu backend currently supports only frobenius beta_loss")
     if kwargs.get("alpha_W", 0.0) != 0.0 or kwargs.get("alpha_H", 0.0) != 0.0:
@@ -192,16 +208,30 @@ def _run_cupy_mu_job(job: dict, kwargs: dict) -> tuple[np.ndarray, int]:
     h = cp.asarray(h_cpu, dtype=dtype)
     eps = cp.asarray(_MU_EPS, dtype=dtype)
     max_iter = int(kwargs.get("max_iter", 200))
+    tol = float(kwargs.get("tol", 1e-4))
 
-    for _ in range(max_iter):
+    # sklearn's multiplicative-update stopping rule: every 10 iterations, stop
+    # once the error improvement relative to the initial error falls below tol.
+    squared_norm_x = float(cp.vdot(x, x))
+    error_at_init = _frobenius_error(x, w, h, squared_norm_x)
+    previous_error = error_at_init
+    n_iter = 0
+    for n_iter in range(1, max_iter + 1):
         h *= (w.T @ x) / cp.maximum((w.T @ w) @ h, eps)
         w *= (x @ h.T) / cp.maximum(w @ (h @ h.T), eps)
+        if tol > 0 and n_iter % 10 == 0:
+            error = _frobenius_error(x, w, h, squared_norm_x)
+            if (previous_error - error) / error_at_init < tol:
+                break
+            previous_error = error
+    reconstruction_err = _frobenius_error(x, w, h, squared_norm_x)
 
     cp.cuda.Stream.null.synchronize()
-    spectra = cp.asnumpy(h).astype(np.float64, copy=False)
+    # cNMF refits usages against X and requires the spectra in X's dtype.
+    spectra = cp.asnumpy(h).astype(_X.dtype, copy=False)
     del x, w, h
     cp.get_default_memory_pool().free_all_blocks()
-    return spectra, max_iter
+    return spectra, n_iter, reconstruction_err
 
 
 def run_fast_factorize(

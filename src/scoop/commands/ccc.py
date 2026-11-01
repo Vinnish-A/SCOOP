@@ -7,6 +7,9 @@ Usage:
 
 FastCCC output is externalized. CellPhoneDB/LIANA validation is optional and
 only meant for complex-sensitive or claim-critical interactions.
+
+The default input is the committed annotation. Only accepted observations are
+tested, and groups below ccc.min_cells_per_group are dropped (S025).
 """
 
 from __future__ import annotations
@@ -26,10 +29,14 @@ from scsp_agent_sop.ccc import (
 )
 from scsp_agent_sop.config import deep_get, project_root_from_run_root, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
-from scsp_agent_sop.storage import ensure_dir, init_file_registry, register_file, write_json, write_table
+from scsp_agent_sop.storage import ensure_dir, init_file_registry, register_file, write_h5ad_atomic, write_json, write_table
 
 
-def main() -> None:
+def _files(root: Path) -> dict[Path, int]:
+    return {path: path.stat().st_mtime_ns for path in root.rglob("*") if path.is_file()} if root.is_dir() else {}
+
+
+def main() -> dict | None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--input", default=None)
@@ -42,10 +49,17 @@ def main() -> None:
     project_root = project_root_from_run_root(run_root)
     if not deep_get(cfg, "ccc.enabled", False):
         print("CCC module disabled in config. Set ccc.enabled=true to run.")
-        return
-    input_h5ad = Path(args.input) if args.input else run_root / "artifacts" / "adata_annotation_evidence.h5ad"
+        return None
+    input_h5ad = Path(args.input) if args.input else run_root / "artifacts" / "adata_annotation_committed.h5ad"
+    if not input_h5ad.is_file():
+        raise FileNotFoundError(f"CCC input is missing: {input_h5ad}. Commit the annotation or pass --input.")
     adata = ad.read_h5ad(input_h5ad)
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
+    n_input = int(adata.n_obs)
+    # Unreviewed, unresolved and excluded cells are not a cell type (as de prepare, S017).
+    status_filtered = "annotation_status" in adata.obs
+    if status_filtered:
+        adata = adata[adata.obs["annotation_status"].astype(str).isin(["accepted", "labeled"])].copy()
 
     lr_resource = project_root / deep_get(cfg, "ccc.lr_resource")
     lr = validate_lr_resource(lr_resource)
@@ -54,33 +68,47 @@ def main() -> None:
     )
     register_file(adata, key="complex_sensitive_lris", path=complex_path, schema="lr_resource_complex_sensitive.v1")
 
+    min_cells = int(deep_get(cfg, "ccc.min_cells_per_group", 20))
     groupby = choose_ccc_groupby(
         adata,
         primary=deep_get(cfg, "ccc.groupby", "cell_type_lvl3"),
         fallback=deep_get(cfg, "ccc.fallback_groupby", "cell_type_lvl2"),
-        min_cells_per_group=deep_get(cfg, "ccc.min_cells_per_group", 20),
+        min_cells_per_group=min_cells,
     )
+    sizes = adata.obs[groupby].astype(str).value_counts()
+    dropped_groups = sorted(sizes.index[sizes < min_cells])
+    if dropped_groups:
+        adata = adata[~adata.obs[groupby].astype(str).isin(dropped_groups)].copy()
+    # FastCCC reads its input from disk, so a filtered object is written first.
+    output_h5ad = run_root / "artifacts" / "adata_ccc_indexed.h5ad"
+    fastccc_input = output_h5ad if adata.n_obs < n_input else input_h5ad
     output_dir = run_root / "ccc" / "fastccc"
     ensure_dir(output_dir / "tables")
     fastccc_database = project_root / deep_get(cfg, "ccc.fastccc_database")
     cmd = build_fastccc_command(
         deep_get(cfg, "ccc.fastccc_command_template"),
-        input_h5ad=input_h5ad,
+        input_h5ad=fastccc_input,
         groupby=groupby,
         fastccc_database=fastccc_database,
         output_dir=output_dir,
     )
-    write_json(
-        {"command": cmd, "groupby": groupby, "database": str(fastccc_database)},
+    command_json = write_json(
+        {"command": cmd, "groupby": groupby, "database": str(fastccc_database), "input_h5ad": str(input_h5ad),
+         "n_input_cells": n_input, "n_tested_cells": int(adata.n_obs), "dropped_groups": dropped_groups},
         run_root / "ccc" / "fastccc" / "fastccc_command.json",
     )
     if args.dry_run:
         print(" ".join(cmd))
-        return
+        return None
+    if fastccc_input == output_h5ad:
+        write_h5ad_atomic(adata, output_h5ad)
+    before = _files(output_dir)
     completed = run_fastccc_command(cmd, cwd=project_root)
+    fastccc_outputs = sorted(path for path, mtime in _files(output_dir).items() if before.get(path) != mtime)
 
     fallback_used = False
     fallback_reason = None
+    validation_outputs = []
     if args.validate_cellphonedb or deep_get(cfg, "ccc.complex_validation.enabled", False):
         try:
             val = run_cellphonedb_validation_omicverse(
@@ -93,7 +121,8 @@ def main() -> None:
                 pvalue=deep_get(cfg, "ccc.complex_validation.pvalue", 0.05),
                 threads=deep_get(cfg, "ccc.complex_validation.threads", 10),
             )
-            write_json(val, run_root / "ccc" / "cellphonedb" / "cellphonedb_export_summary.json")
+            summary = write_json(val, run_root / "ccc" / "cellphonedb" / "cellphonedb_export_summary.json")
+            validation_outputs += [summary, *map(Path, val["exported"].values())]
         except Exception as exc:
             fallback_used = True
             fallback_reason = f"CellPhoneDB validation failed: {type(exc).__name__}: {exc}"
@@ -104,6 +133,7 @@ def main() -> None:
             )
             p = write_table(liana, run_root / "ccc" / "liana" / "tables" / "liana_rank_aggregate.parquet")
             register_file(adata, key="liana_rank_aggregate", path=p, schema="liana_rank_aggregate.v1")
+            validation_outputs.append(p)
         except Exception as exc:
             fallback_used = True
             fallback_reason = (fallback_reason or "") + f"; LIANA validation failed: {type(exc).__name__}: {exc}"
@@ -115,23 +145,42 @@ def main() -> None:
             "groupby": groupby,
             "lr_resource": str(lr_resource),
             "complex_sensitive_count": int(lr["complex_sensitive"].sum()),
+            "input_h5ad": str(input_h5ad),
+            "cell_filter": "annotation_status in {accepted, labeled}" if status_filtered else "none (no annotation_status)",
+            "min_cells_per_group": min_cells,
+            "dropped_groups": dropped_groups,
         }
     )
-    output_h5ad = run_root / "artifacts" / "adata_ccc_indexed.h5ad"
-    adata.write_h5ad(output_h5ad)
+    write_h5ad_atomic(adata, output_h5ad)
     log_decision(
         run_root,
         module="ccc",
         decision="fastccc_executed",
         reason="FastCCC used as primary screening; complex-sensitive LRIs externalized for validation.",
-        parameters={"groupby": groupby, "command": cmd},
+        parameters={"groupby": groupby, "command": cmd, "min_cells_per_group": min_cells},
         evidence={
             "complex_sensitive_lris": int(lr["complex_sensitive"].sum()),
+            "n_input_cells": n_input,
+            "n_tested_cells": int(adata.n_obs),
+            "dropped_groups": dropped_groups,
             "stdout_tail": completed.stdout[-1000:],
         },
         fallback_used=fallback_used,
         fallback_reason=fallback_reason,
     )
+    return {
+        "inputs": [str(input_h5ad.resolve()), str(lr_resource.resolve()), str(fastccc_database.resolve())],
+        "outputs": list(dict.fromkeys(str(Path(path).resolve()) for path in (output_h5ad, complex_path, command_json,
+                                                                             *fastccc_outputs, *validation_outputs))),
+        "execution": {"status": "completed"},
+        "interpretation": {"status": "not_assessed"},
+        "coverage": [{"scope": "ccc_input_observations", "unit": "observations", "total": n_input,
+                      "processed": int(adata.n_obs)}],
+        "limitations": [
+            *([f"Groups below {min_cells} cells were not tested: {dropped_groups}."] if dropped_groups else []),
+            *([fallback_reason.lstrip("; ")] if fallback_reason else []),
+        ],
+    }
 
 
 if __name__ == "__main__":

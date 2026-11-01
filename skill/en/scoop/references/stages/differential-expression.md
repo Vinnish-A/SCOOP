@@ -48,6 +48,13 @@ Default tool:
 
 - FastDE pseudobulk DESeq2-like Wald test. edgeR remains a reference validation path.
 
+FastDE fits `~ condition` only (no batch or donor terms). It builds the IRLS working
+response from the floored mean, as DESeq2's `fitBeta` does, so a gene that is zero in
+one group converges to a finite log2FC instead of growing with `--max-iter`. The
+`betaConv` column flags genes that missed `--beta-tol` or have |beta| > 30 (log2);
+the latter get NA `stat`, `pvalue` and `padj` and are left out of the BH universe.
+The manifest records `n_beta_not_converged` and `n_beta_out_of_bounds`.
+
 Outputs:
 
 - `pseudobulk/counts.tsv`.

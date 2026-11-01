@@ -9,11 +9,33 @@ from pandas.api.types import is_numeric_dtype
 import scipy.sparse as sp
 
 
+def counts_matrix(obj, layer: str | None = None):
+    """The matrix fastCNV log-normalises as raw counts.
+
+    X is the fallback only while it still holds counts; after core it is log1p.
+    """
+
+    if layer:
+        return obj.layers[layer]
+    if "counts" in obj.layers:
+        return obj.layers["counts"]
+    values = obj.X.data if sp.issparse(obj.X) else np.asarray(obj.X).reshape(-1)
+    step = 1 << 24  # bounded temporaries on large matrices
+    for start in range(0, values.size, step):
+        chunk = values[start : start + step]
+        if not ((chunk >= 0) & (chunk == np.floor(chunk))).all():
+            raise ValueError(
+                "X is used as counts because there is no 'counts' layer, but it holds non-integer or negative "
+                "values (normalised?); pass the raw-count layer explicitly."
+            )
+    return obj.X
+
+
 def read_counts(path: Path, *, layer: str | None = None, transpose: bool = False) -> pd.DataFrame:
     suffix = path.suffix.lower()
     if suffix == ".h5ad":
         obj = ad.read_h5ad(path)
-        matrix = obj.layers[layer] if layer else (obj.layers["counts"] if "counts" in obj.layers else obj.X)
+        matrix = counts_matrix(obj, layer)
         if sp.issparse(matrix):
             matrix = matrix.toarray()
         frame = pd.DataFrame(np.asarray(matrix), index=obj.obs_names.astype(str), columns=obj.var_names.astype(str))

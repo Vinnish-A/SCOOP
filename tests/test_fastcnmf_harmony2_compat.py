@@ -63,3 +63,38 @@ def test_all_empty_clusters_match_normal_nonnegative_clipping() -> None:
     expected = np.maximum(x, 0.)
     np.testing.assert_array_equal(moe_correct_ridge_fast(x, empty, phi, penalty), expected)
     np.testing.assert_array_equal(moe_correct_ridge_batched(x, empty, phi, penalty), expected)
+
+
+def test_preprocess_manifest_records_ridge_layout(tmp_path) -> None:
+    import json
+
+    import anndata as ad
+    import pandas as pd
+    import pytest
+
+    pytest.importorskip("harmonypy")
+    pytest.importorskip("skmisc")
+    from fastcnmf.harmony2_compat import RIDGE_POLICY
+    from fastcnmf.preprocess import run_fast_harmony_preprocess
+
+    rng = np.random.default_rng(0)
+    counts = rng.poisson(rng.gamma(1.0, 2.0, 60)[None, :], size=(80, 60)).astype(np.float32)
+    obs = pd.DataFrame({"sample_id": ["a", "b"] * 40}, index=[f"c{i}" for i in range(80)])
+    ad.AnnData(counts, obs=obs, var=pd.DataFrame(index=[f"g{i}" for i in range(60)])).write_h5ad(tmp_path / "in.h5ad")
+
+    manifest = run_fast_harmony_preprocess(input_h5ad=tmp_path / "in.h5ad", output_prefix=tmp_path / "out" / "tiny",
+                                           n_top_genes=30, max_iter_harmony=2, write_tp10k_h5ad=False)
+
+    assert RIDGE_POLICY.items() <= manifest.items()
+    assert RIDGE_POLICY.items() <= json.loads((tmp_path / "out" / "fastcnmf_preprocess_manifest.json").read_text()).items()
+    assert ad.read_h5ad(manifest["corrected_h5ad"]).uns["fastcnmf_preprocess"]["ridge_layout"] == RIDGE_POLICY["ridge_layout"]
+
+
+def test_cnmf_reference_preprocess_fails_fast_on_harmonypy_2(tmp_path, monkeypatch) -> None:
+    import pytest
+
+    from fastcnmf import cnmf_reference
+
+    monkeypatch.setattr(cnmf_reference, "version", lambda name: "2.0.0")
+    with pytest.raises(RuntimeError, match="fast-preprocess"):
+        cnmf_reference.run_cnmf_reference_preprocess(input_h5ad=tmp_path / "missing.h5ad", output_prefix=tmp_path / "out")

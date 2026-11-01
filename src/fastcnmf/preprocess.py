@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from .harmony2_compat import harmony2_moe_correct
+from .harmony2_compat import RIDGE_POLICY, harmony2_moe_correct
 
 
 def _save_df_to_npz(obj: pd.DataFrame, path: Path, *, compressed: bool = True) -> None:
@@ -150,6 +150,7 @@ def run_fast_harmony_preprocess(
         "librarysize_targetsum": float(librarysize_targetsum),
         "theta": float(theta),
         "lamb": float(lamb),
+        **RIDGE_POLICY,
         "max_iter_harmony": int(max_iter_harmony),
         "seed": int(seed),
         "quantile_thresh": float(quantile_thresh),
@@ -224,6 +225,7 @@ def run_fast_harmony_preprocess(
         "librarysize_targetsum": float(librarysize_targetsum),
         "theta": float(theta),
         "lamb": float(lamb),
+        **RIDGE_POLICY,
         "max_iter_harmony": int(max_iter_harmony),
         "seed": int(seed),
         "write_core_cache": bool(write_core_cache),

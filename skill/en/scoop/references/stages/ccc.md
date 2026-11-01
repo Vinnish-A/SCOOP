@@ -23,7 +23,9 @@ scoop ccc --config runs/<run_id>/config/run.yaml --validate-liana
 
 Default tool:
 
-- FastCCC for primary screening.
+- FastCCC for primary screening. The default input is `artifacts/adata_annotation_committed.h5ad`; only cells with
+  `annotation_status` `accepted`/`labeled` in groups of at least `ccc.min_cells_per_group` are tested. When cells
+  were dropped, FastCCC reads the filtered `artifacts/adata_ccc_indexed.h5ad`, and the receipt lists both.
 
 OmicVerse reuse:
 

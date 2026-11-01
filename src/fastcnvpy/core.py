@@ -7,10 +7,11 @@ from time import perf_counter
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from scipy.cluster.hierarchy import cut_tree, fcluster, linkage
+from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import pdist, squareform
 
 from .config import FastCNVConfig
+from .io import counts_matrix
 from .reference import chromosome_arm_order, normalize_gene_metadata, window_chrom_arm
 
 
@@ -194,7 +195,7 @@ def run_fastcnv_anndata(
     total_start = perf_counter()
 
     start = perf_counter()
-    matrix = adata.layers[layer] if layer else (adata.layers["counts"] if "counts" in adata.layers else adata.X)
+    matrix = counts_matrix(adata, layer)
     if densify_all and sp.issparse(matrix):
         matrix = matrix.toarray()
     cell_names = pd.Index(adata.obs_names.astype(str))
@@ -330,7 +331,7 @@ def run_fastcnv_pooled_anndata(
     total_start = perf_counter()
 
     start = perf_counter()
-    matrix = adata.layers[layer] if layer else (adata.layers["counts"] if "counts" in adata.layers else adata.X)
+    matrix = counts_matrix(adata, layer)
     if densify_all and sp.issparse(matrix):
         matrix = matrix.toarray()
     cell_names = pd.Index(adata.obs_names.astype(str))
@@ -798,7 +799,9 @@ def _select_genes_like_fastcnv(
     meta["chr_arm_full"] = meta["chromosome_num"].astype(str) + meta["chr_arm"].astype(str)
     genes_by_arm = {name: list(group["hgnc_symbol"]) for name, group in meta.groupby("chr_arm_full", sort=True)}
 
-    # Preserve fastCNV's current behavior: this loop is over bare arms p/q, not chromosome-specific arms.
+    # fastCNV loops over the bare arm labels p/q, so this adds the genome-wide top
+    # genes rather than topping up a small chromosome arm; the gene set is kept for
+    # fastCNV parity. Top-up genes enter only the per-cell centring, never a window.
     for arm in pd.unique(gene_metadata["chr_arm"]):
         if arm not in genes_by_arm:
             genes_by_arm[str(arm)] = []
@@ -818,7 +821,10 @@ def _select_genes_like_fastcnv(
     final = []
     for key in sorted(genes_by_arm):
         final.extend(genes_by_arm[key])
-    final = [gene for gene in final if gene in common_genes]
+    # fastCNV's unlist() repeats those genes once per bare arm; repeated rows weight
+    # the per-cell centring mean towards them, a depth-correlated offset.
+    common = set(common_genes)
+    final = _unique_preserve([gene for gene in final if gene in common])
 
     top_meta = gene_metadata[gene_metadata["hgnc_symbol"].isin(top_expr)].copy()
     top_meta = top_meta.sort_values(["chromosome_num", "start_position"], kind="mergesort")
@@ -944,15 +950,17 @@ def cnv_per_chromosome_arm(genomic_scores: pd.DataFrame) -> pd.DataFrame:
         if windows:
             rows[f"{arm}_CNV"] = genomic_scores.loc[windows].mean(axis=0)
         else:
-            rows[f"{arm}_CNV"] = pd.Series(0.0, index=genomic_scores.columns)
+            # No window (e.g. acrocentric 13p-15p): unassessed, not neutral.
+            rows[f"{arm}_CNV"] = pd.Series(np.nan, index=genomic_scores.columns)
     return pd.DataFrame(rows).T
 
 
 def classify_arm_cnv(arm_cnv: pd.DataFrame, peaks: tuple[float, float, float]) -> pd.DataFrame:
-    values = arm_cnv.to_numpy()
+    values = arm_cnv.to_numpy(dtype=np.float64)
     classes = np.full(values.shape, "no_alteration", dtype=object)
     classes[values < peaks[0]] = "loss"
     classes[values > peaks[2]] = "gain"
+    classes[np.isnan(values)] = "unassessed"
     return pd.DataFrame(classes, index=[f"{idx}_classification" for idx in arm_cnv.index], columns=arm_cnv.columns)
 
 
@@ -980,6 +988,8 @@ def merge_cnv_clusters(cell_meta: pd.DataFrame, *, merge_threshold: float = 0.98
     if clusters.nunique() < 2 or not arm_cols:
         return cell_meta["cnv_clusters"]
     profiles = cell_meta.loc[clusters.index, arm_cols].groupby(clusters).mean()
+    # An unassessed (NaN) arm would make every correlation NaN and block all merges.
+    profiles = profiles.dropna(axis=1)
     profiles = profiles.loc[:, (profiles != 0).any(axis=0)]
     if profiles.shape[0] < 2 or profiles.shape[1] == 0:
         return cell_meta["cnv_clusters"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib.metadata import version
 from pathlib import Path
 
 
@@ -16,6 +17,15 @@ def run_cnmf_reference_preprocess(
     seed: int = 20260614,
 ) -> dict:
     """Run the upstream cNMF preprocessing contract from a cold H5AD input."""
+
+    # cNMF's MOE correction reads Harmony.Phi_moe, which harmonypy 2 removed; fail
+    # before HVG/PCA/Harmony time is spent instead of at the correction step.
+    harmonypy_version = version("harmonypy")
+    if int(harmonypy_version.split(".")[0]) >= 2:
+        raise RuntimeError(
+            f"cNMF's Harmony preprocessing needs harmonypy < 2 (Harmony.Phi_moe); found harmonypy {harmonypy_version}. "
+            "Use `fastcnmf fast-preprocess`, which applies the same MOE correction with harmonypy 2."
+        )
 
     import anndata as ad
     from cnmf.preprocess import Preprocess

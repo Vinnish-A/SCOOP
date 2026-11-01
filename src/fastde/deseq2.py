@@ -7,6 +7,10 @@ import numpy as np
 import pandas as pd
 from scipy import optimize, special, stats
 
+from .abundance_metrics import benjamini_hochberg
+
+MAX_ABS_LOG2_BETA = 30.0
+
 
 @dataclass(frozen=True)
 class FastDEResult:
@@ -61,7 +65,7 @@ def run_deseq2_wald(
     x = test_mask.astype(float).to_numpy()
     design_np = np.column_stack([np.ones_like(x), x])
     initial_disp = estimate_initial_dispersions(norm, design_np, min_dispersion=min_dispersion)
-    beta_init, _ = fit_nb_glm_binary_condition(
+    beta_init, *_ = fit_nb_glm_binary_condition(
         y,
         x=x,
         size_factors=size_factors,
@@ -101,7 +105,7 @@ def run_deseq2_wald(
         np.log(np.maximum(disp_fit, min_dispersion)) + 2.0 * np.sqrt(max(var_log_disp_ests, 0.0))
     )
     dispersions = np.where(disp_outlier, disp_gene, disp_map)
-    beta, se = fit_nb_glm_binary_condition(
+    beta, se, beta_conv, bounded = fit_nb_glm_binary_condition(
         y,
         x=x,
         size_factors=size_factors,
@@ -114,6 +118,8 @@ def run_deseq2_wald(
     stat = np.divide(beta_condition, se_condition, out=np.zeros_like(beta_condition), where=se_condition > 0)
     pvalue = 2.0 * stats.norm.sf(np.abs(stat))
     pvalue = np.where(np.isfinite(pvalue), pvalue, 1.0)
+    stat = np.where(bounded, stat, np.nan)
+    pvalue = np.where(bounded, pvalue, np.nan)
     padj = benjamini_hochberg(pvalue)
     log2fc = beta_condition / np.log(2.0)
     lfc_se = se_condition / np.log(2.0)
@@ -132,6 +138,7 @@ def run_deseq2_wald(
             "dispFit": disp_fit,
             "dispMAP": disp_map,
             "dispOutlier": disp_outlier,
+            "betaConv": beta_conv,
         }
     ).sort_values(["pvalue", "gene"], kind="mergesort").reset_index(drop=True)
     design = pd.DataFrame(
@@ -157,6 +164,10 @@ def run_deseq2_wald(
         "min_total_count": int(min_total_count),
         "max_iter": int(max_iter),
         "beta_tol": float(beta_tol),
+        "working_response": "deseq2_floored_mu",
+        "max_abs_log2_beta": MAX_ABS_LOG2_BETA,
+        "n_beta_not_converged": int((~beta_conv).sum()),
+        "n_beta_out_of_bounds": int((~bounded).sum()),
         "fit_type": "parametric",
         "dispersion_trend": trend_info,
         "dispersion_prior_var": float(disp_prior_var),
@@ -365,7 +376,9 @@ def fit_nb_glm_binary_condition(
     dispersions: np.ndarray,
     max_iter: int,
     beta_tol: float,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """IRLS fit of ``~ condition``; returns beta, SE(condition), betaConv and the |beta| <= 30 (log2) mask."""
+
     y = np.asarray(counts, dtype=np.float64)
     x = np.asarray(x, dtype=np.float64)
     offset = np.log(size_factors)
@@ -376,14 +389,15 @@ def fit_nb_glm_binary_condition(
     beta[0] = np.log(np.maximum(norm[ctrl].mean(axis=0), 1e-8))
     beta[1] = np.log(np.maximum(norm[test].mean(axis=0), 1e-8)) - beta[0]
     alpha = dispersions[None, :]
+    converged = np.zeros(y.shape[1], dtype=bool)
 
     for _ in range(max_iter):
         eta_no_offset = beta[0][None, :] + x[:, None] * beta[1][None, :]
-        eta = offset[:, None] + eta_no_offset
-        eta = np.clip(eta, -30.0, 30.0)
-        mu = np.maximum(np.exp(eta), 0.5)
+        mu = np.maximum(np.exp(np.clip(offset[:, None] + eta_no_offset, -30.0, 30.0)), 0.5)
         weights = mu / (1.0 + alpha * mu)
-        z = eta_no_offset + (y - mu) / np.maximum(mu, np.finfo(float).tiny)
+        # DESeq2 fitBeta: the working response is built from the floored mu, so a
+        # group of zeros settles at log(minmu) instead of diverging with max_iter.
+        z = np.log(mu) - offset[:, None] + (y - mu) / mu
         a = weights.sum(axis=0)
         b = (weights * x[:, None]).sum(axis=0)
         c = (weights * (x[:, None] ** 2)).sum(axis=0)
@@ -394,10 +408,10 @@ def fit_nb_glm_binary_condition(
         new_beta = beta.copy()
         new_beta[0, valid] = (d[valid] * c[valid] - b[valid] * e[valid]) / det[valid]
         new_beta[1, valid] = (a[valid] * e[valid] - b[valid] * d[valid]) / det[valid]
-        if np.nanmax(np.abs(new_beta - beta)) < beta_tol:
-            beta = new_beta
-            break
+        converged = np.abs(new_beta - beta).max(axis=0) < beta_tol
         beta = new_beta
+        if converged.all():
+            break
 
     eta_no_offset = beta[0][None, :] + x[:, None] * beta[1][None, :]
     mu = np.maximum(np.exp(np.clip(offset[:, None] + eta_no_offset, -30.0, 30.0)), 0.5)
@@ -407,23 +421,12 @@ def fit_nb_glm_binary_condition(
     c = (weights * (x[:, None] ** 2)).sum(axis=0)
     det = a * c - b * b
     se = np.sqrt(np.divide(a, det, out=np.full_like(a, np.inf), where=det > 0))
-    return beta, se
+    # DESeq2 treats |beta| > 30 (log2) as a failed fit.
+    bounded = np.abs(beta).max(axis=0) <= MAX_ABS_LOG2_BETA * np.log(2.0)
+    return beta, se, converged & bounded, bounded
 
 
 def fitted_mu_binary(beta: np.ndarray, *, x: np.ndarray, size_factors: np.ndarray, min_mu: float) -> np.ndarray:
     offset = np.log(size_factors)
     eta = offset[:, None] + beta[0][None, :] + x[:, None] * beta[1][None, :]
     return np.maximum(np.exp(np.clip(eta, -30.0, 30.0)), min_mu)
-
-
-def benjamini_hochberg(pvalue: np.ndarray) -> np.ndarray:
-    p = np.asarray(pvalue, dtype=float)
-    n = p.size
-    order = np.argsort(p, kind="mergesort")
-    ranked = p[order]
-    adjusted = ranked * n / np.arange(1, n + 1)
-    adjusted = np.minimum.accumulate(adjusted[::-1])[::-1]
-    adjusted = np.clip(adjusted, 0.0, 1.0)
-    out = np.empty_like(adjusted)
-    out[order] = adjusted
-    return out

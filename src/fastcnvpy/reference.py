@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 
@@ -29,8 +28,17 @@ def normalize_gene_metadata(frame: pd.DataFrame) -> pd.DataFrame:
         out = out.dropna(subset=["hgnc_symbol", "chromosome_num", "start_position", "end_position", "chr_arm"])
         out["chromosome_num"] = out["chromosome_num"].astype(int)
         out["hgnc_symbol"] = out["hgnc_symbol"].astype(str)
+        # The BioMart path's scope: chromosomes 1-22 and X (23), named genes.
+        out = out.loc[out["chromosome_num"].between(1, 23) & out["hgnc_symbol"].ne("")].copy()
         out["chr_arm"] = _arm_suffix(out["chr_arm"], out["chromosome_num"])
-        return out[["hgnc_symbol", "chromosome_num", "start_position", "end_position", "chr_arm"]].reset_index(drop=True)
+        key = ["hgnc_symbol", "chromosome_num", "start_position", "end_position", "chr_arm"]
+        duplicated = out.duplicated(key)
+        if duplicated.any():
+            raise ValueError(
+                f"gene metadata repeats {int(duplicated.sum())} ({', '.join(key)}) row(s), "
+                f"e.g. {out.loc[duplicated, 'hgnc_symbol'].iloc[0]!r}; a repeated row enters its window twice"
+            )
+        return out[key].reset_index(drop=True)
 
     required = {
         "hgnc_symbol",

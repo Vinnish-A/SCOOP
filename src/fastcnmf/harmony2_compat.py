@@ -13,6 +13,11 @@ from typing import Iterable
 
 import numpy as np
 
+# Recorded in preprocess manifests so outputs of the two layouts stay distinguishable.
+# v1 added the lambda vector to the Gram matrix by broadcasting (cNMF 1.7 ``gram + lamb``);
+# v2 adds diag(lamb) with an unpenalised intercept, the original Harmony MOE ridge.
+RIDGE_POLICY = {"ridge_layout": "diagonal_unpenalized_intercept", "ridge_policy_version": 2}
+
 
 @dataclass(frozen=True)
 class Harmony2MOEResult:
