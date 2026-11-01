@@ -72,6 +72,19 @@ unresolved populations explicit and report unassessed subgroup gaps; do not
 replace reviewed subtypes with broad classes for convenience. See the spatial
 route for the reference coverage contract.
 
+## SCOOP within VEngine
+
+SCOOP is the foundation layer of the V system:
+- **SCOOP:** inventory, measurement, preprocessing, cross-dataset and cross-modal alignment, reviewed identity and
+  receipts.
+- **VEngine:** the publication analyses (CH chains) computed on these objects; its index lists the SCOOP routes each
+  chain needs.
+- **VStory and OmniFigure:** the argument and the figures.
+
+Finish or verify the routes a chain needs here, then hand over its objects, keys and statuses. Register a chain's
+result tables with `scoop register-result`. Log a stage SCOOP lacks, and promote it once projects reuse it. SCOOP
+depends on none of these Skills, so everything above also works without them.
+
 ## Biological decisions
 
 The main agent coordinates delegated execution and evidence collection and

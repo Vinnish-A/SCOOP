@@ -27,7 +27,10 @@ def main():
     parser.add_argument("--agent-home", "--codex-home", dest="agent_home", type=Path,
                         help="Override the selected agent home (--codex-home is a legacy alias)")
     args = parser.parse_args()
-    default_agent_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) if args.agent == "codex" else Path.home() / ".claude"
+    if args.agent == "codex":
+        default_agent_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    else:
+        default_agent_home = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
     agent_home = (args.agent_home or default_agent_home).expanduser().resolve()
     source = ROOT / "skill" / "en" / "scoop" if args.language == "en" else ROOT / "skill" / "scoop"
     if not (source / "SKILL.md").is_file():

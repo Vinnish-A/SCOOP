@@ -13,7 +13,7 @@ python3 scripts/install_skill.py --agent claude
 ```
 
 English and Codex are the defaults. `--agent claude` selects Claude Code's
-`~/.claude/skills/scoop`; `--agent codex` selects
+`${CLAUDE_CONFIG_DIR:-~/.claude}/skills/scoop`; `--agent codex` selects
 `${CODEX_HOME:-~/.codex}/skills/scoop`. Each agent gets only its selected language.
 The selector copies the chosen tree into an immutable content-addressed revision
 under `${SCOOP_HOME:-~/.scoop}/skills/scoop/revisions/`. Codex uses the managed

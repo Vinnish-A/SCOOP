@@ -68,6 +68,10 @@ unresolved populations explicit and report unassessed subgroup gaps; do not
 replace reviewed subtypes with broad classes for convenience. See the spatial
 route for the reference coverage contract.
 
+## VEngine中的SCOOP
+
+SCOOP是V体系的基础层：清点、测量、预处理、跨数据集与跨模态对齐、已审核身份与回执在此完成；VEngine的发表分析（CH方法链）在这些对象上计算，其索引列出每条链所需的SCOOP路线；VStory与OmniFigure承担论证与成图。在这里完成或核实方法链所需的路线，再交付对象、键与状态；方法链的结果表用`scoop register-result`登记；SCOOP尚无的阶段记录为缺口，被多个项目复用后提升为SCOOP阶段。SCOOP不依赖这些技能，上述内容在没有它们时同样适用。
+
 ## Biological decisions
 
 The main agent coordinates delegated execution and evidence collection and
