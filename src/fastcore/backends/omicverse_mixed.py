@@ -25,7 +25,7 @@ def run_omicverse_mixed_core(adata, cfg: Mapping[str, Any], run_root: str | Path
     timings: dict[str, float] = {}
     copy_counts_to_x(adata, str(deep_get(cfg, "qc.counts_layer", "counts")))
     run_omicverse_preprocess_scale_pca(ov, adata, options, timings)
-    harmony_used = run_harmony_bridge(adata, options, timings)
+    batch_correction = run_harmony_bridge(adata, options, timings)
     leiden_results = run_omicverse_graph_umap_leiden(ov, adata, options, timings, cfg=cfg, run_root=run_root)
     artifacts = write_core_tables(
         adata, run_root, method="fastcore_mixed", options=options, leiden_results=leiden_results
@@ -34,7 +34,7 @@ def run_omicverse_mixed_core(adata, cfg: Mapping[str, Any], run_root: str | Path
         adata,
         options=options,
         timings=timings,
-        harmony_used=harmony_used,
+        batch_correction=batch_correction,
         artifacts=artifacts,
         quality_basis="fastcore_mixed_adapter_smoke",
     )

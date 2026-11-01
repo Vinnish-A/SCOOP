@@ -6,10 +6,39 @@ import numpy as np
 import pandas as pd
 
 
-def normalize_log1p(adata, counts_layer: str = "counts", target_sum: float = 1e4, layer_out: str = "log1p_norm") -> None:
+def normalize_log1p(
+    adata,
+    counts_layer: str = "counts",
+    target_sum: float = 1e4,
+    layer_out: str = "log1p_norm",
+    size_factor_key: str | None = None,
+) -> None:
+    """Write ``layers[layer_out]`` (and ``X``): counts scaled to ``target_sum`` per cell, then log1p.
+
+    Every RNA core backend delivers ``log1p_norm`` through this function. The
+    library size is the row sum of ``counts_layer`` unless ``size_factor_key``
+    names an obs column of per-cell totals, e.g. full-gene ``total_counts`` for
+    a matrix that holds only a gene subset (S044).
+    """
     import scanpy as sc
-    adata.X = adata.layers[counts_layer].copy()
-    sc.pp.normalize_total(adata, target_sum=target_sum)
+    from scipy import sparse
+
+    counts = adata.layers[counts_layer]
+    if size_factor_key is None:
+        adata.X = counts.copy()
+        sc.pp.normalize_total(adata, target_sum=target_sum)
+    else:
+        totals = adata.obs[size_factor_key].to_numpy(float)
+        row_sums = np.asarray(counts.sum(axis=1), dtype=float).ravel()
+        # A library size below the counts it should contain names the wrong column.
+        if not np.isfinite(totals).all() or (totals < row_sums * (1 - 1e-6) - 1e-6).any():
+            raise ValueError(f"obs[{size_factor_key!r}] must hold finite per-cell totals no smaller than the "
+                             f"{counts_layer!r} row sums")
+        scale = target_sum / np.where(totals > 0, totals, 1.0)  # as normalize_total, an empty cell stays zero
+        dtype = counts.dtype if np.issubdtype(counts.dtype, np.floating) else np.float32
+        adata.X = (sparse.csr_matrix(counts.multiply(scale[:, None]), dtype=dtype) if sparse.issparse(counts)
+                   else (np.asarray(counts) * scale[:, None]).astype(dtype))
+    adata.uns.pop("log1p", None)  # a backend's own log scale is replaced, not stacked
     sc.pp.log1p(adata)
     adata.layers[layer_out] = adata.X.copy()
 
@@ -304,6 +333,61 @@ def build_identity_hvg_from_program_decision(adata, biology_key: str = "highly_v
     return df
 
 
+HARMONY_METHODS = {"harmony2", "harmonypy2", "harmonypy"}
+
+
+def core_batch_keys(cfg: Mapping[str, Any], obs) -> tuple[list[str], str]:
+    """Obs columns core Harmony corrects for, and the config path they came from.
+
+    A declared ``run.obs_keys.batch`` is used exactly. Otherwise the pre-R10
+    rule applies: every ``keys.batch_candidates`` column present in ``obs``
+    (default: the sample key). That is a guess, so the source says so.
+    """
+    from .config import deep_get, resolve_obs_keys
+
+    keys = resolve_obs_keys(cfg, obs)
+    if keys.sources["batch"] == "run.obs_keys.batch":
+        return [keys.batch], "run.obs_keys.batch"
+    candidates = deep_get(cfg, "keys.batch_candidates", None)
+    if candidates is None:
+        return [keys.sample] if keys.sample in obs else [], "sample_key_default"
+    return [str(key) for key in candidates if key in obs], "keys.batch_candidates"
+
+
+def correct_identity_pca(
+    adata,
+    *,
+    method: str,
+    batch_keys: Sequence[str],
+    key_source: str,
+    max_iter_harmony: int = 20,
+    random_state: int = 0,
+    ncores: int = 0,
+    basis: str = "X_pca_identity_prebatch",
+    output: str = "X_pca_harmony_identity",
+) -> dict[str, Any]:
+    """Write ``obsm[output]`` and return what actually ran.
+
+    ``status`` is ``corrected`` (Harmony ran on ``keys``), ``not_run`` (no
+    requested key has two levels), ``not_requested`` (method none/identity) or
+    ``fallback_uncorrected`` (harmonypy did not import; ``output`` is the
+    uncorrected PCA, which needs review).
+    """
+    record = {"method": method, "key_source": key_source, "requested_keys": list(batch_keys)}
+    if method in {"none", "identity"}:
+        adata.obsm[output] = adata.obsm[basis].copy()
+        return {**record, "status": "not_requested", "keys": [], "reason": f"core.batch_correction.method: {method}"}
+    if method not in HARMONY_METHODS:
+        raise ValueError(f"unsupported core.batch_correction.method: {method}")
+    try:
+        ran = run_harmony2(adata, basis=basis, batch_keys=list(batch_keys), output=output,
+                           max_iter_harmony=max_iter_harmony, random_state=random_state, ncores=ncores)
+    except ImportError as exc:
+        adata.obsm[output] = adata.obsm[basis].copy()
+        return {**record, "status": "fallback_uncorrected", "keys": [], "reason": str(exc)}
+    return {**record, **ran}
+
+
 def run_harmony2(
     adata,
     basis: str = "X_pca_identity_prebatch",
@@ -313,16 +397,25 @@ def run_harmony2(
     random_state: int = 0,
     ncores: int = 0,
     sigma: float = 0.1,
-) -> None:
+) -> dict[str, Any]:
+    """harmonypy 2.x (CPU) on ``obsm[basis]``; returns the keys used, iterations and objective (S046).
+
+    Keys with fewer than two levels are dropped; with none left the output is
+    a copy of ``basis`` and ``status`` is ``not_run``.
+    """
+    from importlib.metadata import version
+
     try:
         import harmonypy
     except Exception as exc:
         raise ImportError("Harmony 2.0 is not available. Install harmonypy>=2.0,<3.") from exc
-    keys = [batch_keys] if isinstance(batch_keys, str) else list(batch_keys)
-    keys = [k for k in keys if k in adata.obs and adata.obs[k].nunique() > 1]
+    requested = [batch_keys] if isinstance(batch_keys, str) else list(batch_keys)
+    keys = [k for k in requested if k in adata.obs and adata.obs[k].nunique() > 1]
+    dropped = {k: "absent" if k not in adata.obs else "single_level" for k in requested if k not in keys}
     if not keys:
         adata.obsm[output] = adata.obsm[basis].copy()
-        return
+        reason = "no batch key was given" if not requested else f"no batch key has two levels: {dropped}"
+        return {"status": "not_run", "keys": [], "dropped_keys": dropped, "reason": reason}
     nclust = int(min(round(adata.n_obs / 30.0), 100))
     nclust = max(nclust, 1)
     result = harmonypy.run_harmony(
@@ -342,6 +435,16 @@ def run_harmony2(
     if corrected.shape != adata.obsm[basis].shape:
         raise ValueError(f"Harmony 2.0 returned shape {corrected.shape}, expected {adata.obsm[basis].shape}.")
     adata.obsm[output] = corrected
+    # One k-means round count per Harmony iteration; the objective adds the initial value.
+    n_iter = len(result.kmeans_rounds)
+    return {
+        "status": "corrected", "keys": keys, "dropped_keys": dropped, "reason": None,
+        "package": f"harmonypy {version('harmonypy')} (CPU)",
+        "n_levels": {k: int(adata.obs[k].nunique()) for k in keys},
+        "nclust": nclust, "sigma": float(sigma), "max_iter_harmony": int(max_iter_harmony),
+        "n_iter": int(n_iter), "reached_max_iter": n_iter >= int(max_iter_harmony),
+        "objective_harmony": [float(value) for value in result.objective_harmony],
+    }
 
 def neighbors_umap(adata, use_rep: str, prefix: str, n_neighbors: int = 15, n_pcs: int | None = None, min_dist: float = 0.3, random_state: int = 0) -> None:
     import scanpy as sc
@@ -366,16 +469,30 @@ def _resolution_neighborhood(center: float, *, lower: float, upper: float, windo
     return _unique_sorted(value for value in values if lower <= value <= upper)
 
 
-def _choose_resolution(stability: pd.DataFrame, *, min_ari: float, min_clusters: int, max_clusters: int) -> float:
-    candidates = stability[
+# Among resolutions meeting the seed-ARI and cluster-count rule, take the
+# coarsest (the historical default) or the finest (B07).
+LEIDEN_SELECTION_POLICIES = ("coarsest_stable", "finest_stable")
+
+
+def _meets_selection_rule(stability: pd.DataFrame, *, min_ari: float, min_clusters: int, max_clusters: int) -> pd.Series:
+    return (
         (stability["median_ari"] >= min_ari)
         & (stability["n_clusters_seed0"] >= min_clusters)
         & (stability["n_clusters_seed0"] <= max_clusters)
-    ]
+    )
+
+
+def _choose_resolution(
+    stability: pd.DataFrame, *, min_ari: float, min_clusters: int, max_clusters: int, policy: str = "coarsest_stable"
+) -> tuple[float, bool]:
+    """Selected resolution, and whether any resolution met the rule (else the most stable one)."""
+    candidates = stability[_meets_selection_rule(stability, min_ari=min_ari, min_clusters=min_clusters,
+                                                 max_clusters=max_clusters)].sort_values("resolution")
     if len(candidates):
-        return float(candidates.sort_values(["resolution"]).iloc[0]["resolution"])
+        row = candidates.iloc[-1] if policy == "finest_stable" else candidates.iloc[0]
+        return float(row["resolution"]), True
     ranked = stability.sort_values(["median_ari", "n_clusters_seed0", "resolution"], ascending=[False, False, True])
-    return float(ranked.iloc[0]["resolution"])
+    return float(ranked.iloc[0]["resolution"]), False
 
 
 def leiden_search_options(cfg: Mapping[str, Any], run_root) -> dict[str, Any]:
@@ -402,17 +519,27 @@ def leiden_sweep(
     connectivities_key: str | None = None,
     cluster_key: str = "cluster_identity",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Seeded Leiden sweep; sets ``obs[cluster_key]`` from the resolution ``search_config["selection"]`` picks.
+
+    One labelling per swept resolution stays in ``obsm[f"{cluster_key}_sweep_labels"]``
+    so another resolution can be chosen explicitly, and the policy, rule and
+    candidate table are recorded in ``uns["leiden_selection"][cluster_key]``.
+    """
     import scanpy as sc
     from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
     cfg = dict(search_config or {})
     graph_key = connectivities_key or f"connectivities_{graph_prefix}"
     strategy = str(cfg.get("strategy", "coarse_to_fine"))
+    policy = str(cfg.get("selection", "coarsest_stable"))
+    if policy not in LEIDEN_SELECTION_POLICIES:
+        raise ValueError(f"core.leiden_search.selection must be one of {LEIDEN_SELECTION_POLICIES}, not {policy!r}")
     all_resolutions = _unique_sorted(resolutions)
     all_seeds = [int(seed) for seed in seeds]
     min_ari = float(cfg.get("min_seed_ari", 0.8))
     min_clusters = int(cfg.get("min_clusters", 1))
     max_clusters = int(cfg.get("max_clusters", 10**9))
+    rule = {"min_ari": min_ari, "min_clusters": min_clusters, "max_clusters": max_clusters}
 
     sweep_rows = []
     labels_by_res: dict[float, list[np.ndarray]] = {}
@@ -488,7 +615,7 @@ def leiden_sweep(
         coarse_seeds = [int(seed) for seed in cfg.get("coarse_seeds", all_seeds[:2] or [0])]
         run_jobs(coarse_resolutions, coarse_seeds, "coarse")
         coarse_stability = summarize()
-        center = _choose_resolution(coarse_stability, min_ari=min_ari, min_clusters=min_clusters, max_clusters=max_clusters)
+        center, _ = _choose_resolution(coarse_stability, **rule, policy=policy)
         refine_resolutions = _resolution_neighborhood(
             center,
             lower=min(all_resolutions),
@@ -505,16 +632,28 @@ def leiden_sweep(
     final_pool = stability[stability["n_seeds"] >= min(full_seed_count, max(1, len(all_seeds)))]
     if len(final_pool) == 0:
         final_pool = stability
-    chosen = _choose_resolution(final_pool, min_ari=min_ari, min_clusters=min_clusters, max_clusters=max_clusters)
-    chosen_key = f"_tmp_leiden_r{chosen}_s0"
-    if chosen_key not in adata.obs:
-        fallback_seed = seed_by_res[chosen][0]
-        chosen_key = f"_tmp_leiden_r{chosen}_s{fallback_seed}"
-    adata.obs[cluster_key] = adata.obs[chosen_key].astype("category")
-    # Clean tmp columns from obs; keep full sweep externally.
+    chosen, rule_satisfied = _choose_resolution(final_pool, **rule, policy=policy)
+    label_seed = {res: 0 if 0 in seed_list else seed_list[0] for res, seed_list in seed_by_res.items()}
+    adata.obs[cluster_key] = adata.obs[f"_tmp_leiden_r{chosen}_s{label_seed[chosen]}"].astype("category")
+    labels_key = f"{cluster_key}_sweep_labels"
+    adata.obsm[labels_key] = pd.DataFrame(
+        {f"r{res}": adata.obs[f"_tmp_leiden_r{res}_s{label_seed[res]}"].astype(str).astype("category")
+         for res in sorted(label_seed)},
+        index=adata.obs_names,
+    )
+    # Per-seed temporary columns leave obs; the sweep table keeps their sizes.
     for c in list(adata.obs.columns):
         if c.startswith("_tmp_leiden_"):
             del adata.obs[c]
     sweep = pd.DataFrame(sweep_rows)
+    eligible = final_pool.loc[_meets_selection_rule(final_pool, **rule), "resolution"]
+    stability["selection_policy"] = policy
+    stability["eligible"] = stability["resolution"].isin(eligible)
     stability["chosen"] = stability["resolution"] == chosen
+    adata.uns.setdefault("leiden_selection", {})[cluster_key] = {
+        "policy": policy, "chosen_resolution": chosen, "chosen_seed": int(label_seed[chosen]),
+        "rule_satisfied": bool(rule_satisfied), "min_seed_ari": min_ari, "min_clusters": min_clusters,
+        "max_clusters": max_clusters, "labels_obsm_key": labels_key,
+        "candidates_json": stability.sort_values("resolution").to_json(orient="records"),
+    }
     return sweep, stability

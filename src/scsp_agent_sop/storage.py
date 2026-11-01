@@ -46,16 +46,16 @@ def write_json(obj: Any, path: str | Path) -> Path:
     return path
 
 
-def write_h5ad_atomic(adata, path: str | Path) -> Path:
-    """A serialization failure must not overwrite a previously valid object."""
+def _write_atomic(path: str | Path, write, suffix: str) -> Path:
+    """A serialization failure must not overwrite a previously valid file."""
     from scoop.io import default_file_mode
 
     path = Path(path)
     ensure_dir(path.parent)
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".h5ad", dir=path.parent)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=suffix, dir=path.parent)
     os.close(fd)
     try:
-        adata.write_h5ad(temporary)
+        write(temporary)
         os.chmod(temporary, default_file_mode())
         os.replace(temporary, path)
     finally:
@@ -63,19 +63,28 @@ def write_h5ad_atomic(adata, path: str | Path) -> Path:
     return path
 
 
-def changed_obs_columns(before: pd.DataFrame, adata) -> list[str]:
-    """obs columns that a stage added or rewrote, relative to an earlier copy of obs."""
-    return [c for c in adata.obs.columns if c not in before or not adata.obs[c].equals(before[c])]
+def write_h5ad_atomic(adata, path: str | Path) -> Path:
+    return _write_atomic(path, adata.write_h5ad, ".h5ad")
 
 
-def write_obs_sidecar(adata, columns: Iterable[str], path: str | Path, *, key: str | None = None) -> Path:
+def _obs_names_sha256(obs_names) -> str:
+    return hashlib.sha256("\n".join(map(str, obs_names)).encode("utf-8")).hexdigest()
+
+
+def write_obs_sidecar(adata, columns: Iterable[str], path: str | Path, *, base: str | Path,
+                      key: str | None = None) -> Path:
     """Write obs_name plus ``columns`` to parquet instead of a full H5AD copy (DC1, C1-08, S032).
 
-    The table is registered under ``key`` (default: the file stem). A JSON
-    receipt beside it records the columns, the obs_name order hash and the
-    file registry that an H5AD copy would have carried in uns. Returns the
-    receipt path.
+    ``columns`` are the obs columns the stage declares as its output, whether or
+    not a value differs from ``base``, the H5AD or sidecar the stage read. The
+    table is registered under ``key`` (default: the file stem). A JSON receipt
+    beside it binds the table and its base by sha256 and records the obs_name
+    order and the file registry an H5AD copy would have carried in uns;
+    read_adata overlays the table onto that base. Both files are replaced
+    atomically. Returns the receipt path.
     """
+    from scoop.io import atomic_json
+
     path = Path(path)
     if path.suffix != ".parquet":
         raise ValueError(f"An obs sidecar is a .parquet file: {path}")
@@ -86,14 +95,55 @@ def write_obs_sidecar(adata, columns: Iterable[str], path: str | Path, *, key: s
         # parquet needs one type per column; committed label columns hold mixed objects
         if table[column].dtype == object:
             table[column] = table[column].astype("string")
-    write_table(table.reset_index(names="obs_name"), path)
-    obs_names_sha256 = hashlib.sha256("\n".join(map(str, adata.obs_names)).encode("utf-8")).hexdigest()
-    register_file(adata, key=key, path=path, schema="obs_sidecar.v1",
-                  extra={"columns": columns, "n_obs": int(adata.n_obs), "obs_names_sha256": obs_names_sha256})
+    table = table.reset_index(names="obs_name")
+    _write_atomic(path, lambda temporary: table.to_parquet(temporary, index=False), ".parquet")
+    base = Path(base).resolve()
+    register_file(adata, key=key, path=path, schema="obs_sidecar.v2",
+                  extra={"columns": columns, "n_obs": int(adata.n_obs),
+                         "base": {"path": str(base), "sha256": sha256_file(base),
+                                  "obs_names_sha256": _obs_names_sha256(adata.obs_names)}})
     registry = adata.uns["file_registry"]
-    receipt = {"schema_version": "scoop.obs_sidecar_receipt.v1", "sidecar": registry["tables"][key], "file_registry": registry}
+    receipt = {"schema_version": "scoop.obs_sidecar_receipt.v2", "sidecar": registry["tables"][key], "file_registry": registry}
     receipt = json.loads(json.dumps(receipt, default=lambda v: v.tolist() if hasattr(v, "tolist") else str(v)))
-    return write_json(receipt, path.with_suffix(".json"))
+    return atomic_json(path.with_suffix(".json"), receipt)
+
+
+def read_adata(path: str | Path):
+    """Read an H5AD, or an obs sidecar overlaid onto the base it was written against.
+
+    The overlay is the stage's obs and file registry on the base's matrices and
+    other slots. It refuses a sidecar whose table, base file or base obs_name
+    order differs from what its receipt recorded.
+    """
+    import anndata as ad
+    import numpy as np
+
+    path = Path(path)
+    if path.suffix != ".parquet":
+        return ad.read_h5ad(path)
+    receipt_path = path.with_suffix(".json")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    sidecar = receipt["sidecar"]
+    if "base" not in sidecar:
+        raise ValueError(f"{receipt_path} records no base input; rerun the stage that wrote {path.name}.")
+    if sha256_file(path) != sidecar["sha256"]:
+        raise ValueError(f"{path} differs from the table its receipt {receipt_path} records.")
+    base = sidecar["base"]
+    if sha256_file(base["path"]) != base["sha256"]:
+        raise ValueError(f"{base['path']} changed after the sidecar {path} was written against it; "
+                         "rerun the stage that wrote the sidecar.")
+    adata = read_adata(base["path"])
+    if _obs_names_sha256(adata.obs_names) != base["obs_names_sha256"]:
+        raise ValueError(f"{path} rows do not follow the observation order of its base {base['path']}.")
+    table = pd.read_parquet(path, columns=sidecar["columns"]).set_axis(adata.obs_names)
+    for column in sidecar["columns"]:
+        values = table[column]
+        if isinstance(values.dtype, pd.StringDtype):
+            # anndata does not write nullable string arrays; restore the object column
+            values = values.astype(object).where(values.notna(), np.nan)
+        adata.obs[column] = values
+    adata.uns["file_registry"] = receipt["file_registry"]
+    return adata
 
 
 def append_jsonl(obj: Mapping[str, Any], path: str | Path) -> Path:
@@ -165,18 +215,17 @@ def prune_h5ad(adata, schema: Mapping[str, Any]) -> None:
 
     This function is deliberately conservative: missing keys are ignored,
     existing allowed keys are retained, and everything else is removed from
-    obs/var/obsm/obsp/layers/uns.
+    obs/var/obsm/obsp/layers/uns. Only the schema names retained keys; uns
+    graph, UMAP/PCA and log1p descriptors follow their retained matrices.
     """
-    obs_keep = [c for c in flatten_keep_schema(schema, "obs_keep") if c in adata.obs]
-    obs_keep.extend(c for c in ("annotation_reviewed", "annotation_identity_scope", "broad_annotation_status", "fine_annotation_status") if c in adata.obs)
-    var_keep = [c for c in schema.get("var_keep", []) if c in adata.var]
+    obs_keep = set(flatten_keep_schema(schema, "obs_keep"))
+    var_keep = set(schema.get("var_keep", []))
     adata.obs.drop(columns=[c for c in adata.obs.columns if c not in obs_keep], inplace=True)
     adata.var.drop(columns=[c for c in adata.var.columns if c not in var_keep], inplace=True)
     prune_mapping(adata.layers, schema.get("layers_keep", []))
     prune_mapping(adata.obsm, schema.get("obsm_keep", []))
     prune_mapping(adata.obsp, schema.get("obsp_keep", []))
     uns_keep = set(schema.get("uns_keep", []))
-    uns_keep.update({"annotation_review", "delivery_scope"})
     # Graph descriptors are executable metadata. Keep descriptors whose matrices
     # survive; old Scanpy-prefixed graphs may have canonical SCOOP copies.
     for name, descriptor in adata.uns.items():

@@ -168,9 +168,50 @@ def test_mixed_backend_honors_explicit_no_batch_correction(monkeypatch, tmp_path
     cfg = _cfg()
     cfg["core"]["batch_correction"]["method"] = "none"
     monkeypatch.setattr(
-        "fastcore.backends.omicverse_common.run_harmony2",
+        "scsp_agent_sop.core.run_harmony2",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("Harmony must not run")),
     )
     result = run_omicverse_mixed_core(_adata(), cfg, tmp_path)
     assert result["batch_correction_method"] == "none"
     assert result["harmony2_used"] is False
+
+
+def _expected_log1p(adata: AnnData, target_sum: float = 1e4) -> np.ndarray:
+    counts = adata.layers["counts"].toarray()
+    return np.log1p(counts / counts.sum(1, keepdims=True) * target_sum)
+
+
+def test_oom_backend_output_carries_the_shared_log1p_norm(monkeypatch, tmp_path):
+    from anndata import read_h5ad
+    import json
+
+    source = _adata()
+    source.layers["log1p_norm"] = sparse.csr_matrix(np.full(source.shape, 7.0, dtype=np.float32))  # stale input layer
+    _install_fake_omicverse(monkeypatch, rust_input=source)
+    monkeypatch.setattr("scsp_agent_sop.core_runner.plan_fastcore_backend",
+                        lambda cfg, **kw: FastCorePlan("fastcore_oom", False, "scanpy_legacy", [], {}))
+    output = tmp_path / "adata_core.h5ad"
+    run_core_pipeline(None, _cfg(), tmp_path, input_path=tmp_path / "input.h5ad", output_path=output)
+    written = read_h5ad(output)
+    np.testing.assert_allclose(written.layers["log1p_norm"].toarray(), _expected_log1p(written), rtol=1e-5)
+    manifest = json.loads((tmp_path / "core/fastcore/fastcore_manifest.json").read_text())
+    assert manifest["log1p_norm"] == {"target_sum": 10000.0, "size_factor_key": None, "counts_layer": "counts",
+                                      "written_by": "core_runner"}
+
+
+def test_mixed_backend_through_the_runner_writes_log1p_norm_and_the_declared_batch(monkeypatch, tmp_path):
+    _install_fake_omicverse(monkeypatch)
+    monkeypatch.setattr("scsp_agent_sop.core_runner.plan_fastcore_backend",
+                        lambda cfg, **kw: FastCorePlan("fastcore_mixed", False, "scanpy_legacy", [], {}))
+    adata = _adata()
+    adata.obs["sample_id"] = ["s1", "s2"] * 5
+    adata.obs["dataset"] = ["d1"] * 5 + ["d2"] * 5
+    cfg = _cfg()
+    cfg["keys"]["batch_candidates"] = ["sample_id"]
+    cfg["run"]["obs_keys"] = {"batch": "dataset"}
+    result = run_core_pipeline(adata, cfg, tmp_path)
+    np.testing.assert_allclose(adata.layers["log1p_norm"].toarray(), _expected_log1p(adata), rtol=1e-5)
+    assert result["batch_correction"]["key_source"] == "run.obs_keys.batch"
+    assert result["batch_correction"]["requested_keys"] == ["dataset"]
+    assert result["batch_correction"]["status"] == "corrected" and result["batch_keys"] == ["dataset"]
+    assert result["batch_correction"]["n_iter"] >= 1 and result["batch_correction"]["objective_harmony"]

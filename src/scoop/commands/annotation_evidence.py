@@ -47,7 +47,10 @@ def main():
     adata = ad.read_h5ad(input_path)
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
 
-    groupby = args.cluster_key or deep_get(cfg, "annotation.decision.cluster_key", "cluster_identity")
+    decision_key = deep_get(cfg, "annotation.decision.cluster_key", "cluster_identity")
+    groupby = args.cluster_key or decision_key
+    # One DEG table per partition: a subclustering must not overwrite its parent's evidence.
+    marker_key = "cluster_markers" if groupby == decision_key else f"cluster_markers__{groupby}"
     method = deep_get(cfg, "annotation.default_marker_method", "wilcoxon")
     if method not in {"wilcoxon", "t-test", "t-test_overestim_var"}:
         raise ValueError("annotation.default_marker_method must supply gene-level statistical tests; COSG is an optional specificity table")
@@ -86,15 +89,11 @@ def main():
         register_file(adata, key="cluster_specificity_scores", path=path, schema="cluster_specificity_scores.v1", extra=scored)
         extra_outputs.append(str(path.resolve()))
         measurement_record["specificity"] = scored
-    marker_path = write_table(markers, run_root / "annotation" / "tables" / "cluster_markers.parquet")
-    group_column = next((name for name in ("group", "cluster", "cell_type") if name in markers.columns), None)
-    gene_column = next((name for name in ("names", "gene", "feature") if name in markers.columns), None)
-    if group_column and gene_column:
-        for cluster_id, frame in markers.groupby(group_column, observed=True):
-            adata.uns[f"top_markers_{cluster_id}"] = frame[gene_column].dropna().astype(str).head(100).tolist()
+    # The evidence bundle reads per-unit markers from this label-keyed table.
+    marker_path = write_table(markers, run_root / "annotation" / "tables" / f"{marker_key}.parquet")
     evidence = build_annotation_evidence_template(adata, cluster_key=groupby)
     evidence_path = write_table(evidence, run_root / "annotation" / "tables" / "annotation_evidence_template.tsv")
-    register_file(adata, key="cluster_markers", path=marker_path, schema="cluster_markers.v1", extra={"label_key": groupby})
+    register_file(adata, key=marker_key, path=marker_path, schema="cluster_markers.v1", extra={"label_key": groupby})
     register_file(adata, key="annotation_evidence_template", path=evidence_path, schema="annotation_evidence.v1")
 
     ensure_dir(output.parent)

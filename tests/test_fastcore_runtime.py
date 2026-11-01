@@ -97,3 +97,30 @@ def test_planner_reads_h5ad_size_and_does_not_treat_a_path_as_backed(tmp_path):
     assert plan_fastcore_backend(declared, input_path=path, capabilities=caps).selected_backend == "fastcore_oom"
     large = {"core": {"fastcore": {"auto": {"rust_oom_min_cells": 4}}}}
     assert plan_fastcore_backend(large, input_path=path, capabilities=caps).selected_backend == "fastcore_oom"
+
+
+def test_planner_sizes_an_h5ad_from_obs_and_the_counts_layer_without_x(tmp_path):
+    import pandas as pd
+    from scipy import sparse
+
+    path = tmp_path / "layers_only.h5ad"
+    adata = AnnData(obs=pd.DataFrame(index=[f"c{i}" for i in range(5)]), var=pd.DataFrame(index=list("abc")))
+    adata.layers["counts"] = sparse.csr_matrix(np.ones((5, 3), np.float32))  # nnz 15; X is absent
+    adata.write_h5ad(path)
+    caps = FastCoreCapabilities(
+        omicverse_available=True,
+        torch_available=False,
+        cuda_available=False,
+        anndataoom_available=True,
+        rust_backend_available=True,
+        vendored_omicverse_available=True,
+        reasons=[],
+    )
+    auto = {"rust_oom_min_cells": 10**6, "rust_oom_min_nnz": 15}
+    assert plan_fastcore_backend({"core": {"fastcore": {"auto": auto}}}, input_path=path,
+                                 capabilities=caps).selected_backend == "fastcore_oom"
+    auto["rust_oom_min_nnz"] = 16
+    assert plan_fastcore_backend({"core": {"fastcore": {"auto": auto}}}, input_path=path,
+                                 capabilities=caps).selected_backend == "fastcore_cpu"
+    assert plan_fastcore_backend({"core": {"fastcore": {"auto": {"rust_oom_min_cells": 5}}}}, input_path=path,
+                                 capabilities=caps).selected_backend == "fastcore_oom"

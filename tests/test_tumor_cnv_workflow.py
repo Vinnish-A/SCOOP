@@ -28,6 +28,7 @@ def test_prepare_tumor_fastcnv_reference_marks_normal_pools() -> None:
         parenchymal_lineages=("Epithelial",),
         normal_status_key="tumor_status",
         min_reference_cells=2,
+        min_reference_cells_per_sample=2,
     )
 
     assert plan.should_run_fastcnv
@@ -187,3 +188,101 @@ def test_cnv_receipt_records_declared_measurement(tmp_path, monkeypatch):
     assert str((tmp_path / "fm.npz").resolve()) in receipt["inputs"]
     assert str(Path(recorded["excluded_genes_table"]).resolve()) in receipt["outputs"]
     assert any("positioned genes were excluded" in item for item in receipt["limitations"])
+
+
+def _few_reference_object():
+    obs = pd.DataFrame({"sample_id": ["s1"] * 12 + ["s2"] * 6,
+                        "cell_type_lvl1": ["T"] * 8 + ["Epithelial"] * 4 + ["T"] * 2 + ["Epithelial"] * 4,
+                        "annotation_confidence": ["high"] * 18}, index=[f"c{i}" for i in range(18)])
+    return ad.AnnData(np.ones((18, 3)), obs=obs, var=pd.DataFrame(index=["G1", "G2", "G3"]))
+
+
+def test_one_reference_minimum_makes_the_q75_opt_in_reachable():
+    plan = prepare_tumor_fastcnv_reference(_few_reference_object())
+    assert not plan.should_run_fastcnv and "below tumor_fastcnv.min_reference_cells=20" in plan.reason
+    plan = prepare_tumor_fastcnv_reference(_few_reference_object(), all_cells_q75_fallback=True)
+    assert plan.should_run_fastcnv and "all-cells q75" in plan.reason
+    assert plan.reference_cells_by_sample == {"s1": 8} and plan.samples_without_reference == ["s2"]
+    plan = prepare_tumor_fastcnv_reference(_few_reference_object(), all_cells_q75_fallback=True,
+                                           min_reference_cells_per_sample=9)
+    assert not plan.should_run_fastcnv and "no sample has 9 reference cells" in plan.reason
+
+
+def test_reference_threshold_counts_only_scored_reference_cells():
+    from scsp_agent_sop.tumor_cnv import attach_tumor_fastcnv_evidence
+    obj = ad.AnnData(np.ones((30, 2)), obs=pd.DataFrame(
+        {"pool": ["normal_nonparenchymal"] * 25 + ["candidate_tumor_or_mixed"] * 5}, index=[f"c{i}" for i in range(30)]))
+    values = np.r_[np.full(10, np.nan), np.linspace(0.01, 0.02, 15), [0.1, 0.2, 0.3, 0.4, 0.5]]
+    attach_tumor_fastcnv_evidence(obj, _fraction_result(obj, values), reference_key="pool")
+    assert obj.obs.fastcnv_threshold_source.eq("unassessed_insufficient_reference").all()  # 15 scored < 20
+    attach_tumor_fastcnv_evidence(obj, _fraction_result(obj, values), reference_key="pool", min_reference_cells=15)
+    assert obj.obs.fastcnv_threshold_source.eq("reference_q99_mad").all()
+
+
+def test_samples_without_their_own_reference_are_flagged(tmp_path, monkeypatch):
+    import scsp_agent_sop.tumor_cnv as workflow
+    seen = {}
+    monkeypatch.setattr(workflow, "run_fastcnv_pooled_anndata", lambda adata, genes, **kw: seen.update(kw) or {})
+    monkeypatch.setattr(workflow, "write_pooled_outputs", lambda **kw: None)
+    monkeypatch.setattr(workflow, "attach_tumor_fastcnv_evidence", lambda *a, **kw: None)
+    obj = _few_reference_object()
+    _, plan = run_tumor_fastcnv_workflow(obj, pd.DataFrame({"hgnc_symbol": ["G1"]}), output_dir=tmp_path,
+                                         min_reference_cells=10)
+    assert plan.should_run_fastcnv and seen["min_reference_cells_per_sample"] == 5
+    assert plan.samples_without_reference == ["s2"]
+    np.testing.assert_array_equal(obj.obs.fastcnv_sample_has_reference, obj.obs.sample_id.eq("s1"))
+
+
+def test_a_reference_mask_alone_decides_reference_lineages():
+    obj = ad.AnnData(np.ones((4, 2)), obs=pd.DataFrame({
+        "sample_id": ["s"] * 4,
+        "cell_type_lvl1": ["Oligodendrocyte", "Myeloid", "Glioneural", "Oligodendrocyte"],
+        "reviewed_reference": [True, True, False, False],
+    }, index=[f"c{i}" for i in range(4)]))
+    plan = prepare_tumor_fastcnv_reference(obj, parenchymal_lineages=("Glioneural",),
+                                           reference_eligible_key="reviewed_reference", min_reference_cells=1)
+    assert plan.lineage_vocabulary == "not_applied_reference_eligible_key" and plan.dropped_reference_by_lineage == {}
+    assert obj.obs.fastcnv_reference_pool.eq("normal_nonparenchymal").tolist() == [True, True, False, False]
+    plan = prepare_tumor_fastcnv_reference(obj, parenchymal_lineages=("Glioneural",), nonparenchymal_lineages={"Myeloid"},
+                                           reference_eligible_key="reviewed_reference", min_reference_cells=1)
+    assert plan.lineage_vocabulary == "explicit" and plan.dropped_reference_by_lineage == {"Oligodendrocyte": 1}
+
+
+def test_engine_config_maps_onto_fastcnv_and_is_logged(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    import pytest
+    import yaml
+    import scsp_agent_sop.tumor_cnv as workflow
+    from scoop.commands import tumor_cnv as command
+
+    seen = {}
+
+    def fake_cnv(adata, gene_metadata, **kw):
+        seen.update(kw)
+        adata.obs["fastcnv_threshold_source"] = "reference_q99_mad"
+        return {}
+
+    monkeypatch.setattr(workflow, "run_fastcnv_pooled_anndata", fake_cnv)
+    monkeypatch.setattr(workflow, "write_pooled_outputs", lambda **kw: None)
+    monkeypatch.setattr(workflow, "attach_tumor_fastcnv_evidence", lambda *a, **kw: None)
+    obj, genes, _ = _measured_cnv_object()
+    obj.write_h5ad(tmp_path / "in.h5ad")
+    genes.to_csv(tmp_path / "genes.tsv", sep="\t", index=False)
+    run_root = tmp_path / "runs/r1"; (run_root / "config").mkdir(parents=True)
+    config = run_root / "config/run.yaml"
+    argv = ["scoop tumor-cnv", "--config", str(config), "--input", str(tmp_path / "in.h5ad"),
+            "--output", str(tmp_path / "out.h5ad"), "--gene-metadata", str(tmp_path / "genes.tsv")]
+    config.write_text(yaml.safe_dump({"tumor_fastcnv": {"parenchymal_lineages": "Epithelial",
+                                                        "engine": {"window_size": 50, "top_n_genes": 500}}}))
+    monkeypatch.setattr(sys, "argv", argv)
+    receipt = command.main()
+    assert seen["config"].window_size == 50 and seen["config"].top_n_genes == 500
+    assert receipt["engine_config"]["window_size"] == 50 and receipt["engine_config"]["window_step"] == 10
+    decision = json.loads((run_root / "logs/decision_log.jsonl").read_text().splitlines()[-1])
+    assert decision["parameters"]["engine_config"]["top_n_genes"] == 500
+    assert (tmp_path / "out.h5ad").is_file() and not list(tmp_path.glob(".out-*.h5ad"))
+    config.write_text(yaml.safe_dump({"tumor_fastcnv": {"engine": {"window": 50}}}))
+    with pytest.raises(TypeError, match="window"):
+        command.main()

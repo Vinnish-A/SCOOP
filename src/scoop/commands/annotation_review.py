@@ -10,23 +10,21 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import anndata as ad
 import pandas as pd
 
 from scsp_agent_sop.annotation_decision.decision_schema import AnnotationDecision
 from scsp_agent_sop.annotation_decision.evidence_bundle import build_evidence_bundle, bound_evidence_files
 from scsp_agent_sop.config import ObsKeys, deep_get, read_yaml, resolve_obs_keys, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
-from scsp_agent_sop.storage import ensure_dir, sha256_file, write_json
+from scsp_agent_sop.storage import ensure_dir, read_adata, sha256_file, write_json
 
 from scoop.results import archive_receipt
+from scoop.workflow import declared_object
 
 
-def _default_input(run_root: Path) -> Path:
-    tumor_path = run_root / "artifacts" / "adata_tumor_fastcnv.h5ad"
-    if tumor_path.exists():
-        return tumor_path
-    return run_root / "artifacts" / "adata_annotation_evidence.h5ad"
+def default_input(run_root: Path, cfg: dict) -> Path:
+    """The object tumor-cnv last declared (its H5AD or obs sidecar), else the evidence H5AD."""
+    return declared_object(run_root, "tumor-cnv", cfg) or run_root / "artifacts" / "adata_annotation_evidence.h5ad"
 
 
 def composition_keys(cfg: dict, obs) -> ObsKeys:
@@ -67,7 +65,7 @@ def main() -> dict:
 
     cfg = read_yaml(args.config)
     run_root = resolve_run_root(args.config, cfg)
-    input_path = Path(args.input) if args.input else _default_input(run_root)
+    input_path = Path(args.input) if args.input else default_input(run_root, cfg)
     output_dir = (
         Path(args.output_dir)
         if args.output_dir
@@ -75,7 +73,7 @@ def main() -> dict:
     )
     cluster_key = args.cluster_key or deep_get(cfg, "annotation.decision.cluster_key", "cluster_identity")
 
-    adata = ad.read_h5ad(input_path)
+    adata = read_adata(input_path)
     if args.cluster_table:
         join_cluster_table(adata, Path(args.cluster_table), cluster_key)
     disease_context = deep_get(cfg, "run.disease_context", None)

@@ -9,9 +9,13 @@ Inputs:
   - layers[counts]
   - obs[sample_id]
 
+QC-owned obs columns already in the input (qc_*, doublet_*, pct_counts_*,
+log10_*, total_counts, final_use, ...) are renamed to prior_* first; the new
+final_use is ANDed with prior_final_use, so QC never re-admits a cell.
+
 Outputs:
-  - artifacts/adata_qc.h5ad, or with --output-format obs-parquet only the new or
-    changed obs columns at --output plus a <stem>.json receipt (var gene flags and
+  - artifacts/adata_qc.h5ad, or with --output-format obs-parquet only the QC obs
+    columns (with any prior_* they displaced) at --output plus a <stem>.json receipt (var gene flags and
     uns are not written)
   - qc/tables/qc_thresholds_by_sample.tsv
   - qc/tables/scrublet_summary_by_sample.tsv
@@ -26,7 +30,7 @@ from pathlib import Path
 import anndata as ad
 
 from scsp_agent_sop.assays import assay_profile, spatial_qc
-from scsp_agent_sop.config import deep_get, project_root_from_run_root, read_yaml, resolve_run_root
+from scsp_agent_sop.config import deep_get, project_root_from_run_root, read_yaml, resolve_obs_keys, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
 from scsp_agent_sop.measurement import FeatureMeasurement, feature_measurement_path
 from scsp_agent_sop.qc import (
@@ -35,10 +39,12 @@ from scsp_agent_sop.qc import (
     assign_qc_flags_per_sample,
     compute_basic_qc,
     inherit_qc,
+    is_qc_owned,
+    retire_prior_qc,
     run_scrublet_per_sample,
 )
-from scsp_agent_sop.storage import (changed_obs_columns, write_h5ad_atomic, ensure_dir, init_file_registry, register_file,
-                                    write_obs_sidecar, write_table)
+from scsp_agent_sop.storage import (write_h5ad_atomic, ensure_dir, init_file_registry, register_file, write_obs_sidecar,
+                                    write_table)
 
 
 def main() -> None:
@@ -48,7 +54,8 @@ def main() -> None:
     ap.add_argument("--output", default=None)
     ap.add_argument("--inherit-from", help="Parent QC H5AD; verify exact retained-cell counts and inherit decisions")
     ap.add_argument("--output-format", choices=["h5ad", "obs-parquet"], default="h5ad",
-                    help="obs-parquet writes only the new or changed obs columns keyed by obs_name, plus a JSON receipt")
+                    help="obs-parquet writes only the QC obs columns (and any prior_* they displaced) keyed by obs_name, "
+                         "plus a JSON receipt")
     args = ap.parse_args()
     if args.output_format == "obs-parquet" and not args.output:
         # the managed stage receipt checks the --output path
@@ -62,17 +69,19 @@ def main() -> None:
     output = Path(args.output) if args.output else run_root / "artifacts" / "adata_qc.h5ad"
     adata = ad.read_h5ad(input_path)
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
-    input_obs = adata.obs.copy() if args.output_format == "obs-parquet" else None
 
     def write_output() -> None:
         ensure_dir(output.parent)
-        if input_obs is None:
+        if args.output_format == "h5ad":
             write_h5ad_atomic(adata, output)
         else:
-            write_obs_sidecar(adata, changed_obs_columns(input_obs, adata), output, key="qc_obs")
+            # The QC-owned columns, plus the prior_* columns they displaced.
+            columns = [c for c in adata.obs.columns if is_qc_owned(c.removeprefix("prior_"))]
+            write_obs_sidecar(adata, columns, output, base=input_path, key="qc_obs")
 
     organism = deep_get(cfg, "run.organism", "human")
-    sample_key = deep_get(cfg, "keys.sample", "sample_id")
+    obs_keys = resolve_obs_keys(cfg, adata.obs, required=("sample",))
+    sample_key = obs_keys.sample
     counts_layer = deep_get(cfg, "qc.counts_layer", "counts")
     if args.inherit_from:
         provenance = inherit_qc(adata, Path(args.inherit_from), counts_layer=counts_layer, sample_key=sample_key)
@@ -81,9 +90,21 @@ def main() -> None:
                      parameters=provenance, evidence={"output_h5ad": str(output)})
         return
     annotate_gene_flags(adata, organism=organism, symbol_key=deep_get(cfg, "qc.symbol_key"))
+    # S026: keep what earlier steps decided instead of overwriting it.
+    prior = retire_prior_qc(adata)
+
+    def keep_prior_exclusions() -> int:
+        if "final_use" not in prior:
+            return 0
+        kept = adata.obs["prior_final_use"].to_numpy(bool)
+        adata.obs["final_use"] = adata.obs["final_use"].to_numpy(bool) & kept
+        return int((~kept).sum())
+
+    prior_record = {"prior_qc_columns": prior}
     assay = assay_profile(cfg)
     if assay != "scrna":
         thresholds = spatial_qc(adata, cfg)
+        prior_record["prior_excluded_cells"] = keep_prior_exclusions()
         qc_path = write_table(thresholds, run_root / "qc" / "tables" / "qc_thresholds_by_sample.tsv")
         register_file(adata, key="qc_thresholds_by_sample", path=qc_path, schema="spatial_qc_thresholds.v1")
         fov_key = deep_get(cfg, "qc.spatial.fov_key", "fov")
@@ -107,8 +128,9 @@ def main() -> None:
             module="qc",
             decision="spatial_qc_complete",
             reason="Explicit spatial thresholds; no droplet Scrublet or mitochondrial exclusion.",
-            parameters={"assay": assay, "counts_layer": counts_layer, "sample_key": sample_key},
-            evidence={"n_obs": int(adata.n_obs), "retained": int(adata.obs.final_use.sum())},
+            parameters={"assay": assay, "counts_layer": counts_layer, "sample_key": sample_key,
+                        "obs_keys": obs_keys.record()},
+            evidence={"n_obs": int(adata.n_obs), "retained": int(adata.obs.final_use.sum()), **prior_record},
             human_review_required=bool((thresholds.excluded_fraction > 0.30).any()),
             review_reason="Spatial exclusion exceeds 30%; inspect tissue/FOV and cell-type bias."
             if (thresholds.excluded_fraction > 0.30).any()
@@ -152,6 +174,7 @@ def main() -> None:
     )
     register_file(adata, key="scrublet_scores", path=score_path, schema="scrublet_scores.v1")
 
+    prior_record["prior_excluded_cells"] = keep_prior_exclusions()
     write_output()
     log_decision(
         run_root,
@@ -161,6 +184,7 @@ def main() -> None:
         parameters={
             "counts_layer": counts_layer,
             "sample_key": sample_key,
+            "obs_keys": obs_keys.record(),
             "symbol_key": deep_get(cfg, "qc.symbol_key"),
             "measurement": str(measurement_path) if measurement_path else "not_declared",
         },
@@ -168,6 +192,8 @@ def main() -> None:
             "n_obs": int(adata.n_obs),
             "qc_fail_fraction": float((adata.obs["qc_class"] == "fail").mean()),
             "unassessed_cells": {m: int(adata.obs[f"{m}_unassessed"].sum()) for m in ("mt", "ribo", "hb")},
+            "retained": int(adata.obs.final_use.sum()),
+            **prior_record,
         },
         human_review_required=bool((thresholds["fail_fraction"] > 0.30).any()),
         review_reason="At least one sample has QC fail fraction > 30%"

@@ -127,3 +127,22 @@ def test_rescoring_replaces_cell_cycle_columns():
     score_programs(a)
     assert list(a.obs.columns).count("cell_cycle_s_score") == 1
     assert list(a.obs.columns).count("cell_cycle_g2m_score") == 1
+
+
+def test_size_factor_key_normalises_a_gene_subset_by_full_library_size():
+    import pytest
+
+    full = _rna()
+    full.obs["total_counts"] = np.asarray(full.layers["counts"].sum(axis=1)).ravel()
+    subset = full[:, :30].copy()
+    normalize_log1p(subset, size_factor_key="total_counts")
+    counts = subset.layers["counts"].toarray()
+    expected = np.log1p(counts / full.obs.total_counts.to_numpy()[:, None] * 1e4)
+    np.testing.assert_allclose(subset.layers["log1p_norm"].toarray(), expected, rtol=1e-6)
+    normalize_log1p(full, size_factor_key="total_counts")
+    plain = _rna()
+    normalize_log1p(plain)
+    np.testing.assert_allclose(full.layers["log1p_norm"].toarray(), plain.layers["log1p_norm"].toarray(), rtol=1e-6)
+    subset.obs["log10_total"] = np.log10(subset.obs.total_counts)
+    with pytest.raises(ValueError, match="no smaller than"):
+        normalize_log1p(subset, size_factor_key="log10_total")

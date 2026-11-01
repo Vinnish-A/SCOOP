@@ -1,21 +1,38 @@
 """Hash-bound results with separate execution, validation and interpretation."""
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping
 
-from .io import atomic_json, sha256_file
+from scsp_agent_sop.config import read_yaml
+
+from .io import atomic_json, atomic_text, sha256_file
 
 RESULT_SCHEMA = "scoop.result.v1"
 ASSESSMENT_STATES = {"passed", "failed", "limited", "not_assessed", "not_applicable"}
 
 
 def archive_receipt(path: Path) -> None:
+    # A byte copy, so an archived evidence bundle keeps the sha256 its decisions cite.
     if path.is_file():
         target = path.parent / "history" / path.stem / f"{time.time_ns()}.json"
-        atomic_json(target, json.loads(path.read_text(encoding="utf-8")))
+        atomic_text(target, path.read_text(encoding="utf-8"))
+
+
+def config_sections_sha256(config: Mapping[str, Any], sections: Iterable[str]) -> str:
+    """Hash of the run.yaml sections a stage reads; edits to other sections leave it unchanged."""
+    payload = {name: config.get(name) for name in sections}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
+
+
+def _changed(path: Path, record: dict) -> bool:
+    if "config_sections" in record:
+        # A configuration binds the sections its stage reads; the whole-file sha256 is provenance.
+        return config_sections_sha256(read_yaml(path), record["config_sections"]) != record["config_sections_sha256"]
+    return sha256_file(path) != record["sha256"]
 
 
 def _files(values: list, base: Path) -> list[dict[str, Any]]:
@@ -76,7 +93,7 @@ def register_result(run_root: Path, manifest: Path) -> Path:
         raise ValueError("stage must be a lowercase stage identifier")
     result = result_payload(payload, base=manifest.parent, route="project_adapter")
     result["source_manifest"] = {"path": str(manifest), "sha256": sha256_file(manifest)}
-    result["status"] = "failed" if result["execution"]["status"] == "failed" else "executed"
+    result["status"] = {"failed": "failed", "not_run": "skipped"}.get(result["execution"]["status"], "executed")
     target = run_root / "state/stages" / f"{stage}.json"
     archive_receipt(target)
     return atomic_json(target, result)
@@ -116,7 +133,7 @@ def inspect_run(run_root: Path, *, verify: bool = False) -> dict[str, Any]:
                 issues.append({"path": str(artifact), "problem": "missing"})
             elif not record.get("sha256"):
                 unbound.append(str(artifact))
-            elif verify and sha256_file(artifact) != record["sha256"]:
+            elif verify and _changed(artifact, record):
                 issues.append({"path": str(artifact), "problem": "changed"})
         if issues:
             integrity = "stale_or_missing"
@@ -124,7 +141,8 @@ def inspect_run(run_root: Path, *, verify: bool = False) -> dict[str, Any]:
             integrity = "not_fully_bound"
         else:
             integrity = "verified" if verify else "not_verified"
-        stages.append({"stage": receipt.get("stage", path.stem), "route": receipt.get("route", "legacy_managed"),
+        # The receipt name, which can scope a stage (spatial-<output_label>).
+        stages.append({"stage": path.stem, "route": receipt.get("route", "legacy_managed"),
                        **_assessment(receipt), "integrity": integrity,
                        "artifact_issues": issues, "unbound_artifacts": unbound, "receipt": str(path)})
     return {"schema_version": "scoop.run-status.v1", "run_root": str(run_root.resolve()),

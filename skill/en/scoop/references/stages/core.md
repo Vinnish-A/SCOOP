@@ -22,7 +22,7 @@ Default tools:
 - Scanpy normalize_total + log1p.
 - Scanpy Seurat v3 HVG.
 - PCA.
-- Torch Harmony on identity PCA.
+- Harmony on the identity PCA: harmonypy 2.x on CPU (`harmonypy.run_harmony`), not Torch Harmony.
 - Scanpy kNN/UMAP and a concurrent NetworKit Leiden resolution/seed sweep.
 
 H5AD writes:
@@ -33,10 +33,38 @@ H5AD writes:
 - `obsm["X_umap_identity"]` and `obsm["X_umap_biology"]`.
 - `obs["cluster_identity"]`.
 
-`scanpy_legacy` and `fastcore_cpu` write `log1p_norm` as plain normalize_total at
-`core.normalize_total_target_sum` (default 10000) then log1p; the `fastcore_cpu`
-shiftlog matrix (`core.fastcore.omicverse.target_sum`) stays internal to HVG
-scaling and PCA.
+Every RNA backend delivers `log1p_norm` as plain normalize_total at
+`core.normalize_total_target_sum` (default 10000) then log1p: `scanpy_legacy` and
+`fastcore_cpu` write it themselves, and the core runner writes it after
+`fastcore_mixed`/`fastcore_oom` (replacing any input layer of that name), so
+`scoop programs` can read it whichever backend the planner picks (S007). The
+OmicVerse/`fastcore_cpu` shiftlog matrix (`core.fastcore.omicverse.target_sum`)
+stays internal to HVG scaling and PCA. The library size is the counts-layer row
+sum unless `core.size_factor_key` names an obs column of per-cell totals (for
+example full-gene `total_counts` when the matrix holds a gene subset, S044); a
+column smaller than the row sums is refused. `fastcore_manifest.json` records
+`log1p_norm` (target sum, size-factor key, writer). Before reporting success the
+runner checks the output contract below plus the counts layer and fails naming
+anything missing.
+
+The planner sizes an unloaded H5AD from the obs index and the nnz of
+`qc.counts_layer` (else X), so a file with counts only in layers plans normally.
+
+Core Harmony batch rule: a declared `run.obs_keys.batch` is the one key Harmony
+corrects for. Without it the pre-R10 rule remains: every present
+`keys.batch_candidates` column (default the sample key), recorded with source
+`keys.batch_candidates` because it is a guess, not a declared batch. Keys with one
+level are dropped. `fastcore_manifest.json` `batch_correction` records method,
+key source, requested and used keys, dropped keys and the reason when none were
+used, plus harmonypy's version, iterations (`n_iter`, `reached_max_iter`) and
+objective trace (S046). `status` is `corrected`, `not_run` (no two-level key),
+`not_requested` (`method: none`) or `fallback_uncorrected`: harmonypy did not
+import, `X_pca_harmony_identity` is the uncorrected PCA, and the stage requests
+review. `harmony2_used` is true only for `corrected`.
+
+All backends honour `core.neighbors_n_pcs` (OmicVerse backends also read
+`core.fastcore.omicverse.neighbors.n_pcs`); unset, `scanpy_legacy` and
+`fastcore_cpu` use every component.
 
 With a registered [feature measurement](../docs/data-boundaries.md#observability-positive-evidence-and-input-versions),
 `scanpy_legacy` and `fastcore_cpu` rank each HVG batch only on genes all its
@@ -56,11 +84,20 @@ Sidecar outputs:
 - `tables/hvg_biology.parquet`.
 - `tables/hvg_identity.parquet`.
 - `tables/leiden_sweep.parquet`.
-- `tables/cluster_stability.parquet`.
+- `tables/cluster_stability.parquet` (with `selection_policy`, `eligible`, `chosen`).
+
+Leiden auto-selection takes, among resolutions whose median seed ARI and cluster
+count pass `core.leiden_search.{min_seed_ari,min_clusters,max_clusters}`, the
+coarsest (`core.leiden_search.selection: coarsest_stable`, default) or the finest
+(`finest_stable`, B07); coarse-to-fine refines around that choice. The policy,
+rule, chosen resolution/seed and candidate table are in `fastcore_manifest.json`
+`clustering` and `uns["leiden_selection"]["cluster_identity"]`.
+`obsm["cluster_identity_sweep_labels"]` keeps one labelling per swept resolution
+(seed 0 where it ran) so a reviewed resolution can be chosen explicitly instead.
 
 Review triggers:
 
-- Harmony unavailable or over-corrects markers.
+- Harmony unavailable (`batch_correction.status: fallback_uncorrected`) or over-corrects markers.
 - Selected clustering is unstable across seeds.
 - Clusters are dominated by ribosomal/stress/cell-cycle markers.
 

@@ -31,6 +31,14 @@ def test_registered_result_detects_changed_input_and_preserves_previous_receipt(
     assert len(list((tmp_path / "state/stages/history/spatial").glob("*.json"))) == 1
 
 
+def test_registered_not_run_result_is_skipped_not_executed(tmp_path):
+    manifest = _manifest(tmp_path)
+    payload = json.loads(manifest.read_text())
+    manifest.write_text(json.dumps({**payload, "outputs": [], "execution": {"status": "not_run", "reason": "no reference"}}))
+    receipt = json.loads(register_result(tmp_path, manifest).read_text())
+    assert receipt["status"] == "skipped" and receipt["execution"]["reason"] == "no reference"
+
+
 def test_passed_validation_requires_bound_inputs_and_actual_checks(tmp_path):
     with pytest.raises(ValueError, match="passed checks"):
         result_payload({"validation": {"status": "passed"}}, base=tmp_path, route="managed")

@@ -38,9 +38,10 @@ def resolve_run_root(config_path: str | Path, config: Mapping[str, Any]) -> Path
 
 
 def project_root_from_run_root(run_root: Path) -> Path:
+    """runs/<run_id> sits in its project; any other run root is its own project root."""
     if run_root.parent.name == "runs":
         return run_root.parent.parent
-    return Path.cwd()
+    return run_root
 
 
 OBS_KEY_ROLES = ("sample", "donor", "batch", "study")

@@ -11,25 +11,77 @@ import yaml
 from anndata import AnnData, read_h5ad
 from scipy import sparse
 
-from scsp_agent_sop.storage import changed_obs_columns, init_file_registry, write_obs_sidecar
+from scsp_agent_sop.storage import init_file_registry, read_adata, sha256_file, write_obs_sidecar
 
 
-def test_obs_sidecar_writes_only_named_columns_and_a_receipt(tmp_path):
-    adata = AnnData(np.ones((3, 2)), obs=pd.DataFrame({"sample_id": ["a", "a", "b"]}, index=["c0", "c1", "c2"]))
+def test_obs_sidecar_carries_declared_columns_and_overlays_only_onto_its_base(tmp_path):
+    base = tmp_path / "base.h5ad"
+    adata = AnnData(np.ones((3, 2)), obs=pd.DataFrame({"sample_id": ["a", "a", "b"], "final_use": [True, True, False]},
+                                                      index=["c0", "c1", "c2"]))
+    adata.write_h5ad(base)
     init_file_registry(adata, "r1")
     before = adata.obs.copy()
-    adata.obs["sample_id"] = ["a", "a", "b"]
+    adata.obs["final_use"] = [True, True, False]  # recomputed to its input value, still a declared output
     adata.obs["label"] = np.array(["T", None, 3], dtype=object)
     adata.obs["score"] = [0.1, 0.2, 0.3]
-    assert changed_obs_columns(before, adata) == ["label", "score"]
-    receipt = write_obs_sidecar(adata, ["label", "score"], tmp_path / "obs.parquet")
+    receipt = write_obs_sidecar(adata, ["final_use", "label", "score"], tmp_path / "obs.parquet", base=base)
     table = pd.read_parquet(tmp_path / "obs.parquet")
-    assert list(table.columns) == ["obs_name", "label", "score"] and table.obs_name.tolist() == ["c0", "c1", "c2"]
+    assert list(table.columns) == ["obs_name", "final_use", "label", "score"] and table.obs_name.tolist() == ["c0", "c1", "c2"]
     record = json.loads(receipt.read_text())
-    assert record["sidecar"]["columns"] == ["label", "score"] and record["sidecar"]["n_obs"] == 3
+    assert record["sidecar"]["columns"] == ["final_use", "label", "score"] and record["sidecar"]["n_obs"] == 3
+    assert record["sidecar"]["base"]["path"] == str(base.resolve()) and record["sidecar"]["base"]["sha256"] == sha256_file(base)
     assert record["file_registry"]["tables"]["obs"]["sha256"] == record["sidecar"]["sha256"]
+    overlaid = read_adata(tmp_path / "obs.parquet")
+    assert overlaid.obs.sample_id.tolist() == ["a", "a", "b"] and overlaid.obs.final_use.tolist() == [True, True, False]
+    assert overlaid.obs.label.tolist()[0] == "T" and overlaid.uns["file_registry"]["tables"]["obs"]["columns"]
+    overlaid.write_h5ad(tmp_path / "overlaid.h5ad")  # restored label columns stay writable
     with pytest.raises(ValueError, match="parquet"):
-        write_obs_sidecar(adata, ["label"], tmp_path / "obs.h5ad")
+        write_obs_sidecar(adata, ["label"], tmp_path / "obs.h5ad", base=base)
+    AnnData(np.zeros((3, 2)), obs=before).write_h5ad(base)  # a later run replaces the base
+    with pytest.raises(ValueError, match="changed after"):
+        read_adata(tmp_path / "obs.parquet")
+
+
+def test_review_and_commit_read_the_sidecar_tumor_cnv_declared_not_an_older_h5ad(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from scoop.commands import annotation_commit, annotation_review
+    from scoop.workflow import run_command_module
+
+    obs = pd.DataFrame({"sample_id": ["s1", "s2"] * 3, "cluster_identity": pd.Categorical(["0", "0", "0", "1", "1", "1"])},
+                       index=[f"c{i}" for i in range(6)])
+    run, call = _run(tmp_path, monkeypatch, {"run": {"run_id": "r1"}, "annotation": {"decision": {"min_cells_per_sample": 1}}})
+    evidence = run / "artifacts" / "adata_annotation_evidence.h5ad"
+    AnnData(np.ones((6, 2)), obs=obs).write_h5ad(evidence)
+    AnnData(np.ones((6, 2)), obs=obs).write_h5ad(run / "artifacts" / "adata_tumor_fastcnv.h5ad")  # an earlier h5ad-mode run
+    sidecar = run / "artifacts" / "tumor_fastcnv_obs.parquet"
+
+    def tumor_cnv():
+        adata = read_h5ad(evidence)
+        init_file_registry(adata, "r1")
+        adata.obs["fastcnv_tumor_evidence"] = np.array(["cnv_tumor_like"] * 3 + ["normal_reference"] * 3, dtype=object)
+        receipt = write_obs_sidecar(adata, ["fastcnv_tumor_evidence"], sidecar, base=evidence, key="tumor_fastcnv_obs")
+        return {"inputs": [str(evidence)], "outputs": [str(sidecar), str(receipt)], "output_format": "obs-parquet"}
+
+    monkeypatch.setitem(sys.modules, "fake_tumor_cnv", SimpleNamespace(main=tumor_cnv))
+    assert run_command_module("tumor-cnv", "fake_tumor_cnv", ["--config", str(run / "config" / "run.yaml")]) == 0
+    assert annotation_review.default_input(run, {}) == annotation_commit.default_input(run, {}) == sidecar.resolve()
+    review = call(annotation_review)
+    assert review["inputs"][0] == str(sidecar.resolve())
+    out = run / "annotation" / "decisions"
+    assert json.loads((out / "annotation_evidence_bundle.json").read_text())["clusters"][0]["cnv_refs"] == ["fastcnv_tumor_evidence"]
+    template = json.loads((out / "annotation_decision_template.json").read_text())["decisions"]
+    decisions = out / "decisions.json"
+    decisions.write_text(json.dumps([{**template[0], "parent_label": "Epithelial", "canonical_label": "Epithelial",
+                                      "final_label": "Epithelial", "confidence": "low", "review_required": False,
+                                      "reason": "synthetic"}]))
+    commit = call(annotation_commit, "--decisions", str(decisions), "--output-format", "obs-parquet")
+    assert commit["inputs"][0] == str(sidecar.resolve())
+    committed = read_adata(run / "artifacts" / "annotation_committed_obs.parquet")  # sidecar on a sidecar
+    assert committed.obs.fastcnv_tumor_evidence.tolist()[:3] == ["cnv_tumor_like"] * 3
+    assert committed.obs.annotation_reviewed.tolist() == [True] * 3 + [False] * 3
+    call(annotation_commit, "--decisions", str(decisions))
+    assert "fastcnv_tumor_evidence" in read_h5ad(run / "artifacts" / "adata_annotation_committed.h5ad").obs
 
 
 def _run(tmp_path, monkeypatch, cfg):

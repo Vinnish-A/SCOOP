@@ -60,11 +60,30 @@ elapsed_seconds:
 
 `executed` means the command returned and its declared artifacts were recorded.
 A result with `execution: not_run` (for example a tumour-CNV plan that cannot run)
-records the stage `skipped`.
+records the stage `skipped` and keeps its `execution.reason`; a registered
+`not_run` result is `skipped` too.
 Read `execution`, `validation`, `interpretation` and measured `coverage`
 independently. Legacy `committed` receipts imply none of the missing assessments.
-Old receipts are archived under `state/stages/history/` before another attempt;
-directory inventories do not become outputs of the new attempt.
+Old receipts, including `atlas-approval`, are archived under
+`state/stages/history/` before another attempt; directory inventories do not
+become outputs of the new attempt. Each `spatial.rctd.output_label` keeps its own
+receipt, `state/stages/spatial-<label>.json`.
+
+The configuration input records the whole `run.yaml` sha256 (`config_hash`) as
+provenance, plus the sections the stage reads (`config_sections`, for example
+`run`/`keys`/`qc` for qc) and their hash. Staleness follows the section hash, so
+editing an unrelated section does not mark the stage stale. Every stage also binds
+the data file it read: `--input`, or its default input when the command declares
+none.
+
+`--output-format obs-parquet` (qc, tumor-cnv, annotate commit) writes the
+stage's declared obs columns keyed by `obs_name`, whether or not a value changed,
+and a `<stem>.json` receipt binding the table and its base input (path, sha256,
+obs_name order). Annotate review and commit take their default input from what
+the last `tumor-cnv` receipt declared, its sidecar or its H5AD, never from which
+files exist; without a tumor-cnv receipt they read
+`adata_annotation_evidence.h5ad`. A sidecar input, by default or `--input`, is
+overlaid onto its verified base; a changed base or row order is refused.
 
 Use `scoop status --run-root RUN --verify` to inspect declared artifact hashes,
 missing/stale results and unassessed work. Hash integrity verifies files, not
@@ -110,7 +129,10 @@ independent adjudication by the registrar.
   committed input. Explicitly unresolved and `excluded_technical` reviewed cells
   remain deliverable.
   `scoop deliver --scope current-state` exports an earlier checkpoint deliberately;
-  the default cannot silently fall back to QC/programme/evidence files.
+  the default cannot silently fall back to QC/programme/evidence files. The atlas
+  route writes no committed annotation, so deliver it with `--scope current-state`
+  or commit reviewed decisions with `scoop annotate commit` first. The delivery
+  schema alone names the retained obs/var/uns keys.
 
 Review pauses affected decisions/dependents, not independent work. Tool bypass
 cannot replace missing biological evidence or supervision approval.

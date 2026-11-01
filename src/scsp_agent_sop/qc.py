@@ -21,8 +21,38 @@ class ThresholdConfig:
     q_high_strict: float = 0.95
 
 
+# obs columns written by compute_basic_qc, assign_qc_flags_per_sample,
+# run_scrublet_per_sample and assays.spatial_qc.
+QC_OWNED_PREFIXES = ("qc_", "doublet_", "pct_counts_", "log10_")
+QC_OWNED_COLUMNS = {"total_counts", "n_genes_by_counts", "final_use", "mt_unassessed", "ribo_unassessed",
+                    "hb_unassessed", "non_gene_feature_counts", "non_gene_feature_fraction", "transcripts_per_area"}
+
+
+def is_qc_owned(column: str) -> bool:
+    return column.startswith(QC_OWNED_PREFIXES) or column in QC_OWNED_COLUMNS
+
+
+def retire_prior_qc(adata) -> dict[str, str]:
+    """Rename inherited QC-owned obs columns to ``prior_<name>`` before QC recomputes them (S026).
+
+    Returns ``{old: new}``; an existing ``prior_<name>`` is replaced. The
+    caller ANDs the new ``final_use`` with ``prior_final_use`` so QC never
+    re-admits a cell an earlier step excluded.
+    """
+    renamed = {col: f"prior_{col}" for col in adata.obs.columns if is_qc_owned(col)}
+    if "final_use" in renamed:
+        flags = adata.obs["final_use"]
+        if flags.isna().any() or not flags.isin([True, False, 0, 1]).all():
+            raise ValueError("Inherited final_use must contain nonmissing boolean flags.")
+    adata.obs.drop(columns=[new for new in renamed.values() if new in adata.obs], inplace=True)
+    adata.obs.rename(columns=renamed, inplace=True)
+    return renamed
+
+
 def annotate_gene_flags(adata, organism: str = "human", symbol_key: str | None = None) -> None:
-    symbols = adata.var[symbol_key].astype(str) if symbol_key and symbol_key in adata.var else adata.var_names.astype(str)
+    if symbol_key and symbol_key not in adata.var:
+        raise KeyError(f"qc.symbol_key {symbol_key!r} is not a var column; var has {list(adata.var.columns)[:20]}")
+    symbols = adata.var[symbol_key].astype(str) if symbol_key else adata.var_names.astype(str)
     if organism.lower().startswith("mouse"):
         mt = symbols.str.startswith("mt-")
         ribo = symbols.str.startswith(("Rpl", "Rps"))

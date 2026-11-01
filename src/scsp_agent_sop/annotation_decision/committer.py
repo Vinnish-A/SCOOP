@@ -128,10 +128,15 @@ def commit_annotation_decisions(
                       "annotation_confidence": decision.confidence, "malignancy_status": decision.malignancy_status or "not_assessed",
                       "malignancy_basis": ";".join(decision.malignancy_basis), "annotation_technical_kind": decision.technical_kind or "",
                       "annotation_identity_source": "unit"}
-            for field, value in values.items():
-                if field in columns:
-                    adata.obs.iloc[indices, columns[field]] = value
             unit_confidence[indices] = decision.confidence
+        else:
+            # Label text stays for provenance, but standalone claims such as an
+            # earlier "malignant" must not outlive the decision that made them.
+            values = {"malignancy_status": "not_assessed", "malignancy_basis": "", "annotation_technical_kind": "",
+                      "annotation_identity_source": ""}
+        for field, value in values.items():
+            if field in columns:
+                adata.obs.iloc[indices, columns[field]] = value
         action = ("technical_exclusion" if technical else "commit" if validation.accepted
                   else "record_unresolved" if written else "review_required")
         merge_rows.append({"cluster_id": decision.cluster_id, "cluster_key": decision.cluster_key, "action": action,

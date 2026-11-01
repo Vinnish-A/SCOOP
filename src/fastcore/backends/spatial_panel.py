@@ -12,7 +12,7 @@ from scipy import sparse
 
 from scsp_agent_sop.assays import assay_profile, gene_expression_mask
 from scsp_agent_sop.config import deep_get
-from scsp_agent_sop.core import leiden_search_options, leiden_sweep, run_harmony2, select_hvg
+from scsp_agent_sop.core import core_batch_keys, correct_identity_pca, leiden_search_options, leiden_sweep, select_hvg
 from scsp_agent_sop.storage import register_file, write_table
 
 
@@ -103,13 +103,15 @@ def run_spatial_core(adata, cfg: Mapping[str, Any], run_root: str | Path) -> dic
     for key in ("X_pca_biology", "X_pca_identity_prebatch"):
         adata.obsm[key] = work.obsm["X_pca"].copy()
     batch_method = options.get("batch_correction", "none")
-    if batch_method == "harmony2":
-        run_harmony2(adata, batch_keys=deep_get(cfg, "keys.batch_candidates", []))
-    elif batch_method == "none":
-        adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
-    else:
+    if batch_method not in {"harmony2", "none"}:
         raise ValueError("core.spatial.batch_correction must be none or harmony2.")
     seed = int(deep_get(cfg, "run.random_seed", 0))
+    batch_keys, key_source = core_batch_keys(cfg, adata.obs)
+    batch_correction = correct_identity_pca(
+        adata, method=batch_method, batch_keys=batch_keys, key_source=key_source,
+        max_iter_harmony=int(deep_get(cfg, "core.batch_correction.max_iter_harmony", 20)), random_state=seed,
+        ncores=int(deep_get(cfg, "core.batch_correction.ncores", 0)),
+    )
     sc.pp.neighbors(
         adata,
         use_rep="X_pca_harmony_identity",
@@ -163,5 +165,8 @@ def run_spatial_core(adata, cfg: Mapping[str, Any], run_root: str | Path) -> dic
         "artifacts": artifacts,
         "timings": {"spatial_total": perf_counter() - started},
         "batch_correction_method": batch_method,
+        "harmony2_used": batch_correction["status"] == "corrected",
+        "batch_keys": batch_correction["keys"],
+        "batch_correction": batch_correction,
         "quality": {"execution_complete": True, "biological_review": "not_assessed"},
     }

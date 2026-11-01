@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from .config import deep_get
+from .config import deep_get, resolve_obs_keys
 
 SPATIAL_ASSAYS = {"xenium", "cosmx", "visium", "legacy_st"}
 TARGETED_ASSAYS = {"xenium", "cosmx"}
@@ -63,7 +63,7 @@ def spatial_qc(adata, cfg: Mapping[str, Any]) -> pd.DataFrame:
     for required in ("min_counts", "min_genes"):
         if required not in options or not np.isfinite(options[required]) or options[required] < 0:
             raise ValueError(f"qc.spatial.{required} must be a finite nonnegative value.")
-    sample_key = deep_get(cfg, "keys.sample", "sample_id")
+    sample_key = resolve_obs_keys(cfg).sample
     if sample_key not in adata.obs or adata.obs[sample_key].isna().any():
         raise ValueError(f"Spatial QC requires nonmissing obs[{sample_key!r}].")
     x = adata.layers[deep_get(cfg, "qc.counts_layer", "counts")]

@@ -71,7 +71,9 @@ Trigger: the sample is tumor tissue and first-level `Major Lineage` annotation h
 
 Default logic:
 
-At runtime, require `annotation_confidence=high` or an explicit Boolean `reference_eligible_key`, combined with an identity allowlist and final_use to select references. By default, retain sparse matrices, compute in cell chunks, and disable N² cell clustering; explicitly enable `--compute-clusters` if needed. `chr_arm` accepts p/q or chromosome-matched forms such as 19.q, standardized to p/q.
+At runtime, require `annotation_confidence=high` or an explicit Boolean `reference_eligible_key`, combined with final_use to select references. Without the mask, a non-parenchymal identity vocabulary also applies (`tumor_fastcnv.nonparenchymal_lineages`, else the built-in default); with the mask and no explicit vocabulary, the mask alone decides (`lineage_vocabulary: not_applied_reference_eligible_key`), so reviewed oligodendrocytes are not silently dropped. By default, retain sparse matrices, compute in cell chunks, and disable N² cell clustering; explicitly enable `--compute-clusters` if needed. `--gene-metadata` (not shipped) is a TSV/CSV/parquet with `hgnc_symbol` (the var_names identifiers), `chromosome_num`, `start_position`, `end_position` and `chr_arm`; `chr_arm` accepts p/q or chromosome-matched forms such as 19.q, standardized to p/q.
+
+One minimum, `tumor_fastcnv.min_reference_cells` (default 20), gates both the plan and the reference-derived threshold, counting only reference cells with a CNV score; below it the plan runs only with the opt-in `all_cells_q75_fallback`. A sample keeps its own baseline when one pool label has `tumor_fastcnv.min_reference_cells_per_sample` (default 5) cells there; other samples are scored against the pooled baseline, listed in `reference_plan.samples_without_reference` and flagged `obs["fastcnv_sample_has_reference"] = False`. `tumor_fastcnv.engine` maps onto `FastCNVConfig` (`window_size`, `window_step`, `top_n_genes`, `threshold_percentile`, `scale_on_reference_label`, ...); the effective engine configuration is in the decision log and the receipt. The sample key resolves through `run.obs_keys.sample` unless `--sample-key` is given.
 
 
 - First distinguish parenchymal and non-parenchymal cells using `cell_type_lvl1`;
@@ -82,7 +84,7 @@ At runtime, require `annotation_confidence=high` or an explicit Boolean `referen
 
 Outputs:
 
-- H5AD `obs`: `fastcnv_reference_pool`, `fastcnv_cnv_fraction`, `fastcnv_normal_threshold`, `fastcnv_threshold_source`, `fastcnv_tumor_evidence` (`cnv_unassessed` without enough references; see [tumor rules](../markers/tumor-general.md#24-actual-references-measurement-scales-and-checkpoints));
+- H5AD `obs`: `fastcnv_reference_pool`, `fastcnv_cnv_fraction`, `fastcnv_normal_threshold`, `fastcnv_threshold_source`, `fastcnv_sample_has_reference`, `fastcnv_tumor_evidence` (`cnv_unassessed` without enough references; see [tumor rules](../markers/tumor-general.md#24-actual-references-measurement-scales-and-checkpoints));
 - External tables: pooled manifest, pooled cell metadata, pooled chromosome-arm CNV, genomic windows, and per-sample FastCNVpy results;
 - Logs: reference composition, whether normal parenchymal cells were included, candidate cell counts, parallelism parameters, and dense/sparse H5AD mode.
 

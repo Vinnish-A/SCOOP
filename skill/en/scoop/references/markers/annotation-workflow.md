@@ -295,11 +295,15 @@ Do not describe missed checks, unrequested panels, or lineage genes absent from 
 
 - **Evidence binding.** `annotate review` writes `annotation_evidence_bundle.json` (with `partition_sha256` over
   obs names and cluster-key values, and `deg_tables {ref: label_key, groups, sha256}`) and a template whose
-  decisions carry `bundle_sha256`; the previous pair is archived. A DEG citation `ref` counts only when that
-  table's `label_key` is the decision's cluster key and it tests the unit's group; cite another partition's group as
-  `ref::group`. `manual:`/`external:` refs remain declared, unbound DEG. Commit refuses a changed partition, a unit
-  whose cell count differs from the bundle, and a `bundle_sha256` other than the bundle file's; a legacy bundle
-  without a partition hash is rebound from the input and the receipt is `limited`.
+  decisions carry `bundle_sha256`; the previous pair is archived byte-for-byte under `history/`. A DEG citation
+  `ref` counts only when that table's `label_key` is the decision's cluster key and it tests the unit's group; cite
+  another partition's group as `ref::group` (in the unit's own partition `::group` may name only the unit itself). A
+  table registered without `label_key` binds no citation; re-register it with the partition it tests.
+  `manual:`/`external:` refs remain declared, unbound DEG. Commit finds the bundle the decisions cite by its sha256
+  (next to the decisions, in `annotation.decision.output_dir`, or their `history/`), and refuses a changed
+  partition, a unit whose cell count differs from the bundle, and decisions whose bundle cannot be found. A legacy
+  bundle without a partition hash is rebound from the input (`limited`); with no review bundle at all, commit builds
+  one and reports the partition binding `not_assessed`.
 - **Support.** `n_samples` counts samples with at least `annotation.decision.min_cells_per_sample` (default 20) cells
   in the unit (`n_samples_raw` keeps all). Composition keys come from `annotation.decision.{sample,donor,study}_key`,
   else `run.obs_keys`. `min_cells_high_confidence` and `min_samples_high_confidence` reach the validator.
@@ -307,11 +311,15 @@ Do not describe missed checks, unrequested panels, or lineage genes absent from 
   (`fine_annotation_status: unresolved`, no forced review). `unresolved` writes the labels but forces review.
 - **Technical outcome.** `disposition: technical_exclusion` with `technical_kind: doublet | multiplet | ambient |
   low_quality | artefact` commits `annotation_status: excluded_technical`, broad/fine status `not_applicable`; the
-  cells count as reviewed (`technical_excluded`) and remain deliverable. It needs one registered evidence ref, not DEG.
+  cells count as reviewed (`technical_excluded`) and remain deliverable. It needs unit DEG or a cited artefact
+  registered under a QC/doublet schema (`qc*`, `scrublet*`, `doublet*`, `ambient*`, `core_quality*`); the sample-support
+  rule for high confidence does not apply to an artefact.
 - **Annotations without gating.** `notes` never gates; keep `conflicts` for genuine marker conflicts (they block
   high confidence). `parent_unit`/`unit_rule` record unit lineage in `merge_split_log.tsv`, which logs every
   decision as `commit | record_unresolved | technical_exclusion | review_required`.
 - **Per-cell layer.** `annotate commit --cell-layer <table>` (`obs_name` plus any of `cell_confidence`, `cell_state`,
   `identity_source`) is bound as an input and applies only to cells whose unit labels were written. Per-cell
   confidence can only lower the unit confidence; `identity_source` fills `annotation_identity_source`.
+- **Re-commit.** A unit re-decided without writing labels keeps its label text for provenance, but its
+  `malignancy_status` returns to `not_assessed` and basis, technical kind and identity source are cleared.
 - **Malignancy** is declared, never read from label words; see [tumor rules](tumor-general.md#4-malignancy_status-labels).

@@ -41,17 +41,22 @@ def _input_is_backed(cfg: Mapping[str, Any], adata: Any | None) -> bool:
     return bool(getattr(adata, "isbacked", False) or deep_get(cfg, "core.fastcore.auto.input_backed", False))
 
 
-def _input_size(input_path: str | Path | None, adata: Any | None) -> tuple[int, int]:
-    """Return (n_obs, nnz) from the object, or from H5AD metadata before it is loaded."""
+def _input_size(input_path: str | Path | None, adata: Any | None, counts_layer: str) -> tuple[int, int]:
+    """Return (n_obs, nnz) from the object, or from H5AD metadata before it is loaded.
+
+    n_obs comes from the obs index; nnz from the sparse ``counts_layer`` the
+    core reads, else X. An H5AD may store counts only in layers (X absent).
+    """
     if adata is None and input_path is not None and str(input_path).endswith(".h5ad"):
         with h5py.File(input_path, "r") as handle:
-            x = handle["X"]
-            if isinstance(x, h5py.Dataset):
-                return int(x.shape[0]), 0
-            return int(x.attrs["shape"][0]), int(x["data"].shape[0])
-    n_obs = int(getattr(adata, "n_obs", 0) or 0)
-    nnz = int(getattr(getattr(adata, "X", None), "nnz", 0) or 0)
-    return n_obs, nnz
+            obs = handle["obs"]
+            n_obs = int(obs[obs.attrs["_index"]].shape[0])
+            layers = handle.get("layers")
+            matrix = layers[counts_layer] if layers is not None and counts_layer in layers else handle.get("X")
+            return n_obs, int(matrix["data"].shape[0]) if isinstance(matrix, h5py.Group) else 0
+    layers = getattr(adata, "layers", {})
+    matrix = layers[counts_layer] if counts_layer in layers else getattr(adata, "X", None)
+    return int(getattr(adata, "n_obs", 0) or 0), int(getattr(matrix, "nnz", 0) or 0)
 
 
 def canonical_backend(backend: str) -> str:
@@ -85,7 +90,7 @@ def plan_fastcore_backend(
         reasons.append("fastcore_cpu_backend_disabled")
         return FastCorePlan(fallback_backend, True, fallback_backend, reasons, caps.to_dict())
 
-    n_obs, nnz = _input_size(input_path, adata)
+    n_obs, nnz = _input_size(input_path, adata, str(deep_get(cfg, "qc.counts_layer", "counts")))
     large_cells = n_obs >= int(deep_get(cfg, "core.fastcore.auto.rust_oom_min_cells", 100000))
     large_nnz = nnz >= int(deep_get(cfg, "core.fastcore.auto.rust_oom_min_nnz", 300000000))
     gpu_cells = n_obs >= int(deep_get(cfg, "core.fastcore.auto.gpu_min_cells", 30000))

@@ -20,6 +20,8 @@ TUMOR_GATE = {
     "cnv_schema_prefixes": ("cnv", "fastcnvpy"),
 }
 DECLARED_EXTERNAL_PREFIXES = ("external:", "manual:")
+# Registered schemas that can evidence a technical exclusion besides cluster DEG.
+TECHNICAL_EVIDENCE_PREFIXES = ("qc", "scrublet", "doublet", "ambient", "core_quality")
 PROGRAM_ONLY_TERMS = ("ribosomal", "mitochondrial", "stress", "cell-cycle", "cell_cycle", "cycling")
 
 
@@ -76,9 +78,10 @@ def validate_annotation_decision(
         str(value or "") for value in (decision.parent_label, decision.canonical_label, decision.final_label)
     ).lower()
     if technical:
-        # An exclusion makes no identity claim, but it must cite registered evidence.
-        if not _registered_refs(decision, evidence_bundle):
-            reasons.append("technical exclusion requires at least one registered evidence ref")
+        # An exclusion makes no identity claim, but it must cite evidence of the
+        # artefact: unit DEG or a registered QC/doublet table, not any file.
+        if not valid_deg and not _cites_registered_schema(decision, evidence_bundle, TECHNICAL_EVIDENCE_PREFIXES):
+            reasons.append("technical exclusion requires unit DEG or a cited QC/doublet artefact registered with such a schema")
             forced_review = True
     else:
         if not valid_deg:
@@ -99,10 +102,11 @@ def validate_annotation_decision(
         if cluster.n_cells < min_cells_high_confidence:
             reasons.append("cluster has too few cells for high confidence")
             forced_review = True
-        if cluster.n_samples is None:
+        # Sample support is an identity criterion; a single-library artefact is still an artefact.
+        if not technical and cluster.n_samples is None:
             reasons.append("sample support is unknown (sample key absent); high confidence requires it")
             forced_review = True
-        elif cluster.n_samples < min_samples_high_confidence:
+        elif not technical and cluster.n_samples < min_samples_high_confidence:
             reasons.append("cluster has too few samples for high confidence")
             forced_review = True
     review_required = bool(decision.review_required or forced_review)
@@ -126,7 +130,8 @@ def _deg_citations(decision: AnnotationDecision, bundle: AnnotationEvidenceBundl
     """Resolve DEG citations to (table, group) pairs the cited table really tests.
 
     "ref" means group == cluster_id in a table whose label_key is the bundle's
-    cluster_key; "ref::group" names a group of another partition. Declared
+    cluster_key; "ref::group" names a group of another partition (or this
+    unit itself). A table that declares no label_key binds nothing. Declared
     external:/manual: refs are the analyst's own, unbound DEG. A "markers"
     citation counts only when it resolves; an unresolved "deg" one is flagged.
     """
@@ -137,15 +142,22 @@ def _deg_citations(decision: AnnotationDecision, bundle: AnnotationEvidenceBundl
                 if category == "deg":
                     valid.append(ref)
                 continue
-            name, _, group = ref.partition("::")
+            name, qualified, group = ref.partition("::")
             table = bundle.deg_tables.get(name)
             if table is None and category == "markers":
                 continue
-            if group:
-                covered = table is not None and group in table["groups"]
+            if table is not None and table["label_key"] is None:
+                # Without a declared partition the group cannot be bound to anything.
+                uncovered.append(f"{ref} (table declares no label_key; re-register it with the partition it tests)")
+                continue
+            own_partition = table is not None and table["label_key"] == bundle.cluster_key
+            if qualified:
+                # In the unit's own partition "::group" may name only the unit
+                # itself: a sibling group is a different set of cells.
+                covered = (table is not None and group in table["groups"]
+                           and (not own_partition or group == str(decision.cluster_id)))
             else:
-                covered = (table is not None and table["label_key"] == bundle.cluster_key
-                           and str(decision.cluster_id) in table["groups"])
+                covered = own_partition and str(decision.cluster_id) in table["groups"]
             (valid if covered else uncovered).append(ref)
     return tuple(valid), tuple(sorted(set(uncovered)))
 
@@ -170,21 +182,23 @@ def _malignancy_gate(decision: AnnotationDecision, bundle: AnnotationEvidenceBun
         reasons.append(f"unknown malignancy_basis: {', '.join(unknown_basis)}")
     if status is None and tumor_label:
         reasons.append("tumour term in label requires a declared malignancy_status")
-    if status == "normal" and tumor_label:
-        reasons.append("malignancy_status normal contradicts the tumour term in the label")
+    if status in {"normal", "not_applicable"} and tumor_label:
+        reasons.append(f"malignancy_status {status} contradicts the tumour term in the label")
+    if status == "ambiguous" and decision.confidence == "high":
+        reasons.append("ambiguous malignancy cannot be high confidence")
     if status in gate["malignant_status"]:
         missing = sorted(set(gate["required_basis"]) - basis)
         if missing or not has_valid_deg:
             reasons.append(f"malignancy_status {status} requires basis {', '.join(gate['required_basis'])} "
                            "and a valid DEG citation; CNV is supporting only")
-    if "cnv" in basis and not _cites_registered_cnv(decision, bundle, tuple(gate["cnv_schema_prefixes"])):
+    if "cnv" in basis and not _cites_registered_schema(decision, bundle, tuple(gate["cnv_schema_prefixes"])):
         reasons.append("malignancy_basis cnv requires a cited artefact registered with a CNV schema")
     if "cnv" in basis and cluster.cnv_summary.get("fastcnv_assessed_cells") == 0:
         reasons.append("malignancy_basis cnv cites CNV that was not assessed for this unit (cnv_unassessed)")
     return reasons
 
 
-def _cites_registered_cnv(decision: AnnotationDecision, bundle: AnnotationEvidenceBundle, prefixes: tuple[str, ...]) -> bool:
+def _cites_registered_schema(decision: AnnotationDecision, bundle: AnnotationEvidenceBundle, prefixes: tuple[str, ...]) -> bool:
     records = {str(key): record for category in bundle.file_registry.values() if isinstance(category, Mapping)
                for key, record in category.items() if isinstance(record, Mapping)}
     return any(str(records.get(ref, {}).get("schema", "")).startswith(prefixes) for ref in _registered_refs(decision, bundle))

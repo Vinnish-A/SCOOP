@@ -29,6 +29,14 @@ def canonical_json(payload: Any) -> bytes:
 
 def default_file_mode() -> int:
     """Return the mode open() gives a new file; mkstemp alone would leave 0600."""
+    try:
+        status = Path("/proc/self/status").read_text(encoding="ascii")
+    except OSError:
+        status = ""
+    for line in status.splitlines():
+        if line.startswith("Umask:"):
+            return 0o666 & ~int(line.split()[1], 8)
+    # Without procfs, reading the umask means setting it, briefly, for every thread.
     umask = os.umask(0)
     os.umask(umask)
     return 0o666 & ~umask

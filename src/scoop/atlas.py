@@ -15,7 +15,7 @@ import pandas as pd
 
 from scsp_agent_sop.annotation import run_markers_scanpy
 from scsp_agent_sop.assays import apply_final_use
-from scsp_agent_sop.core import leiden_sweep, leiden_search_options
+from scsp_agent_sop.core import leiden_sweep, leiden_search_options, normalize_log1p
 from scsp_agent_sop.annotation_decision.evidence_bundle import build_evidence_bundle
 from scsp_agent_sop.config import deep_get, read_yaml, resolve_obs_keys, resolve_run_root
 from scsp_agent_sop.storage import write_h5ad_atomic, init_file_registry, register_file, write_table
@@ -52,6 +52,20 @@ def _require_obs(adata: ad.AnnData, keys: Iterable[str]) -> None:
     missing = [key for key in keys if key not in adata.obs]
     if missing:
         raise KeyError(f"required atlas obs fields are missing: {', '.join(missing)}")
+
+
+def _match_index_dtypes(adata: ad.AnnData) -> None:
+    """Cast int64 indptr beside int32 indices to int32 (lossless while nnz < 2**31).
+
+    anndata keeps the mixed layout an atlas builder writes; scipy then upcasts the
+    whole indices array on every row slice, i.e. every scVI minibatch (B06).
+    """
+    from scipy import sparse
+
+    for matrix in (adata.X, *adata.layers.values()):
+        if (sparse.issparse(matrix) and matrix.indptr.dtype == np.int64 and matrix.indices.dtype == np.int32
+                and matrix.nnz < 2**31):
+            matrix.indptr = matrix.indptr.astype(np.int32)
 
 
 def scvi_training_options(config, *, max_epochs=None, batch_size=None, accelerator=None, devices=None, kl_warmup_epochs=None):
@@ -107,6 +121,7 @@ def integrate(
     train_options = scvi_training_options(config, max_epochs=max_epochs, batch_size=batch_size,
                                           accelerator=accelerator, devices=devices, kl_warmup_epochs=kl_warmup_epochs)
     adata = ad.read_h5ad(source)
+    _match_index_dtypes(adata)
     apply_final_use(adata)
     init_file_registry(adata, deep_get(config, "run.run_id", run_root.name))
 
@@ -118,11 +133,22 @@ def integrate(
         raise ValueError("Set atlas.scvi.batch_key or run.obs_keys.batch to the technical batch column (for example "
                          "a dataset or chemistry sub-batch); scVI has no default batch")
     batch_key = obs_keys.batch
-    requested_categorical = list(deep_get(config, "atlas.scvi.categorical_covariate_keys", []))
-    categorical = [key for key in requested_categorical if key in adata.obs]
-    _require_obs(adata, [batch_key])
+    # A declared covariate that is absent would silently change the model (B03).
+    categorical = [str(key) for key in deep_get(config, "atlas.scvi.categorical_covariate_keys", None) or []]
+    _require_obs(adata, [batch_key, *categorical])
     if counts_layer not in adata.layers:
         raise KeyError(f"scVI requires raw counts in adata.layers[{counts_layer!r}]")
+    hvg_key = deep_get(config, "atlas.scvi.hvg_key")
+    genes = slice(None)
+    if hvg_key:
+        if hvg_key not in adata.var:
+            raise KeyError(f"atlas.scvi.hvg_key {hvg_key!r} is not a var column")
+        genes = adata.var[hvg_key].to_numpy(bool)
+        if not genes.any():
+            raise ValueError(f"atlas.scvi.hvg_key {hvg_key!r} selects no genes")
+    model_kwargs = dict(deep_get(config, "atlas.scvi.model_kwargs", None) or {})
+    model_kwargs.setdefault("n_latent", int(deep_get(config, "atlas.scvi.n_latent", 30)))
+    model_kwargs.setdefault("gene_likelihood", str(deep_get(config, "atlas.scvi.gene_likelihood", "nb")))
     held_out = [str(unit) for unit in deep_get(config, "atlas.split.held_out_query_units", None) or []]
     split_unit = str(deep_get(config, "atlas.split.unit", "donor_id"))
     projected = np.zeros(adata.n_obs, dtype=bool)
@@ -142,7 +168,8 @@ def integrate(
         unseen = {key: values for key, values in unseen.items() if values}
         if unseen:
             raise ValueError(f"held-out query cells carry categories absent from the training cells: {unseen}")
-    train = adata[~projected].copy() if projected.any() else adata
+    # The model sees only the hvg_key genes; the output keeps every gene for markers.
+    train = adata[~projected, genes].copy() if projected.any() or hvg_key else adata
 
     scvi.settings.seed = int(deep_get(config, "run.random_seed", 0))
     scvi.model.SCVI.setup_anndata(
@@ -151,18 +178,21 @@ def integrate(
         batch_key=batch_key,
         categorical_covariate_keys=categorical or None,
     )
-    model = scvi.model.SCVI(
-        train,
-        n_latent=int(deep_get(config, "atlas.scvi.n_latent", 30)),
-        gene_likelihood=str(deep_get(config, "atlas.scvi.gene_likelihood", "nb")),
-    )
+    model = scvi.model.SCVI(train, **model_kwargs)
     model.train(**train_options)
+    # Persist the trained model before the graph steps, which can still fail (B01).
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model.save(model_path, overwrite=False, save_anndata=False)
+    history_paths = {}
+    for name, history in model.history.items():
+        if isinstance(history, (pd.DataFrame, pd.Series)):
+            history_paths[name] = str(write_table(history.reset_index(), run_root / "atlas/tables" / f"training_{name}.tsv"))
     latent = model.get_latent_representation()
     if projected.any():
         # Held-out units are embedded by the trained encoder only (no fine-tuning).
         embedded = np.empty((adata.n_obs, latent.shape[1]), dtype=latent.dtype)
         embedded[~projected] = latent
-        embedded[projected] = model.get_latent_representation(adata=adata[projected].copy())
+        embedded[projected] = model.get_latent_representation(adata=adata[projected, genes].copy())
         latent = embedded
     adata.obsm["X_scVI"] = latent
     adata.obs["is_projected"] = projected
@@ -181,13 +211,8 @@ def integrate(
         path = write_table(frame, run_root / "atlas/tables" / f"{name}.tsv")
         register_file(adata, key=f"atlas_{name}", path=path)
     sc.tl.umap(adata, neighbors_key="scvi", random_state=int(deep_get(config, "run.random_seed", 0)))
+    selection = adata.uns["leiden_selection"][cluster_key]
 
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    model.save(model_path, overwrite=False, save_anndata=False)
-    history_paths = {}
-    for name, history in model.history.items():
-        if isinstance(history, (pd.DataFrame, pd.Series)):
-            history_paths[name] = str(write_table(history.reset_index(), run_root / "atlas/tables" / f"training_{name}.tsv"))
     provenance = {
         "training_history": history_paths,
         "schema_version": "scoop.scvi-run.v1",
@@ -201,12 +226,14 @@ def integrate(
             "batch_key": batch_key,
             "batch_key_source": obs_keys.sources["batch"],
             "categorical_covariate_keys": categorical,
-            "skipped_categorical_covariate_keys": sorted(set(requested_categorical) - set(categorical)),
+            "hvg_key": hvg_key,
+            "n_training_genes": int(train.n_vars),
             "split_unit": split_unit,
             "held_out_query_units": held_out,
             "n_training_cells": int((~projected).sum()),
             "n_projected_cells": int(projected.sum()),
-            "n_latent": int(deep_get(config, "atlas.scvi.n_latent", 30)),
+            "n_latent": int(model_kwargs["n_latent"]),
+            "model_kwargs": model_kwargs,
             "train": train_options,
             "max_epochs": train_options["max_epochs"],
             "leiden_search": search,
@@ -214,7 +241,10 @@ def integrate(
             "leiden_seeds": sorted(sweep.seed.unique().tolist()),
             "n_neighbors": neighbours,
             "cluster_key": cluster_key,
-            "leiden_resolution": float(deep_get(config, "atlas.graph.leiden_resolution", 1.0)),
+            # The resolution the sweep chose for obs[cluster_key], not the config default (N2).
+            "leiden_resolution": float(selection["chosen_resolution"]),
+            "leiden_seed": int(selection["chosen_seed"]),
+            "leiden_selection_policy": selection["policy"],
         },
         "annotation_contract": (
             "labels are produced by the downstream annotation step in X_scVI, not by the scVI model head"
@@ -277,7 +307,13 @@ def annotate(
 
     marker_layer = str(deep_get(config, "atlas.annotation.marker_layer", "log1p_norm"))
     if marker_layer not in adata.layers:
-        marker_layer = "__adata_X__"
+        # integrate leaves raw counts in X; markers are tested on log1p(CP10k).
+        counts_layer = str(deep_get(config, "atlas.scvi.counts_layer", "counts"))
+        if counts_layer not in adata.layers:
+            raise KeyError(f"atlas annotate needs layers[{marker_layer!r}] or raw counts in layers[{counts_layer!r}]")
+        x = adata.X
+        normalize_log1p(adata, counts_layer=counts_layer, layer_out=marker_layer)
+        adata.X = x
     markers = run_markers_scanpy(
         adata,
         groupby=cluster_key,
@@ -286,11 +322,9 @@ def annotate(
         n_genes=int(deep_get(config, "annotation.marker_n_genes", 100)),
     )
     marker_path = write_table(markers, run_root / "atlas" / "tables" / "scvi_cluster_markers.parquet")
-    group_column = next((key for key in ("group", "cluster", "cell_type") if key in markers), None)
-    gene_column = next((key for key in ("names", "gene", "feature") if key in markers), None)
-    if group_column and gene_column:
-        for cluster_id, frame in markers.groupby(group_column, observed=True):
-            adata.uns[f"top_markers_{cluster_id}"] = frame[gene_column].dropna().astype(str).head(100).tolist()
+    # The evidence bundle reads each cluster's markers from this label-keyed table.
+    register_file(adata, key="scvi_cluster_markers", path=marker_path, schema="cluster_markers.v1",
+                  extra={"label_key": cluster_key, "layer": marker_layer})
 
     version = str(deep_get(config, "atlas.annotation.version", "atlas-v1"))
     labels = _read_labels(Path(labels_path)) if labels_path else _label_template(adata, cluster_key, version)
@@ -324,7 +358,6 @@ def annotate(
     )
     label_path = write_table(labels, run_root / "atlas" / "tables" / "scvi_curated_labels.tsv")
     evidence_path = atomic_json(run_root / "atlas" / "tables" / "scvi_annotation_evidence.json", bundle.to_dict())
-    register_file(adata, key="scvi_cluster_markers", path=marker_path, schema="cluster_markers.v1")
     register_file(adata, key="scvi_curated_labels", path=label_path, schema="scoop.atlas-labels.v1")
     register_file(
         adata, key="scvi_annotation_evidence", path=evidence_path, schema="scoop.annotation_evidence_bundle.v1"

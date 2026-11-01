@@ -17,7 +17,7 @@ from .doctor import emit as emit_doctor
 from .io import atomic_json
 from .release import rollback as rollback_release
 from .release import status as release_status
-from .results import inspect_run, register_result
+from .results import archive_receipt, inspect_run, register_result
 from .workflow import WORKFLOWS, run_command_module, workflow_plan
 
 COMMANDS: dict[tuple[str, ...], tuple[str, str]] = {
@@ -115,8 +115,10 @@ def _cmd_atlas(args: argparse.Namespace) -> int:
         run_root = gate.parent.parent if gate.parent.name == "atlas" else None
         if run_root is not None:
             verified = approval.verify(gate)
+            receipt = run_root / "state" / "stages" / "atlas-approval.json"
+            archive_receipt(receipt)
             atomic_json(
-                run_root / "state" / "stages" / "atlas-approval.json",
+                receipt,
                 {
                     "schema_version": "scoop.stage-receipt.v1",
                     "stage": "atlas-approval",

@@ -19,12 +19,20 @@ import anndata as ad
 from scsp_agent_sop.config import deep_get, project_root_from_run_root, read_yaml, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
 from scsp_agent_sop.manifest import write_manifest
-from scsp_agent_sop.storage import ensure_dir, init_file_registry, prune_h5ad, register_file, write_h5ad_atomic
+from scsp_agent_sop.storage import ensure_dir, init_file_registry, prune_h5ad, read_adata, register_file, write_h5ad_atomic
+
+from scoop.workflow import declared_object
+
+
+# The atlas route ends in validated label transfer without per-observation review.
+NOT_REVIEWED = ("commit reviewed decisions with `scoop annotate commit` (the atlas route writes no "
+                "adata_annotation_committed.h5ad or annotation_reviewed), or export this state explicitly with "
+                "--scope current-state")
 
 
 def review_coverage(adata) -> dict:
     if "annotation_reviewed" not in adata.obs or "annotation_status" not in adata.obs:
-        raise ValueError("Reviewed annotation delivery requires explicit per-observation review coverage; use --scope current-state for an earlier checkpoint.")
+        raise ValueError(f"Reviewed annotation delivery requires explicit per-observation review coverage; {NOT_REVIEWED}.")
     flags = adata.obs.annotation_reviewed
     if flags.isna().any() or not flags.isin([True, False, 0, 1]).all() or not flags.all():
         raise ValueError("Unreviewed observations remain; finish their decisions or explicitly export --scope current-state.")
@@ -58,7 +66,9 @@ def main() -> dict:
     scope = args.scope or deep_get(cfg, "delivery.scope", "reviewed-annotation")
     if scope not in {"reviewed-annotation", "current-state"}:
         raise ValueError("delivery.scope must be reviewed-annotation or current-state")
-    input_path = Path(args.input) if args.input else run_root / "artifacts" / "adata_annotation_committed.h5ad"
+    # annotate commit may have written an obs sidecar; its receipt names what it wrote.
+    input_path = (Path(args.input) if args.input else declared_object(run_root, "annotation-commit", cfg)
+                  or run_root / "artifacts" / "adata_annotation_committed.h5ad")
     if not input_path.exists() and scope == "current-state" and args.input is None:
         for candidate in [
             "adata_atlas_validated.h5ad",
@@ -74,7 +84,8 @@ def main() -> dict:
                 input_path = c
                 break
     if not input_path.is_file():
-        raise FileNotFoundError(f"Declared {scope} input is missing: {input_path}. Use --scope current-state to export an earlier stage explicitly.")
+        raise FileNotFoundError(f"Declared {scope} input is missing: {input_path}."
+                                + (f" To deliver, {NOT_REVIEWED}." if scope == "reviewed-annotation" else ""))
     output = (
         Path(args.output)
         if args.output
@@ -84,19 +95,21 @@ def main() -> dict:
     if not schema_path.is_file():
         schema_path = Path(__file__).resolve().parents[1] / "data" / "h5ad-schema.yaml"
     schema = read_yaml(schema_path)
-    adata = ad.read_h5ad(input_path)
+    adata = read_adata(input_path)
     coverage = review_coverage(adata) if scope == "reviewed-annotation" else {"observations": int(adata.n_obs)}
     if input_path.resolve() == output.resolve():
         raise ValueError("Delivery output must differ from its input; preserve the source artifact.")
     original_names = adata.obs_names.copy()
-    adata.uns["delivery_scope"] = {"scope": scope, "input": str(input_path.resolve()),
-                                    "all_fine_identities_resolved": False, **coverage}
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
     prune_h5ad(adata, schema)
     if scope == "reviewed-annotation":
+        removed = [c for c in ("annotation_reviewed", "annotation_status", "cell_type_lvl3") if c not in adata.obs]
+        if removed:
+            raise ValueError(f"Delivery schema {schema_path} removed reviewed-annotation fields {removed}; add them to obs_keep.")
         review_coverage(adata)
-        if "cell_type_lvl3" not in adata.obs:
-            raise ValueError("Delivery schema removed reviewed labels")
+    # Delivery's own record, like the registry entry below, is not pruned state.
+    adata.uns["delivery_scope"] = {"scope": scope, "input": str(input_path.resolve()),
+                                    "all_fine_identities_resolved": False, **coverage}
     ensure_dir(output.parent)
     # A file cannot contain its own SHA. The external manifest fingerprints the
     # completed object; the embedded registry contains only its location/schema.

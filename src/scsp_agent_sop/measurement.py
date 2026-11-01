@@ -121,3 +121,11 @@ def feature_measurement_path(adata, path: str | Path | None = None) -> Path | No
         return Path(path)
     record = adata.uns.get("file_registry", {}).get("artifacts", {}).get(REGISTRY_KEY)
     return Path(record["path"]) if record else None
+
+
+def measurement_record(adata, *, honoured: bool) -> dict:
+    """Stage receipt entry: ``applied``, ``not_honoured`` (declared, but the method cannot use it) or ``not_declared``."""
+    path = feature_measurement_path(adata)
+    if path is None:
+        return {"status": "not_declared"}
+    return {"status": "applied" if honoured else "not_honoured", "path": str(path)}

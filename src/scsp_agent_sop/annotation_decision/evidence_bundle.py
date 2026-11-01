@@ -69,7 +69,11 @@ def deg_tables_from_registry(registry: Mapping[str, Any]) -> tuple[dict[str, dic
             wanted = (*DEG_GROUP_COLUMNS, *DEG_GENE_COLUMNS, *DEG_SCORE_COLUMNS, "label_key")
             frame = pd.read_parquet(path, columns=[name for name in wanted if name in names])
         else:
-            frame = pd.read_csv(path, sep="," if path.suffix.lower() == ".csv" else "\t")
+            # Groups are labels ("01" is not 1); scores are numbers.
+            frame = pd.read_csv(path, sep="," if path.suffix.lower() == ".csv" else "\t", dtype=str)
+            for name in DEG_SCORE_COLUMNS:
+                if name in frame:
+                    frame[name] = pd.to_numeric(frame[name], errors="coerce")
         group = next((name for name in DEG_GROUP_COLUMNS if name in frame), None)
         gene = next((name for name in DEG_GENE_COLUMNS if name in frame), None)
         if group is None or gene is None:
@@ -139,8 +143,8 @@ class ClusterEvidence:
             "deg_refs",
         }
         normalized = dict(data)
-        for field in tuple_fields:
-            normalized[field] = tuple(normalized.get(field, ()))
+        for name in tuple_fields:
+            normalized[name] = tuple(normalized.get(name, ()))
         normalized["cnv_summary"] = dict(normalized.get("cnv_summary", {}))
         normalized["distribution_summary"] = dict(normalized.get("distribution_summary", {}))
         normalized["program_usage_summary"] = dict(normalized.get("program_usage_summary", {}))
@@ -215,6 +219,7 @@ def build_evidence_bundle(
         marker_refs = tuple(str(key) for key, record in registry.get("tables", {}).items()
                             if isinstance(record, Mapping) and str(record.get("schema", "")).startswith("cluster_markers"))
     deg_tables, deg_frames = deg_tables_from_registry(registry)
+    keyed_deg = any(table["label_key"] is not None for table in deg_tables.values())
     composition_keys = {"sample_key": sample_key, "donor_key": donor_key, "study_key": study_key,
                         "min_cells_per_sample": int(min_cells_per_sample)}
     neighbours = _cluster_neighbours(adata, cluster_key)
@@ -227,7 +232,9 @@ def build_evidence_bundle(
         # A registered marker table that tests another partition, or lacks this
         # group, must not look like this unit's DEG (FC-06, C2-02).
         unit_marker_refs = tuple(ref for ref in marker_refs if ref not in deg_tables or ref in deg_refs)
-        top_markers = _extract_top_markers(adata, cluster_id)
+        # uns top_markers_<id> carry no partition; they are a fallback only for
+        # registries that predate label-keyed DEG tables.
+        top_markers = () if keyed_deg else _extract_top_markers(adata, cluster_id)
         if deg_refs:
             frame = deg_frames[deg_refs[0]]
             top_markers = tuple(frame.loc[frame["_group"] == cluster_id, "_gene"].astype(str).head(TOP_MARKERS_FROM_TABLE))

@@ -46,7 +46,7 @@ def run_omicverse_rust_oom_core(
         adata = time_step(timings, "materialize_minimal_adata", materialize)
         init_file_registry(adata, str(deep_get(cfg, "run.run_id", run_root.name)))
         map_standard_core_keys(adata)
-        harmony_used = run_harmony_bridge(adata, options, timings)
+        batch_correction = run_harmony_bridge(adata, options, timings)
         leiden_results = run_omicverse_graph_umap_leiden(ov, adata, options, timings, cfg=cfg, run_root=run_root)
         artifacts = write_core_tables(
             adata, run_root, method="fastcore_oom", options=options, leiden_results=leiden_results
@@ -55,7 +55,7 @@ def run_omicverse_rust_oom_core(
             adata,
             options=options,
             timings=timings,
-            harmony_used=harmony_used,
+            batch_correction=batch_correction,
             artifacts=artifacts,
             quality_basis="fastcore_oom_adapter_smoke",
         )

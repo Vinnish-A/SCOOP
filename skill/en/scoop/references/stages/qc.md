@@ -8,7 +8,7 @@ Inputs:
 
 - `artifacts/validated_adata.h5ad` or configured input H5AD.
 - `layers["counts"]`.
-- `obs["sample_id"]`.
+- `obs["sample_id"]`, or the declared `run.obs_keys.sample` (resolved once; a declared key must exist).
 
 Script:
 
@@ -22,11 +22,17 @@ H5AD writes:
   True when the axis has no flagged gene or, with a registered
   [feature measurement](../docs/data-boundaries.md#observability-positive-evidence-and-input-versions),
   the cell's sample measured none. Unassessed is not 0%; NaN never crosses a threshold.
-  MT/ribo/HB gene flags read symbols from `var[qc.symbol_key]` when set.
+  MT/ribo/HB gene flags read symbols from `var[qc.symbol_key]` when set; a
+  `qc.symbol_key` that is not a var column is an error, not a fallback to var_names.
 - `doublet_score`, `doublet_call_scrublet`, `doublet_call`.
 - `final_use` updated only for high-confidence failures and doublets.
-- `--output-format obs-parquet --output <path>.parquet` writes only the new or
-  changed obs columns plus a JSON receipt instead of the H5AD.
+- QC-owned obs columns already in the input (`qc_*`, `doublet_*`, `pct_counts_*`,
+  `log10_*`, `total_counts`, `n_genes_by_counts`, `*_unassessed`, `final_use`, ...)
+  are renamed to `prior_<name>` before QC recomputes them (an older `prior_<name>`
+  is replaced) and listed in the decision log (S026). The new `final_use` is ANDed
+  with `prior_final_use`: QC never re-admits a cell an earlier step excluded.
+- `--output-format obs-parquet --output <path>.parquet` writes only the QC obs
+  columns (and the `prior_*` they displaced) plus a JSON receipt instead of the H5AD.
 
 Sidecar outputs:
 

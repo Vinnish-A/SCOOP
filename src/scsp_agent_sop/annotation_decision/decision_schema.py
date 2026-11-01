@@ -61,12 +61,15 @@ class AnnotationDecision:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "AnnotationDecision":
-        normalized = dict(data)
+        # Decisions also arrive from tables, where an empty field is null and a
+        # list is the committer's own ";"-joined text.
+        normalized = {key: value for key, value in dict(data).items()
+                      if not (value is None and key in DEFAULTED_FIELDS)}
         normalized["evidence_refs"] = {
-            str(key): tuple(map(str, values or ())) for key, values in dict(normalized.get("evidence_refs", {})).items()
+            str(key): _text_tuple(values) for key, values in dict(normalized.get("evidence_refs") or {}).items()
         }
-        for field in ("positive_markers", "negative_markers_absent", "conflicts", "notes", "malignancy_basis"):
-            normalized[field] = tuple(map(str, normalized.get(field) or ()))
+        for name in ("positive_markers", "negative_markers_absent", "conflicts", "notes", "malignancy_basis"):
+            normalized[name] = _text_tuple(normalized.get(name))
         normalized["review_required"] = bool(normalized.get("review_required", False))
         normalized.setdefault("schema_version", "scoop.annotation_decision.v1")
         normalized.setdefault("cell_state", None)
@@ -79,6 +82,15 @@ class AnnotationDecision:
     @classmethod
     def from_json(cls, text: str) -> "AnnotationDecision":
         return cls.from_dict(json.loads(text))
+
+
+DEFAULTED_FIELDS = ("identity_scope", "disposition", "notes", "malignancy_basis")
+
+
+def _text_tuple(values: Any) -> tuple[str, ...]:
+    if isinstance(values, str):
+        return tuple(part.strip() for part in values.split(";") if part.strip())
+    return tuple(map(str, values or ()))
 
 
 def decisions_from_json(text: str) -> list[AnnotationDecision]:

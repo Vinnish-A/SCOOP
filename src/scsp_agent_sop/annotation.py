@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
@@ -22,6 +21,9 @@ def run_markers_scanpy(adata, groupby: str = "cluster_identity", layer: str = "l
     import scanpy as sc
     if layer != "X" and layer not in adata.layers:
         raise ValueError(f"Requested differential-expression layer is missing: {layer}")
+    if not adata.var_names.is_unique:
+        # rows are joined on (group, gene name); a repeated name multiplies them
+        raise ValueError("Marker DEG requires unique var_names; resolve duplicated features before testing.")
     full = None
     if measurement is not None:
         measurement.check(adata)

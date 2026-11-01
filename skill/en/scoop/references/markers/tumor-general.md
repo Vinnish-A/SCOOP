@@ -65,12 +65,19 @@ uses it in full; samples with few references may be excluded by the default mini
 Inspect actual backend selection/return structures and retain unused references’ original positions in the complete query.
 State whether the baseline is weighted by cell or by sample; the total number of references passed in cannot replace the actual denominator.
 
-`annotate tumor-cnv` writes `obs.fastcnv_threshold_source`. With at least 10 normal-reference cells it is
-`reference_q99_mad`. Otherwise non-reference cells are `cnv_unassessed` (`unassessed_insufficient_reference`),
+`annotate tumor-cnv` writes `obs.fastcnv_threshold_source`. With at least `tumor_fastcnv.min_reference_cells`
+(default 20) non-missing normal-reference fractions it is `reference_q99_mad`. Otherwise non-reference cells are
+`cnv_unassessed` (`unassessed_insufficient_reference`),
 unless `--all-cells-q75-fallback` or `tumor_fastcnv.all_cells_q75_fallback: true` opts in to a query q75
 (`all_cells_q75_fallback`), which calls about a quarter of cells tumour-like by construction. A plan that cannot
 run writes no CNV columns; its result is `execution: not_run` and the stage `skipped`. The receipt records the
-effective `nonparenchymal_lineages` and `dropped_reference_by_lineage`. With a registered feature measurement only
+effective `nonparenchymal_lineages` (not applied when a reference-eligibility mask is declared) and
+`dropped_reference_by_lineage`. A sample with fewer than `tumor_fastcnv.min_reference_cells_per_sample` (default 5)
+references uses the pooled baseline and gets `obs.fastcnv_sample_has_reference = False`; the plan lists it under
+`samples_without_reference`. `tumor_fastcnv.engine` maps into `FastCNVConfig` and the effective engine settings are
+recorded. FastCNVpy selects each gene once, reports an arm without windows as NaN/`unassessed` (never neutral), keeps
+chromosomes 1–22 and X from 5-column gene metadata (an exact repeated row raises) and refuses a non-integer X when no
+counts layer exists. With a registered feature measurement only
 genes measured in every sample enter the pooled fit; the rest are listed in
 `annotation/fastcnvpy_tumor/tumor_fastcnv_unmeasured_genes_excluded.tsv`.
 
@@ -152,11 +159,13 @@ not_applicable:
 `malignancy_basis` lists the evidence used: `lineage_markers`, `tumour_programmes`, `cnv`, `snv`, `atac`,
 `reference_mapping`, `histology`. The validator forces review when a tumour term (`malignant`, `tumor`,
 `tumour`, `cancer`, `neoplastic`) appears in a label without a declared status, whatever `is_tumor` says;
-when `normal` meets a tumour-term label; when `malignant`/`probable_malignant` lacks `lineage_markers` in
+when `normal` or `not_applicable` meets a tumour-term label; when `ambiguous` is declared at high confidence;
+when `malignant`/`probable_malignant` lacks `lineage_markers` in
 the basis or a valid DEG citation; and when the basis includes `cnv` without a cited artefact registered under
 a `cnv*`/`fastcnvpy*` schema, or none of the unit's cells was CNV-assessed. CNV is never required. The committer
 adds `malignancy_status`/`malignancy_basis` columns only when some decision declares them; units without a
-declared status get `not_assessed`.
+declared status get `not_assessed`. Projects whose malignant labels carry other words (for example GBM state
+names such as `AC-like`) add those words to `tumor_gate.tumor_terms` in their decision schema.
 
 Missing evidence is `evidence_pending` workflow progress: actively retrieve or
 generate it, document inaccessible evidence and do not submit a final identity or

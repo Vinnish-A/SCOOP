@@ -65,3 +65,36 @@ def test_reviewed_unresolved_delivery_roundtrips_with_scoped_receipt(tmp_path, m
     assert not saved.uns["delivery_scope"]["all_fine_identities_resolved"]
     assert result["validation"]["status"] == "passed"
     assert result["interpretation"]["status"] == "not_assessed"
+
+
+def test_reviewed_delivery_reads_the_obs_sidecar_commit_declared(tmp_path, monkeypatch):
+    import json
+    from anndata import read_h5ad
+    from scsp_agent_sop.storage import write_obs_sidecar
+
+    run = tmp_path / "runs/test"
+    (run / "config").mkdir(parents=True)
+    (run / "artifacts").mkdir()
+    (run / "state/stages").mkdir(parents=True)
+    config = run / "config/run.yaml"
+    config.write_text(yaml.safe_dump({"run": {"run_id": "test"}}))
+    base = run / "artifacts/adata_annotation_evidence.h5ad"
+    obj = AnnData(np.zeros((2, 2)), obs=pd.DataFrame(index=["a", "b"]))
+    obj.write_h5ad(base)
+    # an older full-object commit that the sidecar commit superseded
+    stale = obj.copy()
+    stale.obs["annotation_reviewed"], stale.obs["annotation_status"], stale.obs["cell_type_lvl3"] = False, "unassigned", ""
+    stale.write_h5ad(run / "artifacts/adata_annotation_committed.h5ad")
+    obj.obs["annotation_reviewed"] = [True, True]
+    obj.obs["annotation_status"] = ["accepted", "review_required"]
+    obj.obs["cell_type_lvl3"] = ["Mast", "Glial_Unresolved"]
+    sidecar = run / "artifacts/annotation_committed_obs.parquet"
+    write_obs_sidecar(obj, ["annotation_reviewed", "annotation_status", "cell_type_lvl3"], sidecar, base=base,
+                      key="annotation_committed_obs")
+    (run / "state/stages/annotation-commit.json").write_text(json.dumps(
+        {"stage": "annotation-commit", "status": "committed", "outputs": [{"path": str(sidecar)}]}))
+    monkeypatch.setattr(sys, "argv", ["deliver", "--config", str(config)])
+    deliver.main()
+    saved = read_h5ad(run / "artifacts/final_adata.h5ad")
+    assert saved.obs.cell_type_lvl3.tolist() == ["Mast", "Glial_Unresolved"]
+    assert saved.uns["delivery_scope"]["input"] == str(sidecar.resolve())

@@ -23,14 +23,20 @@ if the chosen route lacks the required interface, record that gap and use a
 validated compatible route before calling the main analysis batch-handled.
 
 The managed expression-level route is opt-in `programs.batch_correction: harmony_moe`
-(default `none`). It needs the resolved `run.obs_keys` batch (else the first present
-`keys.batch_candidates` column) and raw `layers["counts"]`. FastCNMF preprocessing
+(default `none`). It needs a declared `run.obs_keys.batch` and raw `layers["counts"]`;
+a batch resolved only from `keys.batch_candidates` is refused, as for scVI, because
+expression-level correction removes whatever it is given. FastCNMF preprocessing
 rereads the input, picks `programs.n_top_hvg` (default 3000) seurat_v3 HVGs
 batch-blind, Harmony-corrects them and clips at zero; native consensus NMF then runs
 on that dense matrix (`nmf_method.expression: fastcnmf_harmony_moe_corrected_hvg`,
 files under `programs/fastcnmf_preprocess/`). The decision log records `batch_handling`;
 with `none` and a declared `run.obs_keys.batch` the receipt lists the unmodelled batch
 as a limitation.
+
+Neither NMF route can restrict genes per sample, so with a registered
+[feature measurement](../docs/data-boundaries.md#observability-positive-evidence-and-input-versions)
+the receipt and decision log record `measurement: not_honoured` (with its path),
+list it as a limitation and request review; without one, `not_declared`.
 
 Native consensus uses one-to-one component matches across independent random
 seeds. Report per-component cross-seed cosine, the weakest component and actual
@@ -108,6 +114,14 @@ Python environment, including pinned official `cnmf`. Invoke them via
 `$SCOOP_HOME/bin/fastcnmf`; they expose cNMF-compatible full-consensus algorithms.
 Choose this route explicitly when needed rather than treating native sklearn NMF
 as the same estimator. No project-only cNMF installation is needed.
+Spectra stay in the normalized matrix's dtype, so a `--norm-dtype float32` prepare
+reaches consensus. Every factorize backend reports its real `n_iter` and
+`reconstruction_err`; `cupy-mu` stops on the run's `tol` (checked every 10
+iterations, as sklearn does) instead of always spending `max_iter`. The
+preprocess manifest records the Harmony ridge layout (`ridge_layout`,
+`ridge_policy_version`), so outputs from the earlier broadcast penalty can be told
+apart. Official cNMF's Harmony preprocess cannot run with harmonypy 2 and stops
+with a pointer to `fast-preprocess`.
 
 For standalone `fast-prepare -> fast-factorize -> fast-consensus`, record the
 actual nonnegative input scale, feature selection, normalization and any technical

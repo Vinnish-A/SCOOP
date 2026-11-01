@@ -8,8 +8,15 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from scsp_agent_sop.config import deep_get
-from scsp_agent_sop.core import leiden_sweep, leiden_search_options, run_harmony2, select_hvg
+from scsp_agent_sop.config import deep_get, resolve_obs_keys
+from scsp_agent_sop.core import (
+    core_batch_keys,
+    correct_identity_pca,
+    leiden_search_options,
+    leiden_sweep,
+    normalize_log1p,
+    select_hvg,
+)
 from scsp_agent_sop.measurement import FeatureMeasurement, feature_measurement_path
 from scsp_agent_sop.storage import register_file, write_table
 
@@ -34,7 +41,7 @@ def _normalize_shiftlog(adata, *, target_sum: float) -> None:
     Adapted from OmicVerse `pp.preprocess(mode='shiftlog|...')`, which calls
     `normalize_total(..., exclude_highly_expressed=True, max_fraction=0.2)` and
     then `log1p`. The result feeds HVG scaling and PCA only; it is not written
-    as `log1p_norm`, whose scale is fixed by `_write_log1p_norm`.
+    as `log1p_norm`, whose scale is fixed by `core.normalize_log1p`.
     """
     import scanpy as sc
 
@@ -45,19 +52,6 @@ def _normalize_shiftlog(adata, *, target_sum: float) -> None:
         max_fraction=0.2,
     )
     sc.pp.log1p(adata)
-
-
-def _write_log1p_norm(adata, *, counts_layer: str, target_sum: float) -> None:
-    """Write the shared `log1p_norm` layer: plain normalize_total at `target_sum`, then log1p.
-
-    Every backend writes `log1p_norm` on the same scale (`core.normalize_total_target_sum`),
-    so marker DEG, scoring and programmes read one definition regardless of backend.
-    """
-    import scanpy as sc
-
-    norm = sc.pp.normalize_total(adata, target_sum=target_sum, layer=counts_layer, inplace=False)["X"]
-    adata.layers["log1p_norm"] = sc.pp.log1p(norm)
-    adata.X = adata.layers["log1p_norm"]
 
 
 def _select_hvg_seurat(
@@ -115,6 +109,7 @@ def _neighbors_umap_single(
     *,
     use_rep: str,
     n_neighbors: int,
+    n_pcs: int | None,
     min_dist: float,
     random_state: int,
 ) -> None:
@@ -125,7 +120,8 @@ def _neighbors_umap_single(
         adata,
         use_rep=use_rep,
         n_neighbors=int(n_neighbors),
-        n_pcs=None,
+        # `_pca_hvg` may return fewer components than requested on small inputs.
+        n_pcs=None if n_pcs is None else min(int(n_pcs), adata.obsm[use_rep].shape[1]),
         key_added="neighbors_identity",
         method="umap",
         random_state=int(random_state),
@@ -173,15 +169,15 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
     run_root = Path(run_root)
     timings: dict[str, float] = {}
     counts_layer = deep_get(cfg, "qc.counts_layer", "counts")
-    sample_key = deep_get(cfg, "keys.sample", "sample_id")
+    sample_key = resolve_obs_keys(cfg, adata.obs).sample
     random_state = int(deep_get(cfg, "run.random_seed", 0))
-    ov_cfg = deep_get(cfg, "core.fastcore.omicverse", {})
     target_sum = float(deep_get(cfg, "core.fastcore.omicverse.target_sum", 500000))
     n_hvgs = int(deep_get(cfg, "core.fastcore.omicverse.n_hvgs", deep_get(cfg, "core.n_top_hvg", 3000)))
     n_pcs = int(deep_get(cfg, "core.fastcore.omicverse.n_pcs", deep_get(cfg, "core.n_pcs", 50)))
     n_neighbors = int(
         deep_get(cfg, "core.fastcore.omicverse.neighbors.n_neighbors", deep_get(cfg, "core.neighbors_n_neighbors", 15))
     )
+    neighbors_n_pcs = deep_get(cfg, "core.fastcore.omicverse.neighbors.n_pcs", deep_get(cfg, "core.neighbors_n_pcs", None))
     min_dist = float(deep_get(cfg, "core.fastcore.omicverse.umap.min_dist", deep_get(cfg, "core.umap_min_dist", 0.3)))
     resolutions = list(
         deep_get(cfg, "core.fastcore.omicverse.leiden.resolutions", deep_get(cfg, "core.leiden_resolutions", [0.75]))
@@ -234,37 +230,26 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
     _time_step(
         timings,
         "log1p_norm",
-        _write_log1p_norm,
+        normalize_log1p,
         adata,
         counts_layer=counts_layer,
         target_sum=float(deep_get(cfg, "core.normalize_total_target_sum", 10000)),
+        size_factor_key=deep_get(cfg, "core.size_factor_key", None),
     )
 
-    batch_keys = [k for k in deep_get(cfg, "keys.batch_candidates", ["sample_id"]) if k in adata.obs]
-    batch_method = str(deep_get(cfg, "core.batch_correction.method", "harmony2"))
-    if batch_method in {"none", "identity"}:
-        adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
-        harmony_used = False
-    elif batch_method not in {"harmony2", "harmonypy2", "harmonypy"}:
-        raise ValueError(f"Unsupported batch correction method: {batch_method}")
-    else:
-        try:
-            _time_step(
-                timings,
-                "harmony2",
-                run_harmony2,
-                adata,
-                basis="X_pca_identity_prebatch",
-                batch_keys=batch_keys,
-                output="X_pca_harmony_identity",
-                max_iter_harmony=deep_get(cfg, "core.batch_correction.max_iter_harmony", 20),
-                random_state=random_state,
-                ncores=deep_get(cfg, "core.batch_correction.ncores", 0),
-            )
-            harmony_used = True
-        except ImportError:
-            adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
-            harmony_used = False
+    batch_keys, key_source = core_batch_keys(cfg, adata.obs)
+    batch_correction = _time_step(
+        timings,
+        "harmony2",
+        correct_identity_pca,
+        adata,
+        method=str(deep_get(cfg, "core.batch_correction.method", "harmony2")),
+        batch_keys=batch_keys,
+        key_source=key_source,
+        max_iter_harmony=deep_get(cfg, "core.batch_correction.max_iter_harmony", 20),
+        random_state=random_state,
+        ncores=deep_get(cfg, "core.batch_correction.ncores", 0),
+    )
 
     _time_step(
         timings,
@@ -273,6 +258,7 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
         adata,
         use_rep="X_pca_harmony_identity",
         n_neighbors=n_neighbors,
+        n_pcs=neighbors_n_pcs,
         min_dist=min_dist,
         random_state=random_state,
     )
@@ -309,9 +295,10 @@ def run_vendored_omicverse_cpu_core(adata, cfg: Mapping[str, Any], run_root: str
     }
     return {
         "backend": "fastcore_cpu",
-        "harmony2_used": harmony_used,
+        "harmony2_used": batch_correction["status"] == "corrected",
         "batch_correction_method": deep_get(cfg, "core.batch_correction.method", "harmony2"),
-        "batch_keys": batch_keys,
+        "batch_keys": batch_correction["keys"],
+        "batch_correction": batch_correction,
         "n_obs": int(adata.n_obs),
         "n_vars": int(adata.n_vars),
         "n_clusters": int(adata.obs["cluster_identity"].nunique()),

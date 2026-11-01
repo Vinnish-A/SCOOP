@@ -63,3 +63,37 @@ def test_k_selection_does_not_hide_a_weak_component_under_high_median():
     summary = pd.DataFrame({"k": [2, 3], "median_stability": [.99, .95],
                             "min_component_stability": [.1, .9], "median_error": [1., .8]})
     assert choose_k(summary, .7) == 3
+
+
+def test_programs_record_an_unhonoured_measurement_and_refuse_a_guessed_expression_batch(tmp_path, monkeypatch):
+    import sys
+
+    import yaml
+    from scoop.commands import programs
+    from scsp_agent_sop.measurement import FORMAT, FeatureMeasurement
+    from scsp_agent_sop.storage import init_file_registry, register_file
+
+    rng = np.random.default_rng(12)
+    a = AnnData(rng.gamma(2.0, 1.0, (40, 20)), obs=pd.DataFrame({"sample_id": ["s1", "s2"] * 20},
+                                                               index=[f"c{i}" for i in range(40)]))
+    a.layers["log1p_norm"] = a.X.copy()
+    a.layers["counts"] = np.rint(a.X * 3)
+    init_file_registry(a, "r1")
+    fm = FeatureMeasurement.from_var("sample_id", ["s1", "s2"], a.var_names, np.ones((2, 20), bool))
+    register_file(a, key="feature_measurement", path=fm.save(tmp_path / "fm.npz"), category="artifacts", schema=FORMAT)
+    run = tmp_path / "runs" / "r1"
+    (run / "config").mkdir(parents=True)
+    (run / "artifacts").mkdir()
+    a.write_h5ad(run / "artifacts" / "adata_core.h5ad")
+    config = run / "config" / "run.yaml"
+    nmf = {"k_grid": [2], "seeds": [0, 1], "max_iter": 30, "workers": 1}
+    config.write_text(yaml.safe_dump({"programs": nmf}))
+    monkeypatch.setattr(sys, "argv", ["scoop programs", "--config", str(config)])
+    receipt = programs.main()
+    assert receipt["measurement"] == {"status": "not_honoured", "path": str(tmp_path / "fm.npz")}
+    assert any("feature measurement" in item for item in receipt["limitations"])
+
+    config.write_text(yaml.safe_dump({"programs": {**nmf, "batch_correction": "harmony_moe"},
+                                      "keys": {"batch_candidates": ["sample_id"]}}))
+    with pytest.raises(ValueError, match="declared run.obs_keys.batch"):
+        programs.main()

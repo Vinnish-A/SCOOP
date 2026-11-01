@@ -30,6 +30,8 @@ storage:
 
 qc:
   counts_layer: counts
+  symbol_key: null  # var column of gene symbols for MT/ribo/HB flags; null uses var_names, a missing column raises
+  gene_feature_types: [gene expression, gene]
   threshold_method: per_sample_mad_quantile
   mad:
     low_counts: 3.0
@@ -53,6 +55,7 @@ core:
   engine: fastcore
   fallback_engine: scanpy_legacy
   normalize_total_target_sum: 10000
+  size_factor_key: null  # obs column of full-gene library sizes when the input is a gene subset
   hvg_flavor: seurat_v3
   n_top_hvg: 3000
   n_pcs: 50
@@ -74,6 +77,7 @@ core:
     min_seed_ari: 0.80
     min_clusters: 4
     max_clusters: 80
+    selection: coarsest_stable  # or finest_stable; every sweep labelling is kept in obsm
   batch_correction:
     method: harmony2
     max_iter_harmony: 20
@@ -131,6 +135,7 @@ programs:
   max_iter: 50
   stability_threshold: 0.70
   fallback_validation: omicverse_cnmf
+  batch_correction: none  # harmony_moe needs a declared run.obs_keys.batch
 
 atlas:
   enabled: false
@@ -141,7 +146,9 @@ atlas:
   scvi:
     counts_layer: counts
     batch_key: null  # required: the technical batch column; a sample is biology, not batch
-    categorical_covariate_keys: [study_id, chemistry]
+    categorical_covariate_keys: []  # declared covariates must exist in obs
+    hvg_key: null  # var column restricting the genes scVI trains on
+    model_kwargs: {}  # native scvi.model.SCVI arguments (n_layers, n_hidden, dispersion, ...)
     n_latent: 30
     gene_likelihood: nb
     max_epochs: 400
@@ -200,6 +207,10 @@ tumor_fastcnv:
   h5ad_mode: sparse
   reference_eligible_key: null  # otherwise requires annotation_confidence=high
   n_jobs: 1
+  min_reference_cells: 20  # normal references needed for a reference-derived threshold
+  min_reference_cells_per_sample: 5  # fewer gives fastcnv_sample_has_reference = False (pooled baseline)
+  all_cells_q75_fallback: false  # opt-in query-quantile threshold below min_reference_cells
+  engine: {}  # FastCNVConfig fields: window_size, window_step, top_n_genes, threshold_percentile, ...
 
 spatial:
   enabled: false
@@ -219,6 +230,7 @@ spatial:
     umi_min_low_resolution: 100
     umi_min_bin: 20
     cell_type_key: cell_type_lvl3
+    annotation_level: fine  # committed {level}_annotation_status read as component review state
     run_purpose: production  # sensitivity / pilot may fit evidence_pending components; pilot allows no interpretation
     merge_level: component  # parent / compartment also write exact aggregated weights
 

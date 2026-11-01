@@ -31,7 +31,9 @@ H5AD writes:
 
 Sidecar outputs:
 
-- `tables/cluster_markers.parquet` (registered with its `label_key`).
+- `tables/cluster_markers.parquet` (registered with its `label_key`); a `--cluster-key` other than
+  `annotation.decision.cluster_key` writes `tables/cluster_markers__<key>.parquet`, so partitions never overwrite
+  each other's DEG.
 - `tables/annotation_evidence_template.tsv`.
 - With a COSG option, `tables/cluster_specificity_scores.parquet`; under a
   measurement it scores only genes measured in every sample and lists the rest

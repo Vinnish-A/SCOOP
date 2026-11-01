@@ -8,7 +8,7 @@ from typing import Any, Callable, Mapping
 import pandas as pd
 
 from scsp_agent_sop.config import deep_get
-from scsp_agent_sop.core import leiden_search_options, leiden_sweep, run_harmony2
+from scsp_agent_sop.core import core_batch_keys, correct_identity_pca, leiden_search_options, leiden_sweep
 from scsp_agent_sop.storage import register_file, write_table
 
 
@@ -32,6 +32,7 @@ class OmicVerseCoreOptions:
     leiden_seeds: list[int]
     random_state: int
     batch_keys: list[str]
+    batch_key_source: str
     batch_method: str
     max_iter_harmony: int
     harmony_ncores: int
@@ -39,11 +40,9 @@ class OmicVerseCoreOptions:
     use_implicit_centering: bool
 
 
-def build_options(cfg: Mapping[str, Any], adata: Any | None, *, backend: str, mode: str) -> OmicVerseCoreOptions:
+def build_options(cfg: Mapping[str, Any], adata: Any, *, backend: str, mode: str) -> OmicVerseCoreOptions:
     random_state = int(deep_get(cfg, "run.random_seed", 0))
-    sample_key = deep_get(cfg, "keys.sample", "sample_id")
-    batch_candidates = deep_get(cfg, "keys.batch_candidates", [sample_key])
-    batch_keys = [k for k in batch_candidates if adata is not None and k in adata.obs and adata.obs[k].nunique() > 1]
+    batch_keys, batch_key_source = core_batch_keys(cfg, adata.obs)
     resolutions = list(
         deep_get(cfg, "core.fastcore.omicverse.leiden.resolutions", deep_get(cfg, "core.leiden_resolutions", [0.8]))
     )
@@ -83,6 +82,7 @@ def build_options(cfg: Mapping[str, Any], adata: Any | None, *, backend: str, mo
         ],
         random_state=random_state,
         batch_keys=batch_keys,
+        batch_key_source=batch_key_source,
         batch_method=str(deep_get(cfg, "core.batch_correction.method", "harmony2")),
         max_iter_harmony=int(deep_get(cfg, "core.batch_correction.max_iter_harmony", 20)),
         harmony_ncores=int(deep_get(cfg, "core.batch_correction.ncores", 0)),
@@ -149,6 +149,7 @@ def copy_counts_to_x(adata, counts_layer: str) -> None:
 
 
 def run_omicverse_preprocess_scale_pca(ov, adata, options: OmicVerseCoreOptions, timings: dict[str, float]) -> None:
+    hvg_batch = next((key for key in options.batch_keys if adata.obs[key].nunique() > 1), None)
     out = time_step(
         timings,
         "omicverse_preprocess",
@@ -157,7 +158,7 @@ def run_omicverse_preprocess_scale_pca(ov, adata, options: OmicVerseCoreOptions,
         mode=options.preprocess_mode,
         target_sum=options.target_sum,
         n_HVGs=options.n_hvgs,
-        batch_key=options.batch_keys[0] if options.batch_keys else None,
+        batch_key=hvg_batch,
         identify_robust=options.identify_robust,
     )
     if out is not None and out is not adata:
@@ -184,31 +185,22 @@ def run_omicverse_preprocess_scale_pca(ov, adata, options: OmicVerseCoreOptions,
     map_standard_core_keys(adata)
 
 
-def run_harmony_bridge(adata, options: OmicVerseCoreOptions, timings: dict[str, float]) -> bool:
+def run_harmony_bridge(adata, options: OmicVerseCoreOptions, timings: dict[str, float]) -> dict[str, Any]:
+    """Harmony on the identity PCA; returns ``correct_identity_pca``'s record of what ran."""
     if "X_pca_identity_prebatch" not in adata.obsm and "X_pca" in adata.obsm:
         adata.obsm["X_pca_identity_prebatch"] = adata.obsm["X_pca"].copy()
-    if options.batch_method in {"none", "identity"}:
-        adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
-        return False
-    if options.batch_method not in {"harmony2", "harmonypy2", "harmonypy"}:
-        raise ValueError(f"Unsupported batch correction method: {options.batch_method}")
-    try:
-        time_step(
-            timings,
-            "harmony2",
-            run_harmony2,
-            adata,
-            basis="X_pca_identity_prebatch",
-            batch_keys=options.batch_keys,
-            output="X_pca_harmony_identity",
-            max_iter_harmony=options.max_iter_harmony,
-            random_state=options.random_state,
-            ncores=options.harmony_ncores,
-        )
-        return bool(options.batch_keys)
-    except ImportError:
-        adata.obsm["X_pca_harmony_identity"] = adata.obsm["X_pca_identity_prebatch"].copy()
-        return False
+    return time_step(
+        timings,
+        "harmony2",
+        correct_identity_pca,
+        adata,
+        method=options.batch_method,
+        batch_keys=options.batch_keys,
+        key_source=options.batch_key_source,
+        max_iter_harmony=options.max_iter_harmony,
+        random_state=options.random_state,
+        ncores=options.harmony_ncores,
+    )
 
 
 def run_omicverse_graph_umap_leiden(
@@ -327,7 +319,7 @@ def summarize_result(
     *,
     options: OmicVerseCoreOptions,
     timings: dict[str, float],
-    harmony_used: bool,
+    batch_correction: dict[str, Any],
     artifacts: dict[str, str],
     quality_basis: str,
 ) -> dict[str, Any]:
@@ -345,9 +337,10 @@ def summarize_result(
     }
     return {
         "backend": options.backend,
-        "harmony2_used": harmony_used,
+        "harmony2_used": batch_correction["status"] == "corrected",
         "batch_correction_method": options.batch_method,
-        "batch_keys": options.batch_keys,
+        "batch_keys": batch_correction["keys"],
+        "batch_correction": batch_correction,
         "n_obs": int(adata.n_obs),
         "n_vars": int(adata.n_vars),
         "n_clusters": int(adata.obs["cluster_identity"].nunique()) if "cluster_identity" in adata.obs else 0,

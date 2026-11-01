@@ -1,5 +1,10 @@
 #!/usr/bin/env python
-"""Run pooled-reference FastCNVpy tumor evidence after major-lineage annotation."""
+"""Run pooled-reference FastCNVpy tumor evidence after major-lineage annotation.
+
+``tumor_fastcnv.engine`` maps onto ``fastcnvpy.FastCNVConfig`` (window_size,
+window_step, top_n_genes, threshold_percentile, scale_on_reference_label, ...);
+the effective engine configuration is logged and returned in the receipt.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +14,12 @@ from pathlib import Path
 
 import anndata as ad
 
+from fastcnvpy import FastCNVConfig
 from fastcnvpy.reference import read_gene_metadata
-from scsp_agent_sop.config import deep_get, read_yaml, resolve_run_root
+from scsp_agent_sop.config import deep_get, read_yaml, resolve_obs_keys, resolve_run_root
 from scsp_agent_sop.decision_log import log_decision
 from scsp_agent_sop.measurement import FeatureMeasurement, feature_measurement_path
-from scsp_agent_sop.storage import changed_obs_columns, ensure_dir, init_file_registry, register_file, write_obs_sidecar
+from scsp_agent_sop.storage import ensure_dir, init_file_registry, register_file, write_h5ad_atomic, write_obs_sidecar
 from scsp_agent_sop.tumor_cnv import run_tumor_fastcnv_workflow
 
 
@@ -23,8 +29,11 @@ def main() -> dict:
     ap.add_argument("--input", default=None)
     ap.add_argument("--output", default=None)
     ap.add_argument("--output-format", choices=["h5ad", "obs-parquet"], default="h5ad",
-                    help="obs-parquet writes only the new or changed obs columns keyed by obs_name, plus a JSON receipt")
-    ap.add_argument("--gene-metadata", required=True)
+                    help="obs-parquet writes only the fastcnv_* obs columns keyed by obs_name, plus a JSON receipt")
+    ap.add_argument("--gene-metadata", required=True,
+                    help="TSV, CSV or parquet with columns hgnc_symbol (the identifiers in var_names; others are "
+                         "dropped), chromosome_num (1-22, X=23), start_position, end_position and chr_arm (p/q, or "
+                         "chromosome-qualified such as 19.q); not shipped with SCOOP")
     ap.add_argument("--sample-key", default=None)
     ap.add_argument("--major-lineage-key", default=None)
     ap.add_argument(
@@ -39,7 +48,8 @@ def main() -> dict:
     ap.add_argument("--compute-clusters", action="store_true", default=None, help="Opt in to quadratic CNV cell clustering")
     ap.add_argument("--cell-block-size", type=int, default=None)
     ap.add_argument("--all-cells-q75-fallback", action="store_true", default=None,
-                    help="Opt in to an all-cells q75 threshold when fewer than 10 reference cells remain")
+                    help="Opt in to running with, and an all-cells q75 threshold for, fewer than "
+                         "tumor_fastcnv.min_reference_cells (default 20) scored reference cells")
     args = ap.parse_args()
 
     cfg = read_yaml(args.config)
@@ -52,9 +62,9 @@ def main() -> dict:
 
     adata = ad.read_h5ad(input_path)
     init_file_registry(adata, deep_get(cfg, "run.run_id", run_root.name))
-    input_obs = adata.obs.copy() if sidecar else None
     gene_metadata = read_gene_metadata(Path(args.gene_metadata))
-    sample_key = args.sample_key or deep_get(cfg, "keys.sample", "sample_id")
+    obs_keys = resolve_obs_keys(cfg, adata.obs)
+    sample_key = args.sample_key or obs_keys.sample
     major_key = args.major_lineage_key or deep_get(cfg, "annotation.major_lineage_key", "cell_type_lvl1")
     parenchymal = args.parenchymal_lineages or deep_get(cfg, "tumor_fastcnv.parenchymal_lineages", "Epithelial")
     if isinstance(parenchymal, str):
@@ -69,6 +79,10 @@ def main() -> dict:
     allowlist = deep_get(cfg, "tumor_fastcnv.nonparenchymal_lineages", None)
     q75_fallback = (args.all_cells_q75_fallback if args.all_cells_q75_fallback is not None
                     else bool(deep_get(cfg, "tumor_fastcnv.all_cells_q75_fallback", False)))
+    min_reference_cells = int(deep_get(cfg, "tumor_fastcnv.min_reference_cells", 20))
+    min_reference_cells_per_sample = int(deep_get(cfg, "tumor_fastcnv.min_reference_cells_per_sample", 5))
+    engine_config = FastCNVConfig(**dict(deep_get(cfg, "tumor_fastcnv.engine", None) or {}))  # DC2
+    engine_config.validate()
     measurement_path = feature_measurement_path(adata)
 
     result, plan = run_tumor_fastcnv_workflow(
@@ -86,8 +100,11 @@ def main() -> dict:
         reference_eligible_key=args.reference_eligible_key or deep_get(cfg, "tumor_fastcnv.reference_eligible_key", None),
         nonparenchymal_lineages=None if allowlist is None else set(allowlist),
         all_cells_q75_fallback=q75_fallback,
+        min_reference_cells=min_reference_cells,
+        min_reference_cells_per_sample=min_reference_cells_per_sample,
         compute_clusters=compute_clusters,
         cell_block_size=cell_block_size,
+        config=engine_config,
         measurement=FeatureMeasurement.load(measurement_path) if measurement_path else None,
     )
 
@@ -102,9 +119,10 @@ def main() -> dict:
         )
     ensure_dir(output_path.parent)
     if sidecar:
-        sidecar_receipt = write_obs_sidecar(adata, changed_obs_columns(input_obs, adata), output_path, key="tumor_fastcnv_obs")
+        columns = [c for c in adata.obs.columns if c.startswith("fastcnv_") or c == plan.reference_key]
+        sidecar_receipt = write_obs_sidecar(adata, columns, output_path, base=input_path, key="tumor_fastcnv_obs")
     else:
-        adata.write_h5ad(output_path)
+        write_h5ad_atomic(adata, output_path)
     log_decision(
         run_root,
         module="annotation",
@@ -112,12 +130,17 @@ def main() -> dict:
         reason=plan.reason,
         parameters={
             "sample_key": sample_key,
+            "sample_key_source": "--sample-key" if args.sample_key else obs_keys.sources["sample"],
             "major_lineage_key": major_key,
             "parenchymal_lineages": parenchymal,
             "reference_key": plan.reference_key,
             "reference_labels": plan.reference_labels,
             "nonparenchymal_lineages": plan.nonparenchymal_lineages,
+            "lineage_vocabulary": plan.lineage_vocabulary,
             "all_cells_q75_fallback": q75_fallback,
+            "min_reference_cells": min_reference_cells,
+            "min_reference_cells_per_sample": min_reference_cells_per_sample,
+            "engine_config": asdict(engine_config),
             "h5ad_mode": h5ad_mode,
             "n_jobs": n_jobs,
             "cell_block_size": cell_block_size,
@@ -129,6 +152,7 @@ def main() -> dict:
             "n_normal_parenchymal": plan.n_normal_parenchymal,
             "n_candidate_cells": plan.n_candidate_cells,
             "dropped_reference_by_lineage": plan.dropped_reference_by_lineage,
+            "samples_without_reference": plan.samples_without_reference,
             "threshold_source": threshold_source,
             "measurement": plan.measurement,
             "output_obs_sidecar" if sidecar else "output_h5ad": str(output_path),
@@ -140,6 +164,10 @@ def main() -> dict:
     elif threshold_source != "reference_q99_mad":
         limitations.append(f"CNV threshold is not reference-derived ({threshold_source}); "
                            "non-reference calls are unassessed or query-quantile based.")
+    if result is not None and plan.samples_without_reference:
+        limitations.append(f"{len(plan.samples_without_reference)} samples had fewer than {min_reference_cells_per_sample} "
+                           f"reference cells of any pool label and were scored against the pooled baseline of other samples "
+                           f"(obs fastcnv_sample_has_reference=False): {plan.samples_without_reference}")
     if plan.dropped_reference_by_lineage:
         limitations.append(f"Reviewed cells outside the nonparenchymal vocabulary were not used as reference: "
                            f"{plan.dropped_reference_by_lineage}")
@@ -154,7 +182,8 @@ def main() -> dict:
                           if plan.measurement["status"] == "applied" else [])],
             "execution": {"status": "completed"} if result is not None else {"status": "not_run", "reason": plan.reason},
             "validation": {"status": "not_assessed"}, "interpretation": {"status": "not_assessed"},
-            "reference_plan": asdict(plan), "threshold_source": threshold_source, "output_format": args.output_format,
+            "reference_plan": asdict(plan), "engine_config": asdict(engine_config),
+            "threshold_source": threshold_source, "output_format": args.output_format,
             "limitations": limitations}
 
 

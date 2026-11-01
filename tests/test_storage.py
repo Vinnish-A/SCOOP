@@ -1,7 +1,7 @@
 from pathlib import Path
 import anndata as ad
 import numpy as np
-import pandas as pd
+import pytest
 
 from scsp_agent_sop.storage import prune_h5ad
 
@@ -20,6 +20,30 @@ def test_prune_h5ad_minimal_schema():
     assert "tmp" not in a.obs
     assert "gene_symbol" in a.var
     assert "big_tmp" not in a.uns
+
+
+def test_prune_h5ad_keeps_only_what_the_schema_names():
+    a = ad.AnnData(np.ones((2, 2)))
+    a.obs["annotation_reviewed"] = [True, True]
+    a.obs["cell_type_lvl3"] = ["T", "B"]
+    a.uns["annotation_review"] = {"reviewed": 2}
+    a.uns["delivery_scope"] = {"scope": "stale"}
+    prune_h5ad(a, {"obs_keep": {"clustering_annotation": ["cell_type_lvl3"]}, "uns_keep": ["annotation_review"]})
+    assert list(a.obs.columns) == ["cell_type_lvl3"] and list(a.uns) == ["annotation_review"]
+
+
+@pytest.mark.parametrize("schema", ["configs/h5ad_schema.yaml", "src/scoop/data/h5ad-schema.yaml"])
+def test_delivery_schema_retains_review_cnv_projection_and_programme_fields(schema):
+    import yaml
+    a = ad.AnnData(np.ones((2, 2)))
+    obs = ["annotation_reviewed", "is_projected", "fastcnv_reference_pool", "fastcnv_cnv_fraction",
+           "fastcnv_normal_threshold", "fastcnv_threshold_source", "fastcnv_tumor_evidence"]
+    for column in obs:
+        a.obs[column] = ["x", "y"]
+    a.var["nmf_discovery_gene"] = [True, False]
+    a.uns["annotation_review"] = {"reviewed": 2}
+    prune_h5ad(a, yaml.safe_load((Path(__file__).resolve().parents[1] / schema).read_text()))
+    assert list(a.obs.columns) == obs and list(a.var.columns) == ["nmf_discovery_gene"] and "annotation_review" in a.uns
 
 
 def test_delivery_retains_executable_graph_descriptors_and_umap(tmp_path):
@@ -77,3 +101,23 @@ def test_atomic_writers_apply_the_process_umask(tmp_path):
     assert gate.stat().st_mode & 0o777 == 0o600
     # A config outside runs/<id>/config/ roots the run beside it, not under the cwd.
     assert resolve_run_root(tmp_path / 'elsewhere' / 'run.yaml', {'run': {'run_id': 'x'}}) == (tmp_path / 'elsewhere').resolve()
+    from scsp_agent_sop.config import project_root_from_run_root
+    assert project_root_from_run_root(tmp_path / 'elsewhere') == tmp_path / 'elsewhere'
+    assert project_root_from_run_root(tmp_path / 'runs' / 'r1') == tmp_path
+
+
+def test_default_file_mode_reads_the_umask_without_setting_it(monkeypatch):
+    import os
+    import sys
+    from scoop.io import default_file_mode
+    if not sys.platform.startswith('linux'):
+        pytest.skip('procfs umask is Linux-only')
+    previous = os.umask(0o027)
+    try:
+        def fail(_):
+            raise AssertionError('os.umask changes the mask of every thread')
+        monkeypatch.setattr(os, 'umask', fail)
+        assert default_file_mode() == 0o640
+    finally:
+        monkeypatch.undo()
+        os.umask(previous)

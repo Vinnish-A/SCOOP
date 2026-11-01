@@ -45,6 +45,21 @@ scVI has no default batch. Set `atlas.scvi.batch_key` (default `null`) or
 `keys.batch_candidates` column, and a sample is biology, not batch. The receipt
 records `batch_key_source`.
 
+Every key in `atlas.scvi.categorical_covariate_keys` must exist in obs; a missing
+one stops the run instead of being skipped. `atlas.scvi.model_kwargs` passes model
+options (`n_layers`, `n_hidden`, `dropout_rate`, `dispersion`, `gene_likelihood`,
+...) to `scvi.model.SCVI`; `n_latent` and `gene_likelihood` default from
+`atlas.scvi.n_latent` and `atlas.scvi.gene_likelihood`. The optional
+`atlas.scvi.hvg_key` names a boolean `var` column: scVI trains on those genes,
+while the output keeps every gene for markers. `scvi-run.json` records the
+resolved `model_kwargs`, `hvg_key` and `n_training_genes`. A sparse input with
+int64 `indptr` beside int32 indices is cast to int32 after reading (lossless while
+nnz < 2^31); the mixed layout makes each minibatch upcast every index.
+
+The model and training history are saved as soon as training ends, before the
+graph steps. A later failure therefore keeps `atlas/models/scvi`. A rerun refuses
+to overwrite it, so move it aside or load it with scvi-tools.
+
 Use technical batch/covariates; do not automatically correct disease, treatment,
 response or target identity. If study and disease are confounded, retain that
 limitation. Record versions, model, batch size, accelerator/devices, train/validation
@@ -53,8 +68,9 @@ loss and actual training options. Model existence is not convergence.
 The runtime builds the scVI graph and runs the shared parallel Leiden sweep.
 `atlas.graph.leiden_resolutions`, `leiden_seeds` and `leiden_search` control its
 grid/seeds/resources. By default the configured single resolution is checked at
-three seeds. Keep per-job checkpoints and sweep/stability tables; a single seed
-cannot establish stability. Check latent neighbours, marker preservation, sample
+three seeds. `scvi-run.json` records the resolution and seed the sweep chose for
+`obs[cluster_key]`, not the configured default. Keep per-job checkpoints and
+sweep/stability tables; a single seed cannot establish stability. Check latent neighbours, marker preservation, sample
 coverage and QC axes; UMAP mixing alone does not validate integration.
 
 ## Identity review and report
@@ -64,6 +80,12 @@ Use DEG, positive/exclusion markers, tissue-matched literature, sample/donor/stu
 replication, nearest graph neighbours and programme evidence. Do not use automated
 reference labels to assign identities. General stress/IFN/cycling differences
 usually belong to state, not a new identity. Tumor status needs its own evidence.
+
+`atlas annotate` tests markers on `atlas.annotation.marker_layer` (default
+`log1p_norm`); when that layer is absent it builds log1p(CP10k) from the scVI counts
+layer and keeps it in the output. The marker table is registered with
+`label_key = <cluster key>`, and the evidence bundle reads each cluster's markers
+from it. No `uns["top_markers_<id>"]` keys are written.
 
 Keep `cell_type_lvl1/2/3`, `cell_state`, `scvi_curated_cell_type`,
 `annotation_confidence`, `annotation_status`, source and version distinct.

@@ -268,3 +268,117 @@ def test_standard_evidence_then_review_prefills_unit_deg(tmp_path, monkeypatch):
     assert [t["evidence_refs"]["deg"] for t in template] == [["cluster_markers"], ["cluster_markers"]]
     # Markers come from the cited table; the three up genes per group tie on score.
     assert [set(t["positive_markers"][:3]) for t in template] == [{"g0", "g1", "g2"}, {"g3", "g4", "g5"}]
+
+
+def test_commit_finds_the_cited_bundle_by_content(tmp_path, monkeypatch):
+    run, call = _run(tmp_path, monkeypatch, _adata(tmp_path))
+    out = run / "annotation" / "decisions"
+    call(annotation_review)
+    template = json.loads((out / "annotation_decision_template.json").read_text())["decisions"]
+    decision = {**template[0], **_decision().to_dict(), "bundle_sha256": template[0]["bundle_sha256"]}
+    decisions = tmp_path / "project" / "decisions.json"  # kept outside the review folder, as projects do
+    decisions.parent.mkdir()
+    decisions.write_text(json.dumps([decision]))
+    evidence = read_h5ad(run / "artifacts" / "adata_annotation_evidence.h5ad")
+    (tmp_path / "late.json").write_text("{}")
+    register_file(evidence, key="late_report", path=tmp_path / "late.json", category="reports", schema="note.v1")
+    evidence.write_h5ad(run / "artifacts" / "adata_annotation_evidence.h5ad")
+    call(annotation_review)  # a changed bundle; the first one is archived byte-for-byte
+    receipt = call(annotation_commit, "--decisions", str(decisions))
+    checks = {c["name"]: c["status"] for c in receipt["validation"]["checks"]}
+    assert checks["bundle_partition_binding"] == "passed"
+    assert any("/history/annotation_evidence_bundle/" in path for path in receipt["inputs"])
+
+    grown = read_h5ad(run / "artifacts" / "adata_annotation_evidence.h5ad")
+    grown.obs["cluster_identity"] = ["0"] * 5 + ["1"]
+    grown.write_h5ad(run / "artifacts" / "adata_annotation_evidence.h5ad")
+    with pytest.raises(ValueError, match="different partition"):
+        call(annotation_commit, "--decisions", str(decisions))
+    with pytest.raises(FileNotFoundError):
+        call(annotation_commit, "--decisions", str(decisions), "--evidence-bundle", str(tmp_path / "typo.json"))
+    for path in out.rglob("annotation_evidence_bundle*.json"):
+        path.unlink()
+    for path in (out / "history" / "annotation_evidence_bundle").glob("*.json"):
+        path.unlink()
+    with pytest.raises(ValueError, match="different evidence bundle"):
+        call(annotation_commit, "--decisions", str(decisions))
+    decisions.write_text(json.dumps([{**decision, "bundle_sha256": None}]))
+    receipt = call(annotation_commit, "--decisions", str(decisions))
+    assert {c["name"]: c["status"] for c in receipt["validation"]["checks"]}["bundle_partition_binding"] == "not_assessed"
+    assert receipt["validation"]["status"] == "limited"
+
+
+def test_group_citations_bind_to_a_declared_partition(tmp_path):
+    adata = _adata(tmp_path)
+    pd.DataFrame({"group": ["0", "1"], "names": ["CD3E", "LYZ"], "scores": [2.0, 1.0]}).to_csv(
+        tmp_path / "unkeyed.tsv", sep="\t", index=False)
+    register_file(adata, key="unkeyed_markers", path=tmp_path / "unkeyed.tsv", schema="cluster_markers.v1")
+    bundle = _bundle(adata)
+    sibling = validate_annotation_decision(_decision(cluster_id="1", evidence_refs={"deg": ["cluster_markers::0"]}), bundle)
+    assert not sibling.accepted  # a sibling unit of the same partition is other cells
+    assert validate_annotation_decision(_decision(evidence_refs={"deg": ["cluster_markers::0"]}), bundle).accepted
+    unkeyed = validate_annotation_decision(_decision(evidence_refs={"deg": ["unkeyed_markers::0"]}), bundle)
+    assert not unkeyed.accepted and any("declares no label_key" in r for r in unkeyed.reasons)
+
+
+def test_tsv_groups_stay_labels(tmp_path):
+    adata = AnnData(np.ones((2, 1)), obs=pd.DataFrame({"cluster_identity": ["01", "02"]}, index=["a", "b"]))
+    pd.DataFrame({"group": ["01", "02"], "names": ["G", "H"], "scores": ["3", "1"]}).to_csv(
+        tmp_path / "deg.tsv", sep="\t", index=False)
+    register_file(adata, key="cluster_markers", path=tmp_path / "deg.tsv", schema="cluster_markers.v1",
+                  extra={"label_key": "cluster_identity"})
+    adata.uns["top_markers_01"] = ["FROM_ANOTHER_PARTITION"]
+    clusters = _bundle(adata).cluster_by_id()
+    assert clusters["01"].deg_refs == ("cluster_markers",) and clusters["01"].top_markers == ("G",)
+
+
+def test_malignancy_gate_closes_status_bypasses(tmp_path):
+    bundle = _bundle(_adata(tmp_path), min_cells_per_sample=1)
+    malignant = dict(parent_label="Malignant", canonical_label="GBM_Malignant", final_label="GBM_Malignant_AC")
+    assert not validate_annotation_decision(_decision(**malignant, malignancy_status="not_applicable"), bundle).accepted
+    high = validate_annotation_decision(_decision(malignancy_status="ambiguous", confidence="high"), bundle,
+                                        min_cells_high_confidence=1)
+    assert not high.accepted and any("ambiguous" in r for r in high.reasons)
+    assert validate_annotation_decision(_decision(malignancy_status="ambiguous"), bundle).accepted
+
+
+def test_recommit_clears_claims_of_a_superseded_decision(tmp_path):
+    adata = _adata(tmp_path)
+    bundle = _bundle(adata)
+    malignant = _decision(final_label="GBM_Malignant", malignancy_status="malignant", malignancy_basis=["lineage_markers"])
+    commit_annotation_decisions(adata, [malignant], bundle, run_root=tmp_path, output_dir=tmp_path / "t")
+    assert set(adata.obs.malignancy_status[:3]) == {"malignant"}
+    commit_annotation_decisions(adata, [_decision(review_required=True)], bundle, run_root=tmp_path, output_dir=tmp_path / "t")
+    assert set(adata.obs.annotation_status[:3]) == {"review_required"}
+    assert set(adata.obs.malignancy_status[:3]) == {"not_assessed"} and set(adata.obs.malignancy_basis[:3]) == {""}
+
+
+def test_technical_exclusion_needs_artefact_evidence_not_sample_support(tmp_path):
+    adata = _adata(tmp_path)
+    (tmp_path / "template.tsv").write_text("x\n")
+    register_file(adata, key="annotation_evidence_template", path=tmp_path / "template.tsv", schema="annotation_evidence.v1")
+    bundle = _bundle(adata, min_cells_per_sample=1)
+    fields = dict(cluster_id="1", disposition="technical_exclusion", technical_kind="doublet", confidence="high")
+    blank = validate_annotation_decision(_decision(**fields, evidence_refs={"qc": ["annotation_evidence_template"]}), bundle,
+                                         min_cells_high_confidence=1, min_samples_high_confidence=5)
+    assert not blank.accepted
+    scored = validate_annotation_decision(_decision(**fields, evidence_refs={"qc": ["doublet_scores"]}), bundle,
+                                          min_cells_high_confidence=1, min_samples_high_confidence=5)
+    assert scored.accepted, scored.reasons
+
+
+def test_decisions_from_tables_parse_nulls_and_joined_lists():
+    decision = _decision(identity_scope=None, disposition=None, malignancy_status="malignant",
+                         malignancy_basis="lineage_markers;cnv", evidence_refs={"deg": "cluster_markers"})
+    assert (decision.identity_scope, decision.disposition) == ("broad", "identity")
+    assert decision.malignancy_basis == ("lineage_markers", "cnv")
+    assert decision.evidence_refs["deg"] == ("cluster_markers",)
+
+
+def test_marker_deg_refuses_duplicate_gene_names():
+    from scsp_agent_sop.annotation import run_markers_scanpy
+
+    adata = AnnData(np.ones((4, 2)), obs=pd.DataFrame({"g": ["a", "a", "b", "b"]}, index=list("wxyz")),
+                    var=pd.DataFrame(index=["SAME", "SAME"]))
+    with pytest.raises(ValueError, match="unique var_names"):
+        run_markers_scanpy(adata, groupby="g", layer="X")
